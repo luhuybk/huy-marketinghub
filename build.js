@@ -46,7 +46,15 @@ put('index.html', read('index.html')
   .replace(/src="(js\/[a-z]+\.js)"/g, (_, p) => `src="${p}?v=${VERSION}"`));
 
 copy('css/style.css');
-JS.forEach(copy);
+
+/* Mỗi tệp JS mang theo mã phiên bản của bản dựng này.
+   Vì sao cần: 6 tệp JS là 6 lượt tải riêng, mỗi lượt được trình duyệt (hoặc
+   máy chủ) nhớ đệm ở một thời điểm khác nhau. Lẫn một tệp cũ với năm tệp mới
+   là app hỏng theo kiểu khó hiểu nhất — thanh bên trống, bấm nút không thấy
+   gì, mà bảng điều khiển thì báo một lỗi chẳng liên quan.
+   Có mã này thì boot() phát hiện ngay và tự tải lại (xem js/app.js). */
+JS.forEach(f => put(f, read(f) +
+  `\n;(window.__KH_BUILD = window.__KH_BUILD || []).push([${JSON.stringify(f)}, ${JSON.stringify(VERSION)}]);\n`));
 copy('manifest.webmanifest');
 copy('icon.svg');
 
@@ -58,6 +66,19 @@ copy('icon.svg');
 
 /* ---------- cấu hình máy chủ ---------- */
 put('.htaccess', `# KOL Hub — cấu hình cho Apache/LiteSpeed (Hostinger)
+
+# --- mã nguồn phụ trợ: không bao giờ được trả về ---
+# Mấy tệp này lẽ ra không nằm trong dist/. Nhưng nếu ai đó upload nhầm cả
+# thư mục nguồn thì chúng sẽ phơi ra internet — chặn sẵn ở đây.
+<FilesMatch "^(build\.js|serve\.js|README\.md|package(-lock)?\.json|\.gitignore)$">
+  Require all denied
+  Order allow,deny
+  Deny from all
+</FilesMatch>
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteRule ^(tools|\.claude|\.git)/ - [F,L]
+</IfModule>
 
 # --- luôn dùng https ---
 <IfModule mod_rewrite.c>

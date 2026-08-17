@@ -82,8 +82,47 @@ function render(){
     console.error(e);
   }
   view.innerHTML = html;
-  renderSide();
-  renderBar();
+  /* Thanh bên và thanh trên nằm NGOÀI try ở trên. Một lỗi ở đây từng làm
+     thanh bên trống trơn, nút bánh răng không bị ẩn, và mọi lần vẽ sau đó
+     đều chết giữa đường — nhìn y như app treo. Bắt riêng từng cái, và nói
+     ra, để lần sau còn biết hỏng ở đâu. */
+  try { renderSide(); } catch(e){ shellError('thanh bên', e); }
+  try { renderBar(); }  catch(e){ shellError('thanh trên', e); }
+}
+
+/* Upload nhầm thư mục nguồn: app chạy được nhưng lần cập nhật sau sẽ hỏng,
+   nên phải nói bây giờ chứ không phải để tuần sau mới phát hiện. */
+function srcUploadWarning(){
+  if (document.getElementById('srcwarn')) return;
+  const el = document.createElement('div');
+  el.id = 'srcwarn';
+  el.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:200;padding:12px 14px;' +
+    'border-radius:12px;background:#ffb84d;color:#241a00;font:13px/1.55 -apple-system,sans-serif;' +
+    'box-shadow:0 10px 30px rgba(0,0,0,.3);display:flex;gap:10px;align-items:flex-start';
+  el.innerHTML = `<div style="flex:1">
+      <b>Máy chủ đang chạy thư mục nguồn, không phải bản dựng.</b><br>
+      css/js thiếu mã <code>?v=</code> nên lần cập nhật sau trình duyệt sẽ giữ bản cũ và app hỏng.
+      Chạy <code>node build.js</code> rồi upload <b>toàn bộ nội dung dist/</b>, và xoá
+      <code>build.js</code>, <code>serve.js</code>, <code>README.md</code> khỏi máy chủ.
+    </div>
+    <button style="background:rgba(0,0,0,.15);border:0;border-radius:8px;padding:5px 9px;
+                   font-weight:700;cursor:pointer;color:inherit">Ẩn</button>`;
+  el.querySelector('button').addEventListener('click', () => el.remove());
+  document.body.appendChild(el);
+}
+
+/* Hỏng khung thì báo một lần, đừng đổ hàng trăm dòng ra bảng điều khiển */
+let shellErrShown = false;
+function shellError(cho, e){
+  console.error('Lỗi khi vẽ ' + cho, e);
+  if (shellErrShown) return;
+  shellErrShown = true;
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:200;padding:10px 14px;' +
+    'background:#ff6b6b;color:#fff;font:13px/1.5 -apple-system,sans-serif';
+  el.textContent = 'Lỗi khi vẽ ' + cho + ': ' + (e && e.message) +
+    ' — thử tải lại trang. Nếu vẫn vậy, upload lại toàn bộ dist/.';
+  document.body.appendChild(el);
 }
 
 function renderSide(){
@@ -1776,7 +1815,75 @@ function applyTheme(){
   if (tc) tc.content = t === 'light' ? '#f4f6fa' : '#0e1014';
 }
 
+/* ============================================================
+   KIỂM TRA BỘ TỆP CÓ CÙNG MỘT BẢN DỰNG KHÔNG
+
+   6 tệp JS là 6 lượt tải riêng. Nếu trình duyệt còn giữ một tệp cũ trong
+   nhớ đệm mà năm tệp kia đã mới, app sẽ hỏng theo kiểu tệ nhất: một hàm
+   chưa tồn tại làm renderSide() ném lỗi, thanh bên trống trơn, bấm nút
+   không thấy gì xảy ra — nhìn như app "treo" chứ không như một lỗi.
+
+   build.js dán mã phiên bản vào cuối mỗi tệp. Ở đây so lại. Lệch thì tự
+   tải lại một lần kèm tham số phá nhớ đệm; vẫn lệch thì nói thẳng ra thay
+   vì để người dùng ngồi đoán.
+   ============================================================ */
+function checkBuild(){
+  const list = window.__KH_BUILD;
+  /* Chạy từ thư mục nguồn (node serve.js --src) thì không có dấu này —
+     đúng như thiết kế, chỉ bản dựng mới có. Nhưng nếu đang ở trên một tên
+     miền thật thì nghĩa là thư mục NGUỒN bị upload thay cho dist/: app vẫn
+     chạy, nhưng css/js không có ?v= nên lần cập nhật sau trình duyệt sẽ giữ
+     bản cũ — đúng cái bẫy đã làm hỏng một lần rồi. Nói ra ngay. */
+  if (!Array.isArray(list) || !list.length){
+    const laMayThat = /^https?:$/.test(location.protocol)
+      && !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+    const thieuV = ![...document.querySelectorAll('script[src^="js/"]')]
+      .some(s => s.getAttribute('src').includes('?v='));
+    if (laMayThat && thieuV) setTimeout(() => srcUploadWarning(), 1200);
+    return true;
+  }
+
+  const vers = Array.from(new Set(list.map(x => x[1])));
+  const dsPhaiCo = 6;
+  if (vers.length === 1 && list.length >= dsPhaiCo) return true;
+
+  const KEY = 'kolhub.reloaded';
+  let daThu = false;
+  try { daThu = sessionStorage.getItem(KEY) === '1'; } catch(e){}
+
+  if (!daThu){
+    try { sessionStorage.setItem(KEY, '1'); } catch(e){}
+    const u = location.href.replace(/[?&]_kh=\d+/, '');
+    location.replace(u + (u.includes('?') ? '&' : '?') + '_kh=' + Date.now());
+    return false;
+  }
+
+  /* Tải lại rồi vẫn lệch → nhớ đệm của máy chủ, không phải của trình duyệt.
+     Người dùng không tự sửa được, nên phải chỉ đúng việc cần làm. */
+  document.body.innerHTML = `
+    <div style="max-width:460px;margin:12vh auto;padding:24px;font:15px/1.65 -apple-system,
+                BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#e8ebf1">
+      <div style="font-size:19px;font-weight:750;margin-bottom:10px">Bản cập nhật tải chưa đủ</div>
+      <p style="color:#9aa3b4">App gồm 6 tệp mã, và máy chủ đang trả về lẫn cũ với mới nên
+        app không chạy được. Đây là chuyện của bản upload, không phải dữ liệu — dữ liệu của bạn
+        vẫn nguyên trên máy chủ.</p>
+      <p style="color:#9aa3b4">Cách sửa: upload lại <b style="color:#e8ebf1">toàn bộ nội dung
+        thư mục dist/</b> (kể cả <code>index.html</code> và <code>.htaccess</code>), rồi mở lại trang.</p>
+      <pre style="background:#1d222b;padding:11px 13px;border-radius:10px;font-size:12px;
+                  color:#9aa3b4;overflow-x:auto">${list.map(x => x[0] + '  →  ' + x[1]).join('\n')}</pre>
+    </div>`;
+  return false;
+}
+
 (async function boot(){
+  /* Chờ mọi tệp JS chạy xong rồi mới kiểm phiên bản. Dấu phiên bản nằm ở
+     CUỐI mỗi tệp, nên đúng lúc app.js bắt đầu chạy thì dấu của chính nó chưa
+     được đẩy vào — danh sách mới có 5/6. Bỏ bước chờ này thì bộ kiểm tra báo
+     lệch trong khi cả sáu tệp đều đúng phiên bản, tức là nó tự tạo ra đúng
+     cái lỗi mà nó sinh ra để bắt. */
+  if (document.readyState === 'loading')
+    await new Promise(r => document.addEventListener('DOMContentLoaded', r, {once:true}));
+  if (!checkBuild()) return;
   load();
   applyTheme();
   route = parseHash();

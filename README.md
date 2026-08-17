@@ -124,11 +124,43 @@ toàn ở đó, nhưng nó phải được tạo thẳng trên máy chủ chứ 
 
 ### Cập nhật về sau
 
-Sửa mã → `node build.js` → upload đè `dist/`. **Đừng đụng vào `api/config.php`
-và `api/data/`** — đó là mật khẩu và dữ liệu thật của bạn.
+Sửa mã → `node build.js` → upload đè **toàn bộ nội dung `dist/`**, kể cả
+`index.html` và `.htaccess`. **Đừng đụng vào `api/config.php` và `api/data/`**
+— đó là mật khẩu và dữ liệu thật của bạn.
 
-Mỗi lần dựng, `css`/`js` được gắn mã băm `?v=` mới nên trình duyệt tự lấy bản
-mới. Không cần thêm cơ chế xoá cache nào khác.
+**Upload đủ, hoặc không upload gì.** Đây là chỗ đã hỏng một lần thật, nên nói
+rõ tại sao: app gồm **6 tệp JS tải riêng**. `dist/index.html` gắn `?v=<mã băm>`
+vào từng tệp, nhờ đó đổi mã là đổi địa chỉ và trình duyệt buộc phải tải lại.
+Upload thiếu `index.html` (hoặc upload thư mục **nguồn** thay cho `dist/`) thì
+địa chỉ không còn `?v=`, mà máy chủ vẫn đặt `Cache-Control: max-age` dài —
+trình duyệt giữ tệp cũ nhiều ngày. Mỗi tệp được nhớ đệm ở một thời điểm khác
+nhau, nên bạn nhận về một **bộ JS lẫn cũ mới**: `views.js` mới gọi một hàm mà
+`app.js` cũ chưa có → `renderSide()` ném lỗi → thanh bên trống trơn, bấm nút
+không thấy gì. Nhìn y như app treo, mà bảng điều khiển thì báo một lỗi chẳng
+liên quan gì tới nguyên nhân.
+
+Ba lớp chặn cho chuyện đó, thêm sau lần hỏng:
+
+1. **Dấu phiên bản trong từng tệp.** `build.js` dán mã bản dựng vào cuối mỗi
+   tệp JS; `checkBuild()` trong `js/app.js` so lại lúc khởi động. Lệch thì tự
+   tải lại một lần kèm tham số phá nhớ đệm; vẫn lệch thì hiện màn hình nói rõ
+   tệp nào đang ở phiên bản nào.
+
+   *Bẫy khi làm việc này:* dấu nằm ở **cuối** tệp, nên đúng lúc `app.js` chạy
+   thì dấu của chính nó chưa được đẩy vào — danh sách mới có 5/6. Vì thế
+   `boot()` phải chờ `DOMContentLoaded` rồi mới kiểm.
+
+2. **Cảnh báo khi chạy thư mục nguồn.** Đang ở tên miền thật mà `index.html`
+   không có `?v=` thì app hiện một dải vàng nói thẳng. App vẫn chạy — nhưng
+   lần cập nhật sau mới là lúc hỏng, nên phải nói ngay bây giờ.
+
+3. **Lỗi khung không giết cả trang.** `renderSide()` và `renderBar()` mỗi cái
+   một `try` riêng, kèm một dải đỏ ghi lỗi. Trước đây một lỗi ở đó làm mọi lần
+   vẽ sau đều chết giữa đường mà không ai biết vì sao.
+
+`dist/.htaccess` cũng chặn sẵn `build.js`, `serve.js`, `README.md`, `tools/` —
+để nếu có ai upload nhầm cả thư mục nguồn thì mã phụ trợ vẫn không phơi ra
+internet.
 
 ### Dữ liệu nằm ở đâu
 
