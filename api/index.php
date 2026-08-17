@@ -372,6 +372,10 @@ switch ($action) {
     if (count($tasks) > 500) $tasks = array_slice($tasks, 0, 500);
     kvSet('reminders', array_values($tasks));
     kvSet('reminders_at', gmdate('c'));
+    /* Danh bạ sản phẩm để bot khớp tên bạn nhắn. Cùng lý lẽ với danh sách
+       nhắc: app soạn sẵn, PHP chỉ so chuỗi. */
+    if (is_array($in['products'] ?? null))
+      kvSet('products', array_slice(array_values($in['products']), 0, 300));
     out(['ok' => true, 'tasks' => count($tasks)]);
   }
 

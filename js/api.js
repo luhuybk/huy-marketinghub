@@ -157,7 +157,7 @@ const Server = (() => {
   const tgSave  = cfg   => call('tg_save', cfg);
   const tgTest  = feed  => call('tg_test', {feed: feed || ''});
   const tgHook  = off   => call('tg_hook', {off: !!off});
-  const remind  = list  => call('remind_set', {tasks:list});
+  const remind  = (list, dir) => call('remind_set', {tasks:list, products:dir || []});
 
   return {probe, login, logout, logoutAll, pull, push, pushBeacon, stats,
           tgGet, tgSave, tgTest, tgHook, remind,

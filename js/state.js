@@ -378,7 +378,24 @@ function blank(){
 let db = blank();
 
 /* mọi bản ghi đều có id + updatedAt + deleted để đồng bộ theo từng dòng */
-function stamp(o){ o.updatedAt = now(); if(!o.id) o.id = uid(); if(o.deleted===undefined) o.deleted = false; return o; }
+/* Ai vừa sửa bản ghi này. Có nhân viên cùng dùng thì lúc số liệu trông lạ,
+   câu hỏi đầu tiên luôn là "ai nhập cái này" — không ghi lại thì không trả
+   lời được. 'telegram' là do bấm nút dưới tin nhắn (xem api/tg.php). */
+const BY = {owner:'bạn', staff:'nhân viên', telegram:'nút Telegram'};
+const whoAmI = () => (window.Server && Server.role() === 'staff') ? 'staff' : 'owner';
+
+function stamp(o){
+  o.updatedAt = now();
+  o.by = whoAmI();
+  if(!o.id) o.id = uid();
+  if(o.deleted===undefined) o.deleted = false;
+  return o;
+}
+/* Đổi mốc thời gian mà KHÔNG đổi người sửa — dùng khi bạn chỉ đánh dấu
+   "đã xem", chứ không phải sửa nội dung. Ghi đè o.by ở đây thì mất luôn
+   thông tin ai đã nhập, tức là mất chính thứ mục Cần duyệt dựa vào. */
+function touch(o){ o.updatedAt = now(); return o; }
+
 function alive(arr){ return (arr||[]).filter(x => !x.deleted); }
 
 function load(){
@@ -719,6 +736,82 @@ function missingVars(text){
 }
 
 /* ============================================================
+   CẦN BẠN DUYỆT — nhân viên đã nhập, chủ chưa xem qua
+
+   Không phải một quy trình "chờ phê duyệt": bản ghi vẫn có hiệu lực ngay.
+   Đây chỉ là danh sách "từ lần bạn xem gần nhất tới giờ, nhân viên đã đổi
+   những gì" — để bạn soi một lượt rồi chốt, không phải đi khắp app mò.
+
+   Vì sao lọc kiểu này chạy được mà không cần thêm quy trình cho nhân viên:
+   mọi bản ghi đều đã mang sẵn `by` (mục 1). Nhân viên nhập là by='staff';
+   bạn bấm "đã xem" thì ghi `seen`, còn `by` giữ nguyên để biết ai đã nhập.
+   ============================================================ */
+const REVIEW_KINDS = {
+  adperiods: 'Kỳ số liệu quảng cáo',
+  clips:     'Clip',
+  bookings:  'Booking',
+  kols:      'Hồ sơ KOC',
+  actions:   'Hành động quảng cáo',
+  products:  'Sản phẩm',
+  brands:    'Thương hiệu',
+  statuses:  'Tình trạng KOC',
+  templates: 'Mẫu tin nhắn'
+};
+
+/* Mô tả một dòng cần duyệt sao cho đọc là hiểu, không phải bấm vào mới biết */
+function reviewLabel(kind, rec){
+  switch (kind){
+    case 'adperiods': {
+      const p = productOf(rec.productId);
+      const m = adMetrics(rec);
+      return {title: (p ? p.name : 'sản phẩm đã xoá') + ' · ' + periodLabel(rec),
+              sub: periodRange(rec) + ' · chi ' + moneyShort(m.cost) + ' · GMV ' + moneyShort(m.gmv)
+                   + ' · ROAS ' + xText(m.roas),
+              go: rec.productId ? ['product', rec.productId] : null};
+    }
+    case 'clips': {
+      const b = rec.bookingId ? bookingOf(rec.bookingId) : null;
+      return {title: rec.title || 'clip chưa đặt tên',
+              sub: (b ? kolName(b.kolId) + ' · ' : '') + PLATFORMS[rec.platform].label
+                   + (rec.postedAt ? ' · lên ' + fmtDate(rec.postedAt) : ''),
+              go: b ? ['kol', b.kolId] : null};
+    }
+    case 'bookings':
+      return {title: kolName(rec.kolId) + ' · ' + (bookingProduct(rec) || 'chưa ghi sản phẩm'),
+              sub: STAGE[rec.stage].label + ' · ' + moneyShort(bookingCost(rec)),
+              go: ['kol', rec.kolId]};
+    case 'kols':
+      return {title: rec.name, sub: 'hồ sơ KOC', go: ['kol', rec.id]};
+    case 'actions': {
+      const p = productOf(rec.productId);
+      return {title: (p ? p.name + ': ' : '') + (rec.title || ACTION_TYPES[rec.type].label),
+              sub: ACTION_TYPES[rec.type].label + ' · làm ngày ' + fmtDate(rec.date),
+              go: rec.productId ? ['product', rec.productId] : null};
+    }
+    case 'products':
+      return {title: rec.name, sub: 'sản phẩm', go: ['product', rec.id]};
+    default:
+      return {title: rec.name || '(không tên)', sub: REVIEW_KINDS[kind] || kind, go: null};
+  }
+}
+
+/* Nhân viên đã đổi mà bạn chưa bấm "đã xem", mới nhất lên trước */
+function pendingReview(){
+  const out = [];
+  Object.keys(REVIEW_KINDS).forEach(kind => {
+    (db[kind] || []).forEach(rec => {
+      if (rec.deleted || rec.by !== 'staff' || rec.seen) return;
+      let info;
+      try { info = reviewLabel(kind, rec); } catch(e){ info = {title:'(không đọc được)', sub:kind, go:null}; }
+      out.push(Object.assign({kind, rec, at: rec.updatedAt || ''}, info));
+    });
+  });
+  return out.sort((a,b) => (b.at || '').localeCompare(a.at || ''));
+}
+/* Nhân viên không cần thấy mục này — đó là việc của chủ */
+const reviewCount = () => (window.Server && !Server.isOwner()) ? 0 : pendingReview().length;
+
+/* ============================================================
    VIỆC CẦN LÀM CÓ NGÀY HẸN — dùng cho nhắc qua Telegram
 
    Khác với alerts(): ở đây mỗi việc đều mang một NGÀY tuyệt đối. Máy chủ
@@ -789,6 +882,65 @@ function reminderTasks(){
   });
 
   return out.sort((x,y) => x.due.localeCompare(y.due));
+}
+
+/* ---- áp công thức của một việc vào dữ liệu, ngay tại máy ----
+   Cùng đọc doneSet / dueField mà api/tg.php đọc, nên nút trong app và nút
+   dưới tin nhắn Telegram không thể lệch nhau: sửa luật ở reminderTasks()
+   là cả hai đường đổi theo. */
+function taskRecord(t){
+  const ref = t && t.ref;
+  if (!ref || !db[ref.kind]) return null;
+  return db[ref.kind].find(x => x.id === ref.id && !x.deleted) || null;
+}
+function applyTaskSet(t, set){
+  const rec = taskRecord(t);
+  if (!rec) return false;
+  Object.keys(set).forEach(path => {
+    const v = set[path] === '$today' ? today() : set[path];
+    const ks = path.split('.');
+    let cur = rec;
+    ks.slice(0,-1).forEach(k => { if (typeof cur[k] !== 'object' || cur[k] == null) cur[k] = {}; cur = cur[k]; });
+    cur[ks[ks.length-1]] = v;
+  });
+  stamp(rec);
+  return true;
+}
+/* Bấm "xong" */
+const taskDone = t => t.doneSet ? applyTaskSet(t, t.doneSet) : false;
+/* Dời hạn thêm n ngày, tính từ HÔM NAY chứ không phải từ hạn cũ — việc đã
+   trễ 5 ngày mà cộng vào hạn cũ thì vẫn còn trễ, bấm xong chẳng thấy gì đổi. */
+const taskPush = (t, n) => t.dueField ? applyTaskSet(t, {[t.dueField]: addDays(today(), n)}) : false;
+
+/* Việc cần làm hôm nay, gom theo luồng. days = nhìn trước bao nhiêu ngày. */
+function todayTasks(days){
+  const limit = addDays(today(), Math.max(0, days || 0));
+  const out = {};
+  TG_FEED_IDS.forEach(f => { out[f] = []; });
+  reminderTasks().forEach(t => {
+    if (t.due > limit) return;
+    (out[t.feed] || out.booking).push(t);
+  });
+  return out;
+}
+const todayCount = () => reminderTasks().filter(t => t.due <= today()).length;
+
+/* ---- danh bạ sản phẩm cho bot Telegram ----
+   Bot cần khớp chữ bạn nhắn ("sunya") với một sản phẩm. Máy chủ không đọc
+   được bảng items nên app đẩy sẵn danh bạ này lên, giống cách đẩy danh sách
+   nhắc: PHP chỉ so chuỗi, không phải hiểu dữ liệu là gì. */
+function productDirectory(){
+  return products().filter(p => !p.archived).map(p => ({
+    id: p.id,
+    name: p.name,
+    /* Các cách gõ tắt có thể nhận ra: bỏ dấu, mã SKU, từng từ dài trong tên.
+       Gõ đủ tên thì luôn khớp; gõ tắt thì khớp khi không lẫn với sản phẩm khác. */
+    keys: Array.from(new Set([
+      norm(p.name),
+      p.sku ? norm(p.sku) : '',
+      ...norm(p.name).split(/\s+/).filter(w => w.length >= 4)
+    ].filter(Boolean)))
+  }));
 }
 
 /* ============================================================

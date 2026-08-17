@@ -142,6 +142,40 @@ nhập là kéo đủ về.
 
 ---
 
+## Hai trang để làm việc, không phải để ngắm
+
+**Tổng quan** trả lời *"công việc đang thế nào"*. Hai trang này trả lời hai câu
+khác, nên tách riêng:
+
+### ✓ Hôm nay
+
+Chỉ những việc cần tay bạn, không có con số nào. Đúng danh sách mà Telegram
+gửi (`reminderTasks()`), nên hai bên không thể lệch nhau. Nút *hôm nay / 2
+ngày / 1 tuần* để nhìn xa hơn khi muốn dọn trước.
+
+Nút dưới mỗi việc giống hệt bàn phím dưới tin nhắn Telegram — cố ý, để bạn
+không phải học hai bộ thao tác cho cùng một việc. Cả hai đọc chung `doneSet`
+và `dueField` của việc đó (xem `applyTaskSet()` trong `js/state.js`).
+
+**Dời hạn tính từ hôm nay, không phải từ hạn cũ.** Việc trễ 5 ngày mà cộng
+vào hạn cũ thì vẫn còn trễ — bấm xong chẳng thấy gì đổi.
+
+### ⚑ Cần bạn duyệt (chỉ chủ thấy)
+
+Danh sách *"từ lần bạn xem gần nhất tới giờ, nhân viên đã đổi những gì"*.
+
+Đây **không** phải hàng chờ phê duyệt: bản ghi có hiệu lực ngay từ lúc nhân
+viên lưu. Chỉ là chỗ để soi một lượt, thay vì đi khắp app mò. Mỗi dòng đọc là
+hiểu — kỳ số liệu hiện luôn chi phí, GMV và ROAS, nên nhập lệch một số 0 là
+thấy ngay.
+
+Chạy được nhờ mọi bản ghi đều mang sẵn `by` (`owner` · `staff` · `telegram`).
+Bấm *Đã xem* thì ghi `seen` và **giữ nguyên `by`** — ghi đè `by` là mất luôn
+thông tin ai đã nhập, tức là mất chính thứ mục này dựa vào. Vì thế có `touch()`
+riêng bên cạnh `stamp()`.
+
+---
+
 ## Tài nguyên — nơi khai báo trước
 
 Tab **Tài nguyên** có bốn mục con:
@@ -372,6 +406,48 @@ mình đã bấm chứ không phải đoán.
 
 Với quảng cáo, "xong" **không** có nghĩa là đã đo — đo thì phải nhập số, việc
 đó làm trong app. Nút đó chỉ để khép việc lại khi bạn quyết định thôi không đo.
+
+### Nhắn số liệu cho bot
+
+Chiều ngược lại của nút bấm: bạn nhắn, bot ghi vào app.
+
+```
+sunya 2tr9 630k 9100 341 29tr4
+```
+
+Tên sản phẩm, rồi **đúng 5 con số** theo thứ tự *chi phí · lượt xem · click ·
+đơn · GMV*. Viết tắt `2tr9`, `630k`, `1tr2` đều hiểu. Bot đọc lại đầy đủ kèm
+ROAS và chi phí mỗi đơn để bạn soi lỗi gõ ngay tại chỗ, cùng một nút **↩︎ Ghi
+sai, xoá đi**.
+
+Kỳ đo mặc định là **7 ngày tính đến hôm nay** — bot nói rõ khoảng ngày trong
+tin trả lời. Nhắn `help` để xem lại cú pháp, `id` để lấy chat id.
+
+Ba chỗ cố tình làm chặt:
+
+- **Chỉ chat đã khai trong Cài đặt mới ghi được dữ liệu.** Bot nằm trên
+  internet, ai tìm ra tên nó cũng nhắn được. Chat lạ chỉ nhận lại chat id.
+- **Khớp nhiều sản phẩm thì không đoán.** Gõ `sunya` mà bạn có cả *Kem chống
+  nắng Sunya* và *Serum Sunya* thì bot liệt kê ra và xin gõ rõ hơn. Đoán sai
+  là ghi số vào sai sản phẩm — sai kiểu đó rất khó phát hiện về sau.
+- **Vẫn chỉ lưu 5 số gốc.** CTR/CVR/ROAS app tự tính, đúng quy ước của cả app.
+
+Bot khớp tên bằng **danh bạ sản phẩm** app đẩy lên (`productDirectory()`) —
+cùng lý lẽ với danh sách nhắc: app soạn sẵn, PHP chỉ so chuỗi. Sản phẩm mới
+tạo thì mở app một lần cho nó đồng bộ lên, bot mới nhận ra tên.
+
+Đây là chỗ **duy nhất** máy chủ phải tự hiểu chữ người gõ, vì lúc bạn nhắn thì
+không có app nào đang mở để soạn hộ. Nên nó bị giới hạn chặt trong việc đọc số
+(`tgNumber`) và so tên (`tgNorm`, `tgFindProduct`).
+
+### Báo trước hạn
+
+Mỗi luồng có ô **Báo trước** (số ngày). Để `0` thì chỉ nhắc khi đã tới hạn —
+tức là khi đã trễ. Đặt `2` cho luồng Clip thì còn kịp nhắn KOC trước khi trễ.
+
+Danh sách "đã nhắc" reset theo ngày, nên đặt `2` nghĩa là việc được nhắc mỗi
+ngày từ hai hôm trước cho tới khi xong. Đó là ý muốn — nhắc một lần rồi im thì
+chẳng khác gì không báo trước.
 
 ### Cài một lần
 

@@ -14,7 +14,8 @@ const ui = {
   pipeBrand:'', pipeQ:'',
   clipQ:'', clipSort:'date', clipKol:'',
   resTab:'brands', resQ:'',
-  cmpFrom:'', cmpTo:''
+  cmpFrom:'', cmpTo:'',
+  todayAhead:0
 };
 
 /* Cấu hình Telegram nằm ở máy chủ, không phải trong db — mã bot không bao
@@ -90,6 +91,108 @@ const deltaChip = (v, goodUp) => {
 /* ============================================================
    TỔNG QUAN
    ============================================================ */
+/* ============================================================
+   HÔM NAY — chỉ những việc cần tay bạn, không có số liệu nào
+
+   Tổng quan trả lời "công việc đang thế nào". Trang này trả lời "giờ tôi
+   phải làm gì" — khác nhau, và người nhập số liệu cả ngày cần cái thứ hai.
+   Cùng danh sách mà Telegram gửi, nên hai bên không thể lệch nhau.
+   ============================================================ */
+function viewToday(){
+  const ahead = +(ui.todayAhead || 0);
+  const groups = todayTasks(ahead);
+  const tong = TG_FEED_IDS.reduce((s,f) => s + groups[f].length, 0);
+
+  let h = `<div class="toolbar">
+    <div class="grow"></div>
+    <span class="dim">Nhìn trước</span>
+    ${[[0,'hôm nay'],[2,'2 ngày'],[7,'1 tuần']].map(([n,l]) =>
+      `<button class="btn sm ${ahead === n ? 'pri' : ''}" data-act="ahead" data-id="${n}">${l}</button>`).join('')}
+  </div>`;
+
+  if (!tong)
+    return h + emptyBox('Không còn việc nào tới hạn',
+      ahead ? 'Cả ' + (ahead === 2 ? 'hai ngày' : 'tuần') + ' tới cũng trống. Rảnh thật.'
+            : 'Thử bấm "2 ngày" hoặc "1 tuần" để xem việc sắp tới.');
+
+  TG_FEED_IDS.forEach(f => {
+    const list = groups[f];
+    if (!list.length) return;
+    const treHan = list.filter(t => t.due < today()).length;
+    h += `<div class="mod">` + moduleHead(TG_FEEDS[f].icon, TG_FEEDS[f].label,
+      list.length + ' việc' + (treHan ? ` · <b class="bad">${treHan} đã trễ</b>` : ''));
+    h += `<div class="pendlist">` + list.map(taskCard).join('') + `</div></div>`;
+  });
+  return h;
+}
+
+/* Một việc trong trang Hôm nay. Nút giống hệt bàn phím dưới tin Telegram —
+   cố ý, để bạn không phải học hai bộ thao tác cho cùng một việc. */
+function taskCard(t){
+  const d = dayDiff(t.due);
+  const key = d < -3 ? 'overdue' : d <= 0 ? 'due' : 'waiting';
+  return `<div class="pending ${key}">
+    <div class="pd-hd"><span class="pd-ic">${t.icon}</span>
+      <div class="grow"><b>${esc(t.title)}</b>
+        ${t.sub ? `<div class="dim">${esc(t.sub)}</div>` : ''}</div>
+      <span class="chip ${key === 'overdue' ? 'bad' : key === 'due' ? 'warn' : ''}">${
+        d > 0 ? 'còn ' + d + ' ngày' : d === 0 ? 'hôm nay' : 'trễ ' + (-d) + ' ngày'}</span>
+    </div>
+    <div class="btns" style="margin-top:10px">
+      ${t.doneSet ? `<button class="btn pri sm" data-act="taskdone" data-id="${t.id}">${esc(t.doneLabel || '✅ Xong')}</button>` : ''}
+      ${t.dueField ? `<button class="btn sm" data-act="taskpush" data-id="${t.id}" data-n="1">📅 +1 ngày</button>
+                      <button class="btn sm" data-act="taskpush" data-id="${t.id}" data-n="3">📅 +3 ngày</button>` : ''}
+      <div class="grow"></div>
+      ${t.ref ? `<button class="btn sm" data-act="taskopen" data-id="${t.id}">Mở ›</button>` : ''}
+    </div>
+  </div>`;
+}
+
+/* ============================================================
+   CẦN BẠN DUYỆT — nhân viên đã nhập gì từ lần bạn xem gần nhất
+   ============================================================ */
+function viewReview(){
+  const list = pendingReview();
+  if (!list.length)
+    return emptyBox('Không có gì cần bạn xem',
+      'Mọi thứ nhân viên nhập, bạn đã xem qua hết. Danh sách này tự đầy lại khi họ nhập tiếp.');
+
+  let h = `<div class="toolbar">
+    <div class="grow"><b>${list.length} thay đổi</b> <span class="dim">do nhân viên nhập</span></div>
+    <button class="btn sm" data-act="seenall">Đã xem hết</button>
+  </div>
+  <div class="explain">Bản ghi đã có hiệu lực ngay từ lúc nhân viên lưu — đây không phải
+    hàng chờ phê duyệt. Chỉ là chỗ để bạn soi một lượt xem có gì nhập sai, thay vì
+    phải đi khắp app mò. Bấm <b>Đã xem</b> là nó rời danh sách.</div>`;
+
+  /* gom theo loại để mắt không phải nhảy giữa kỳ số liệu và hồ sơ KOC */
+  const byKind = {};
+  list.forEach(x => { (byKind[x.kind] = byKind[x.kind] || []).push(x); });
+
+  Object.keys(REVIEW_KINDS).forEach(kind => {
+    const g = byKind[kind];
+    if (!g) return;
+    h += sectionTitle(REVIEW_KINDS[kind] + ' (' + g.length + ')');
+    h += `<div class="card list">` + g.map(x => `
+      <div class="li">
+        <div class="grow" ${x.go ? `data-act="nav2" data-id="${x.go[0]}:${x.go[1]}" style="cursor:pointer"` : ''}>
+          <div class="li-t">${esc(x.title)}</div>
+          <div class="li-s">${esc(x.sub)}${x.at ? ' · ' + esc(new Date(x.at).toLocaleString('vi-VN')) : ''}</div>
+        </div>
+        <button class="btn sm" data-act="seen" data-id="${x.kind}:${x.rec.id}">Đã xem</button>
+      </div>`).join('') + `</div>`;
+  });
+  return h;
+}
+
+/* Dòng "ai sửa gần nhất" — gắn dưới các bản ghi để khỏi phải đi hỏi */
+function byLine(rec){
+  if (!rec || !rec.by || rec.by === 'owner') return '';
+  const when = rec.updatedAt ? new Date(rec.updatedAt).toLocaleString('vi-VN') : '';
+  return `<div class="dim" style="margin-top:6px">Sửa gần nhất bởi <b>${esc(BY[rec.by] || rec.by)}</b>${
+    when ? ' · ' + esc(when) : ''}${rec.seen ? ' · bạn đã xem' : ''}</div>`;
+}
+
 function viewDash(){
   const ym = ui.month;
   const s  = periodStats(monthStart(ym), monthEnd(ym));
@@ -494,6 +597,9 @@ function viewKol(id){
 
   if (k.note) h += sectionTitle('Ghi chú') + `<div class="card note">${nl(k.note)}</div>`;
 
+  const bl = byLine(k);
+  if (bl) h += `<div class="card" style="margin-top:12px">${bl}</div>`;
+
   h += `<div class="btns" style="margin-top:20px">
     ${isOwner() ? `<button class="btn dngr sm" data-act="delkol" data-id="${k.id}">Xoá KOC này</button>` : ''}</div>`;
   return h;
@@ -719,6 +825,7 @@ function viewProduct(id){
       ${p.url ? `<a class="btn sm" href="${esc(p.url)}" target="_blank" rel="noopener">Mở link quảng cáo ↗</a>` : ''}
     </div>
     ${p.note ? `<div class="note" style="margin-top:10px">${nl(p.note)}</div>` : ''}
+    ${byLine(p)}
   </div>`;
 
   if (!ws.length && !acts.length){
@@ -862,6 +969,7 @@ function viewProduct(id){
           <span class="chip ${m.roas >= 3 ? 'ok' : m.roas < 1.5 ? 'bad' : ''}">ROAS ${xText(m.roas)}</span></div>
         <div class="tl-s">chi ${moneyShort(m.cost)} · ${num(m.impressions)} lượt xem ·
           CTR ${pctText(m.ctr)} · ${num(m.orders)} đơn · CVR ${pctText(m.cvr)} · GMV ${moneyShort(m.gmv)}</div>
+        ${w.by && w.by !== 'owner' ? `<div class="tl-d dim">nhập bởi ${esc(BY[w.by] || w.by)}${w.seen ? ' · bạn đã xem' : ''}</div>` : ''}
         ${j.d ? `<div class="tl-d ${j.suggest === 'better' ? 'ok' : j.suggest === 'worse' ? 'bad' : 'dim'}">${esc(j.text)}</div>` : ''}
         ${w.note ? `<div class="tl-d dim">${nl(w.note)}</div>` : ''}
       </div>
@@ -1158,7 +1266,8 @@ function viewSettings(){
         <span class="tgf-ic">${TG_FEEDS[f].icon}</span>
         <div class="grow"><b>${esc(TG_FEEDS[f].label)}</b>
           <div class="tgf-s">${cf.on
-            ? (where ? esc(cf.hour + ' giờ mỗi ngày') + (cf.topic ? ' · nhánh ' + esc(cf.topic) : '')
+            ? (where ? esc(cf.hour + ' giờ mỗi ngày') + (cf.lead ? esc(' · báo trước ' + cf.lead + ' ngày') : '')
+                       + (cf.topic ? ' · nhánh ' + esc(cf.topic) : '')
                      : '<span class="bad">chưa có chat id</span>')
             : 'đang tắt'}</div></div>
         <div class="tgf-r"><b>${(g.byFeed || {})[f] || 0}</b>

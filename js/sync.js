@@ -125,9 +125,11 @@ const Sync = (() => {
        "gửi hàng lâu chưa thấy clip" có thể lệch vài ngày tuỳ ai đồng bộ sau. */
     let list;
     try { list = reminderTasks(); } catch(e){ return; }
-    const json = JSON.stringify(list);
+    let dir = [];
+    try { dir = productDirectory(); } catch(e){}
+    const json = JSON.stringify([list, dir]);
     if (json === lastTasks) return;
-    await Server.remind(list);
+    await Server.remind(list, dir);
     lastTasks = json;
   }
 

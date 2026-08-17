@@ -129,6 +129,9 @@ function tgConfig(): array {
       'chat'  => trim((string)($g['chat'] ?? '')),
       'topic' => trim((string)($g['topic'] ?? '')),
       'hour'  => max(0, min(23, (int)($g['hour'] ?? TG_FEED_HOUR[$f]))),
+      /* Báo trước mấy ngày. 0 = chỉ nhắc khi đã tới hạn (như cũ). Đặt 2 cho
+         luồng clip thì còn kịp nhắn KOC trước khi trễ. */
+      'lead'  => max(0, min(30, (int)($g['lead'] ?? 0))),
     ];
   }
   $c['feeds'] = $feeds;
@@ -188,7 +191,8 @@ function tgEsc($s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UT
 /* Một việc = một tin nhắn, vì bàn phím bấm được phải gắn vào từng tin riêng. */
 function tgTaskText(array $t, string $todayYmd): string {
   $late  = (int)floor((strtotime($todayYmd) - strtotime((string)($t['due'] ?? $todayYmd))) / 86400);
-  $when  = $late > 0 ? '<b>trễ ' . $late . ' ngày</b>' : ($late === 0 ? 'hạn hôm nay' : 'hạn sắp tới');
+  $when  = $late > 0 ? '<b>trễ ' . $late . ' ngày</b>'
+         : ($late === 0 ? '<b>hạn hôm nay</b>' : 'còn ' . (-$late) . ' ngày nữa');
   $lines = [($t['icon'] ?? '•') . ' <b>' . tgEsc($t['title'] ?? '') . '</b>'];
   if (!empty($t['sub'])) $lines[] = tgEsc($t['sub']);
   $lines[] = $when . ' · ' . date('d/m/Y', (int)strtotime((string)($t['due'] ?? $todayYmd)));
@@ -215,6 +219,87 @@ function tgFeedHead(string $feed, int $n, string $todayYmd): string {
   $label = TG_FEED_LABEL[$feed] ?? $feed;
   return '<b>KOL Hub · ' . tgEsc($label) . '</b> — ' . date('d/m/Y', (int)strtotime($todayYmd))
        . "\n" . $n . ' việc tới hạn.';
+}
+
+/* ---------------- bot nhận số liệu qua tin nhắn ----------------
+   Đây là chỗ DUY NHẤT máy chủ phải tự hiểu chữ người gõ, vì lúc bạn nhắn thì
+   không có app nào đang mở để soạn hộ. Giữ nó gọn trong việc đọc số và so
+   tên — mọi phép tính (CTR, CVR, ROAS) vẫn để app làm, ở đây chỉ lưu 5 con
+   số gốc, đúng quy ước "chỉ nhập số gốc" của cả app. */
+
+/* "2tr9" → 2900000 · "630k" → 630000 · "29.400.000" → 29400000
+   Cùng quy ước với parseMoney() trong js/state.js. */
+function tgNumber(string $s): ?int {
+  $s = mb_strtolower(trim($s), 'UTF-8');
+  $s = str_replace(['₫', 'đ', 'vnd', 'vnđ', ' '], '', $s);
+  if ($s === '') return null;
+  if (preg_match('/^(\d+(?:[.,]\d+)?)(k|nghin|nghìn|tr|trieu|triệu|m|ty|tỷ|b)(\d*)$/u', $s, $m)) {
+    $u = $m[2];
+    $mult = in_array($u, ['k', 'nghin', 'nghìn'], true) ? 1000
+          : (in_array($u, ['ty', 'tỷ', 'b'], true) ? 1000000000 : 1000000);
+    $base = (float)str_replace(',', '.', $m[1]);
+    /* "1tr2" = 1,2 triệu — phần sau đơn vị là phần thập phân */
+    $frac = $m[3] !== '' ? (float)('0.' . $m[3]) : 0.0;
+    return (int)round(($base + $frac) * $mult);
+  }
+  if (!preg_match('/^\d[\d.,]*$/', $s)) return null;
+  return (int)round((float)str_replace([',', '.'], '', $s));
+}
+
+/* Bỏ dấu để so tên: "Kem chống nắng" ↔ "kem chong nang".
+   Cùng cách chuẩn hoá với norm() trong js/state.js. */
+function tgNorm(string $s): string {
+  $s = mb_strtolower(trim($s), 'UTF-8');
+  $from = ['à','á','ạ','ả','ã','â','ầ','ấ','ậ','ẩ','ẫ','ă','ằ','ắ','ặ','ẳ','ẵ',
+           'è','é','ẹ','ẻ','ẽ','ê','ề','ế','ệ','ể','ễ',
+           'ì','í','ị','ỉ','ĩ','ò','ó','ọ','ỏ','õ','ô','ồ','ố','ộ','ổ','ỗ',
+           'ơ','ờ','ớ','ợ','ở','ỡ','ù','ú','ụ','ủ','ũ','ư','ừ','ứ','ự','ử','ữ',
+           'ỳ','ý','ỵ','ỷ','ỹ','đ'];
+  $to   = ['a','a','a','a','a','a','a','a','a','a','a','a','a','a','a','a','a',
+           'e','e','e','e','e','e','e','e','e','e','e',
+           'i','i','i','i','i','o','o','o','o','o','o','o','o','o','o','o',
+           'o','o','o','o','o','o','u','u','u','u','u','u','u','u','u','u','u',
+           'y','y','y','y','y','d'];
+  $s = str_replace($from, $to, $s);
+  return trim(preg_replace('/\s+/', ' ', $s) ?? '');
+}
+
+/* Khớp chữ người gõ với một sản phẩm trong danh bạ app đã đẩy lên.
+   Trả [id, tên] · [null, lời giải thích] nếu không chắc. */
+function tgFindProduct(string $q): array {
+  $q = tgNorm($q);
+  if ($q === '') return [null, 'Chưa ghi tên sản phẩm.'];
+  $dir = kvGet('products', []) ?: [];
+  if (!$dir) return [null, 'Máy chủ chưa có danh bạ sản phẩm — mở app một lần cho nó đồng bộ lên.'];
+
+  $hits = [];
+  foreach ($dir as $p) {
+    foreach ((array)($p['keys'] ?? []) as $k) {
+      if ($k !== '' && (str_contains($k, $q) || str_contains($q, $k))) { $hits[] = $p; break; }
+    }
+  }
+  /* Khớp nhiều sản phẩm thì đừng đoán — đoán sai là ghi số vào sai sản phẩm,
+     mà sai kiểu đó rất khó phát hiện về sau. */
+  if (count($hits) > 1) {
+    $names = array_map(fn($p) => (string)($p['name'] ?? '?'), array_slice($hits, 0, 5));
+    return [null, 'Khớp nhiều sản phẩm: ' . implode(' · ', $names) . '. Gõ rõ hơn giúp mình.'];
+  }
+  if (!$hits) return [null, 'Không có sản phẩm nào tên như vậy.'];
+  return [(string)$hits[0]['id'], (string)($hits[0]['name'] ?? '')];
+}
+
+/* Tạo bản ghi mới trong bảng items. Dùng khi bot ghi một kỳ số liệu. */
+function itemNew(string $kind, array $data): string {
+  $id = base_convert((string)time(), 10, 36) . bin2hex(random_bytes(3));
+  $at = gmdate('Y-m-d\TH:i:s.v\Z');
+  $data['id'] = $id;
+  $data['updatedAt'] = $at;
+  $data['deleted'] = false;
+  /* 'telegram' để về sau phân biệt được số nào bot ghi, số nào nhập tay */
+  $data['by'] = 'telegram';
+  db()->prepare('INSERT INTO items (kind, item_id, data, updated_at, deleted) VALUES (?,?,?,?,0)')
+      ->execute([$kind, $id, json_encode($data, JSON_UNESCAPED_UNICODE), $at]);
+  return $id;
 }
 
 /* ---------------- vá một dòng dữ liệu ----------------

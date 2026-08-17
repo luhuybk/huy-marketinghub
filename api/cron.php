@@ -78,11 +78,17 @@ foreach (TG_FEEDS as $feed) {
     continue;
   }
 
-  /* việc của luồng này, đã tới hạn, và không đang bị hoãn */
-  $due = array_values(array_filter($tasks, function ($t) use ($feed, $today, $snooze) {
+  /* Việc của luồng này, đã tới hạn (hoặc còn trong tầm báo trước), và không
+     đang bị hoãn. Danh sách "đã nhắc" reset theo ngày, nên đặt lead = 2 thì
+     việc được nhắc mỗi ngày từ 2 hôm trước cho tới khi xong — đúng ý "báo
+     trước để còn kịp trở tay". */
+  $limit = $g['lead'] > 0
+    ? (clone $nowVn)->modify('+' . (int)$g['lead'] . ' days')->format('Y-m-d')
+    : $today;
+  $due = array_values(array_filter($tasks, function ($t) use ($feed, $limit, $snooze) {
     $f = (string)($t['feed'] ?? 'booking');
     if ($f !== $feed) return false;
-    if ((string)($t['due'] ?? '') === '' || $t['due'] > $today) return false;
+    if ((string)($t['due'] ?? '') === '' || $t['due'] > $limit) return false;
     return !isset($snooze[(string)($t['id'] ?? '')]);
   }));
 

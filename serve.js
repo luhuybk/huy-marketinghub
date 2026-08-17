@@ -92,6 +92,8 @@ function tgConfig(){
       chat:  String(g.chat || '').trim(),
       topic: String(g.topic || '').trim(),
       hour:  Math.max(0, Math.min(23, g.hour == null ? TG_FEED_HOUR[f] : +g.hour || 0)),
+      /* báo trước mấy ngày; 0 = chỉ nhắc khi đã tới hạn (như cũ) */
+      lead:  Math.max(0, Math.min(30, +g.lead || 0)),
     };
   });
   c.feeds = feeds;
@@ -130,7 +132,8 @@ const dmy = ymd => String(ymd || '').split('-').reverse().join('/');
 
 function tgTaskText(t, todayYmd){
   const late = Math.floor((Date.parse(todayYmd + 'T00:00:00Z') - Date.parse((t.due || todayYmd) + 'T00:00:00Z')) / 86400000);
-  const when = late > 0 ? `<b>trễ ${late} ngày</b>` : late === 0 ? 'hạn hôm nay' : 'hạn sắp tới';
+  const when = late > 0 ? `<b>trễ ${late} ngày</b>`
+             : late === 0 ? '<b>hạn hôm nay</b>' : `còn ${-late} ngày nữa`;
   const lines = [(t.icon || '•') + ' <b>' + tgEsc(t.title) + '</b>'];
   if (t.sub) lines.push(tgEsc(t.sub));
   lines.push(when + ' · ' + dmy(t.due || todayYmd));
@@ -146,6 +149,45 @@ function tgTaskKeys(t){
 }
 const tgFeedHead = (feed, n, todayYmd) =>
   `<b>KOL Hub · ${TG_FEED_LABEL[feed] || feed}</b> — ${dmy(todayYmd)}\n${n} việc tới hạn.`;
+
+/* ---- bot nhận số liệu: bản Node của tgNumber/tgNorm/tgFindProduct/itemNew ---- */
+function tgNumber(str){
+  let s = String(str).toLowerCase().trim().replace(/[₫đ]|vnd|vnđ|\s/g, '');
+  if (!s) return null;
+  const m = s.match(/^(\d+(?:[.,]\d+)?)(k|nghin|nghìn|tr|trieu|triệu|m|ty|tỷ|b)(\d*)$/);
+  if (m){
+    const u = m[2];
+    const mult = ['k','nghin','nghìn'].includes(u) ? 1e3 : ['ty','tỷ','b'].includes(u) ? 1e9 : 1e6;
+    const base = parseFloat(m[1].replace(',', '.')) || 0;
+    const frac = m[3] ? parseFloat('0.' + m[3]) : 0;
+    return Math.round((base + frac) * mult);
+  }
+  if (!/^\d[\d.,]*$/.test(s)) return null;
+  return Math.round(parseFloat(s.replace(/[.,]/g, '')) || 0);
+}
+const tgNorm = s => String(s == null ? '' : s).toLowerCase()
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd')
+  .replace(/\s+/g, ' ').trim();
+
+function tgFindProduct(q){
+  q = tgNorm(q);
+  if (!q) return [null, 'Chưa ghi tên sản phẩm.'];
+  const dir = kvGet('products', []) || [];
+  if (!dir.length) return [null, 'Máy chủ chưa có danh bạ sản phẩm — mở app một lần cho nó đồng bộ lên.'];
+  const hits = dir.filter(p => (p.keys || []).some(k => k && (k.includes(q) || q.includes(k))));
+  if (hits.length > 1)
+    return [null, 'Khớp nhiều sản phẩm: ' + hits.slice(0,5).map(p => p.name || '?').join(' · ') + '. Gõ rõ hơn giúp mình.'];
+  if (!hits.length) return [null, 'Không có sản phẩm nào tên như vậy.'];
+  return [String(hits[0].id), String(hits[0].name || '')];
+}
+function itemNew(kind, data){
+  const id = Date.now().toString(36) + crypto.randomBytes(3).toString('hex');
+  const at = new Date().toISOString();
+  const rec = Object.assign({}, data, {id, updatedAt:at, deleted:false, by:'telegram'});
+  db().prepare('INSERT INTO items (kind,item_id,data,updated_at,deleted) VALUES (?,?,?,?,0)')
+      .run(kind, id, JSON.stringify(rec), at);
+  return id;
+}
 
 /* ---- vá một dòng dữ liệu: bản Node của itemApply() ---- */
 function pathSet(o, path, v){
@@ -398,6 +440,7 @@ function api(req, res, body){
       if (!Array.isArray(inp.tasks)) return fail('Thiếu danh sách tasks');
       kvSet('reminders', inp.tasks.slice(0, 500));
       kvSet('reminders_at', iso());
+      if (Array.isArray(inp.products)) kvSet('products', inp.products.slice(0, 300));
       return send({ok:true, tasks:Math.min(inp.tasks.length, 500)});
     }
 
@@ -451,8 +494,12 @@ async function cron(req, res){
       continue;
     }
 
+    /* hạn + tầm báo trước; xem chú thích trong api/cron.php */
+    const limit = g.lead > 0
+      ? new Date(Date.parse(nowVn.date + 'T00:00:00Z') + g.lead * 86400e3).toISOString().slice(0,10)
+      : nowVn.date;
     const due = tasks.filter(t => (t.feed || 'booking') === feed
-      && t.due && t.due <= nowVn.date && !(String(t.id || '') in snooze));
+      && t.due && t.due <= limit && !(String(t.id || '') in snooze));
 
     /* Nhớ theo TỪNG VIỆC chứ không phải theo ngày — nếu không thì đổi giờ
        nhắc giữa ngày, hoặc hết hạn hoãn, đều bị chặn im lặng. */
@@ -510,12 +557,69 @@ async function tgHook(req, res, body){
 
   if (up.message){
     const chat = String(up.message.chat?.id || ''), th = String(up.message.message_thread_id || '');
-    if (chat){
+    const text = String(up.message.text || '').trim();
+    if (!chat) return txt('ok');
+
+    /* chỉ chat đã khai trong Cài đặt mới được ghi dữ liệu — xem api/tg.php */
+    const known = [c.chat, ...TG_FEEDS.map(f => c.feeds[f].chat)].filter(Boolean);
+    const trusted = known.includes(chat);
+
+    if (!trusted || !text || tgNorm(text) === 'id'){
       let t = 'Chat id của chỗ này:\n<code>' + tgEsc(chat) + '</code>';
       if (th) t += '\n\nNhánh (topic) id:\n<code>' + tgEsc(th) + '</code>';
       t += '\n\nDán vào app → Cài đặt → Nhắc qua Telegram.';
+      if (!trusted) t += '\n\n<i>Chat này chưa được khai trong Cài đặt nên mình chưa nhận số liệu ở đây.</i>';
       await tgSend(c.token, chat, t, th);
+      return txt('ok');
     }
+
+    const help = 'Cách ghi số liệu quảng cáo:\n'
+      + '<code>&lt;sản phẩm&gt; &lt;chi phí&gt; &lt;lượt xem&gt; &lt;click&gt; &lt;đơn&gt; &lt;GMV&gt;</code>\n\n'
+      + 'Ví dụ:\n<code>sunya 2tr9 630k 9100 341 29tr4</code>\n\n'
+      + 'Đúng 5 con số, theo thứ tự trên. Viết tắt <code>2tr9</code>, <code>630k</code> đều hiểu.\n'
+      + 'Kỳ đo mặc định là 7 ngày gần nhất. Nhắn <code>id</code> để xem chat id.';
+    if (['help','huong dan'].includes(tgNorm(text)) || text === '/start'){
+      await tgSend(c.token, chat, help, th);
+      return txt('ok');
+    }
+
+    const parts = text.split(/\s+/);
+    if (parts.length < 6){
+      await tgSend(c.token, chat, 'Mình cần tên sản phẩm và <b>5</b> con số.\n\n' + help, th);
+      return txt('ok');
+    }
+    const nums = parts.slice(-5), name = parts.slice(0, -5).join(' ');
+    const vals = [];
+    for (const n of nums){
+      const v = tgNumber(n);
+      if (v === null){
+        await tgSend(c.token, chat, 'Không đọc được con số <code>' + tgEsc(n) + '</code>.\n\n' + help, th);
+        return txt('ok');
+      }
+      vals.push(v);
+    }
+    const [cost, imp, clicks, orders, gmv] = vals;
+    const [pid, pname] = tgFindProduct(name);
+    if (pid === null){
+      await tgSend(c.token, chat, pname + '\n\nBạn gõ: <code>' + tgEsc(name) + '</code>', th);
+      return txt('ok');
+    }
+
+    const to = nowVn.date;
+    const from = new Date(Date.parse(to + 'T00:00:00Z') - 6*86400e3).toISOString().slice(0,10);
+    const id = itemNew('adperiods', {productId:pid, from, to, cost, impressions:imp,
+      clicks, orders, gmv, note:'ghi qua Telegram', label:'', actionId:''});
+
+    const roas = cost > 0 ? gmv / cost : 0;
+    const fmt = n => Number(n).toLocaleString('vi-VN');
+    const msg = '✅ Đã ghi <b>' + tgEsc(pname) + '</b>\n'
+      + dmy(from).slice(0,5) + '–' + dmy(to) + '\n\n'
+      + 'Chi phí: ' + fmt(cost) + 'đ\n' + 'Lượt xem: ' + fmt(imp) + '\n'
+      + 'Click: ' + fmt(clicks) + '\n' + 'Đơn: ' + fmt(orders) + '\n'
+      + 'GMV: ' + fmt(gmv) + 'đ\n\n'
+      + '<b>ROAS ' + roas.toFixed(2).replace('.', ',') + 'x</b>'
+      + (cost > 0 ? ' · ' + fmt(Math.round(cost / Math.max(1, orders))) + 'đ/đơn' : '');
+    await tgSend(c.token, chat, msg, th, [[{text:'↩︎ Ghi sai, xoá đi', callback_data:`1|undo|${id}`}]]);
     return txt('ok');
   }
   if (!up.callback_query) return txt('ok');
@@ -531,6 +635,15 @@ async function tgHook(req, res, body){
   const parts = String(q.data || '').split('|');
   if (parts.length < 3 || parts[0] !== '1'){ await answer('Nút này của bản cũ, mở app làm giúp nhé.'); return txt('ok'); }
   const [, op, taskId] = parts;
+
+  /* hoàn tác kỳ số liệu bot vừa ghi — không liên quan danh sách nhắc */
+  if (op === 'undo'){
+    const r = db().prepare('UPDATE items SET deleted = 1, updated_at = ? WHERE kind = ? AND item_id = ?')
+                  .run(new Date().toISOString(), 'adperiods', taskId);
+    if (r.changes > 0){ await answer('Đã xoá kỳ vừa ghi'); await stamp('<b>đã xoá</b>'); }
+    else await answer('Không tìm thấy kỳ đó nữa');
+    return txt('ok');
+  }
 
   const tasks = kvGet('reminders', []) || [];
   const tIdx = tasks.findIndex(t => String(t.id || '') === taskId);

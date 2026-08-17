@@ -8,6 +8,7 @@
 "use strict";
 
 const NAV = [
+  {id:'today',    icon:'✓', label:'Hôm nay'},
   {id:'dash',     icon:'◈', label:'Tổng quan'},
   {id:'pipeline', icon:'▤', label:'Booking'},
   {id:'kols',     icon:'☺', label:'KOL / KOC'},
@@ -15,11 +16,14 @@ const NAV = [
   {id:'ads',      icon:'◎', label:'Shopee Ads'},
   {id:'compare',  icon:'⇄', label:'So sánh kênh'},
   {id:'resources',icon:'▤', label:'Tài nguyên'},
-  {id:'settings', icon:'⚙', label:'Cài đặt'}
+  {id:'review',   icon:'⚑', label:'Cần bạn duyệt', ownerOnly:true},
+  {id:'settings', icon:'⚙', label:'Cài đặt', ownerOnly:true}
 ];
-const TITLES = {dash:'Tổng quan', pipeline:'Booking', kols:'KOL / KOC', clips:'Clip',
-                ads:'Shopee Ads', compare:'So sánh kênh', resources:'Tài nguyên',
-                settings:'Cài đặt', kol:'Hồ sơ KOC', product:'Sản phẩm'};
+const TITLES = {today:'Hôm nay', dash:'Tổng quan', pipeline:'Booking', kols:'KOL / KOC',
+                clips:'Clip', ads:'Shopee Ads', compare:'So sánh kênh', resources:'Tài nguyên',
+                review:'Cần bạn duyệt', settings:'Cài đặt', kol:'Hồ sơ KOC', product:'Sản phẩm'};
+/* Trang chỉ chủ mở được. Nhân viên gõ thẳng đường dẫn cũng bị đưa về Hôm nay. */
+const OWNER_PAGES = ['settings', 'review'];
 
 let route = {page:'dash', id:''};
 
@@ -34,12 +38,12 @@ function parseHash(){
   const raw = (location.hash || '#dash').slice(1);
   const [page, id] = raw.split('/');
   let page2 = TITLES[page] ? page : 'dash';
-  if (page2 === 'settings' && !isOwner()){
-    page2 = 'dash';
+  if (OWNER_PAGES.includes(page2) && !isOwner()){
+    page2 = 'today';
     /* Sửa luôn đường dẫn cho khớp, nếu không thanh địa chỉ cứ đứng ở
-       #settings trong khi màn hình là Tổng quan. replaceState không bắn
+       #settings trong khi màn hình là trang khác. replaceState không bắn
        hashchange nên không thành vòng lặp. */
-    try { history.replaceState(null, '', '#dash'); } catch(e){}
+    try { history.replaceState(null, '', '#today'); } catch(e){}
   }
   return {page: page2, id: id || ''};
 }
@@ -57,6 +61,7 @@ function render(){
   let html = '';
   try {
     switch (route.page){
+      case 'today':    html = viewToday(); break;
       case 'dash':     html = viewDash(); break;
       case 'pipeline': html = viewPipeline(); break;
       case 'kols':     html = viewKols(); break;
@@ -66,6 +71,7 @@ function render(){
       case 'compare':  html = viewCompare(); break;
       case 'product':  html = viewProduct(route.id); break;
       case 'resources':html = viewResources(); break;
+      case 'review':   html = viewReview(); break;
       case 'settings': html = viewSettings(); break;
     }
   } catch(e){
@@ -86,9 +92,11 @@ function renderSide(){
     kols: kols().length,
     clips: clips().length,
     ads: products().filter(p => ['due','overdue'].includes(trackState(p.id).key)).length,
-    dash: alerts().filter(a => a.level === 'bad').length
+    dash: alerts().filter(a => a.level === 'bad').length,
+    today: todayCount(),
+    review: reviewCount()
   };
-  const hot = {dash:1, ads:1};
+  const hot = {dash:1, ads:1, today:1};
   const active = route.page === 'kol' ? 'kols' : route.page === 'product' ? 'ads' : route.page;
   const st = Sync.status();
   const dot = st.state === 'syncing' ? 'sync' : st.state === 'error' ? 'bad' : st.state === 'idle' ? 'ok' : '';
@@ -102,7 +110,7 @@ function renderSide(){
           st.state === 'error' ? 'lỗi đồng bộ' : 'chỉ lưu trên máy'}</div></div>
     </div>
     <div class="side-scroll">
-      ${NAV.filter(n => n.id !== 'settings' || isOwner())
+      ${NAV.filter(n => !n.ownerOnly || isOwner())
            .map(n => `<button class="navi ${active === n.id ? 'on' : ''}" data-act="nav" data-id="${n.id}">
         <span class="i">${n.icon}</span>${esc(n.label)}
         ${badge[n.id] ? `<span class="b ${hot[n.id] ? 'hot' : ''}">${badge[n.id]}</span>` : ''}
@@ -905,6 +913,8 @@ function telegramModal(){
       <div class="tgset-g">
         <div class="fld"><label>Gửi lúc</label>
           <input class="inp" type="number" min="0" max="23" data-ff="hour" value="${c.hour}"></div>
+        <div class="fld"><label>Báo trước</label>
+          <input class="inp" type="number" min="0" max="30" data-ff="lead" value="${c.lead || 0}"></div>
         <div class="fld"><label>Chat id riêng</label>
           <input class="inp" data-ff="chat" value="${esc(c.chat||'')}" placeholder="để trống = dùng chung"></div>
         <div class="fld"><label>Nhánh (topic)</label>
@@ -938,7 +948,9 @@ function telegramModal(){
     <div class="sec sm">Ba luồng riêng<span class="ln"></span></div>
     <div class="explain">Nhắc booking lúc 8 giờ sáng thì hợp, nhưng số quảng cáo sáng sớm chưa nói lên gì —
       nên mỗi luồng có giờ riêng. Muốn tách hẳn ra từng nhóm chat thì điền chat id riêng; dùng group có
-      chủ đề (topic) thì điền thêm số nhánh, giờ ${esc(g.tz || 'Việt Nam')}.</div>
+      chủ đề (topic) thì điền thêm số nhánh, giờ ${esc(g.tz || 'Việt Nam')}.<br><br>
+      <b>Báo trước</b> = nhắc sớm mấy ngày trước hạn, để còn kịp nhắn KOC. Để <code>0</code> thì chỉ
+      nhắc khi đã tới hạn. Đặt <code>2</code> cho luồng Clip là hợp lý nhất.</div>
     ${TG_FEED_IDS.map(feedRow).join('')}
 
     <div class="sec sm">Bấm nút ngay trong Telegram<span class="ln"></span></div>
@@ -972,6 +984,7 @@ function telegramModal(){
       el.querySelectorAll('.tgset').forEach(box => {
         const q = k => box.querySelector(`[data-ff="${k}"]`);
         out[box.dataset.feed] = {on: q('on').checked, hour: +q('hour').value || 0,
+                                 lead: +q('lead').value || 0,
                                  chat: q('chat').value.trim(), topic: q('topic').value.trim()};
       });
       const r = await Server.tgSave({
@@ -1547,6 +1560,45 @@ const ACTIONS = {
   edittpl:    id => templateForm(templateOf(id)),
   usetpl:     id => messageModal({tplId:id}),
   msgkol:     id => messageModal({kolId:id}),
+
+  /* trang Hôm nay */
+  ahead: id => { ui.todayAhead = +id || 0; render(); },
+  taskdone: id => {
+    const t = reminderTasks().find(x => x.id === id);
+    if (!t) { toast('Việc này không còn nữa'); render(); return; }
+    if (!taskDone(t)){ toast('Không tìm thấy bản ghi'); return; }
+    save(); render(); toast('Đã ghi nhận');
+  },
+  taskpush: (id, el) => {
+    const t = reminderTasks().find(x => x.id === id);
+    if (!t) { toast('Việc này không còn nữa'); render(); return; }
+    const n = +el.dataset.n || 1;
+    if (!taskPush(t, n)){ toast('Việc này không dời hạn được'); return; }
+    save(); render(); toast('Đã dời hạn sang ' + fmtDate(addDays(today(), n)));
+  },
+  taskopen: id => {
+    const t = reminderTasks().find(x => x.id === id);
+    if (!t || !t.ref) return;
+    if (t.ref.kind === 'kols')     go('kol', t.ref.id);
+    else if (t.ref.kind === 'bookings'){ const b = bookingOf(t.ref.id); if (b) go('kol', b.kolId); }
+    else if (t.ref.kind === 'actions'){ const a = db.actions.find(x => x.id === t.ref.id); if (a) go('product', a.productId); }
+  },
+
+  /* cần bạn duyệt */
+  nav2: id => { const [p, i] = id.split(':'); go(p, i); },
+  seen: id => {
+    const [kind, rid] = id.split(':');
+    const rec = (db[kind] || []).find(x => x.id === rid);
+    if (!rec) return;
+    rec.seen = now(); touch(rec); save(); render();
+  },
+  seenall: () => {
+    const list = pendingReview();
+    if (!list.length) return;
+    if (!confirm('Đánh dấu đã xem cho cả ' + list.length + ' thay đổi?')) return;
+    list.forEach(x => { x.rec.seen = now(); touch(x.rec); });
+    save(); render(); toast('Đã xem hết ' + list.length + ' thay đổi');
+  },
 
   /* nhắc qua Telegram */
   tgsetup: () => telegramModal(),

@@ -513,7 +513,7 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;
 .tgset{background:var(--bg3);border-radius:12px;padding:11px 12px;margin-bottom:9px}
 .tgset-h{display:flex;align-items:center;gap:10px;margin-bottom:9px}
 .tgset-h .chk{flex:none}
-.tgset-g{display:grid;grid-template-columns:82px 1fr 1fr;gap:9px}
+.tgset-g{display:grid;grid-template-columns:72px 78px 1fr 1fr;gap:9px;align-items:end}
 /* .fld mặc định chiếm 2 cột của lưới biểu mẫu — ở đây mỗi ô một cột */
 .tgset-g .fld{grid-column:auto;margin:0}
 .tgset-g label{font-size:11px}

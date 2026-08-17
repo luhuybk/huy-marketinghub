@@ -44,19 +44,99 @@ $tz    = new DateTimeZone(KH_TZ);
 $nowVn = new DateTime('now', $tz);
 $today = $nowVn->format('Y-m-d');
 
-/* ---------------- tin nhắn thường: trả lại chat id ----------------
-   Đây là cách dễ nhất để lấy chat id và số nhánh (topic) của group —
-   nhắn một câu vào đúng nhánh muốn nhận, bot đọc ngay ra cho. */
+/* ---------------- tin nhắn thường ---------------- */
 if (isset($up['message'])) {
   $m    = $up['message'];
   $chat = (string)($m['chat']['id'] ?? '');
   $th   = (string)($m['message_thread_id'] ?? '');
-  if ($chat !== '') {
+  $text = trim((string)($m['text'] ?? ''));
+  if ($chat === '') bye();
+
+  /* Chat này có phải chỗ bạn đã cấu hình không? Bot nằm trên internet, ai
+     tìm ra tên nó cũng nhắn được — nên chỉ chat đã khai trong Cài đặt mới
+     được ghi dữ liệu. Chat lạ thì chỉ nhận lại chat id, vô hại. */
+  $known = [$c['chat']];
+  foreach (TG_FEEDS as $f) $known[] = (string)($c['feeds'][$f]['chat'] ?? '');
+  $trusted = in_array($chat, array_filter($known), true);
+
+  /* "id" hoặc chat lạ → đọc chat id ra cho bạn dán vào Cài đặt.
+     Đây là cách dễ nhất để lấy cả số nhánh (topic) của group. */
+  if (!$trusted || $text === '' || tgNorm($text) === 'id') {
     $t = "Chat id của chỗ này:\n<code>" . tgEsc($chat) . '</code>';
     if ($th !== '') $t .= "\n\nNhánh (topic) id:\n<code>" . tgEsc($th) . '</code>';
     $t .= "\n\nDán vào app → Cài đặt → Nhắc qua Telegram.";
+    if (!$trusted) $t .= "\n\n<i>Chat này chưa được khai trong Cài đặt nên mình chưa nhận số liệu ở đây.</i>";
     tgSend($c['token'], $chat, $t, $th);
+    bye();
   }
+
+  /* ---- ghi kỳ số liệu quảng cáo ----
+     Cú pháp:  <sản phẩm> <chi phí> <lượt xem> <click> <đơn> <GMV>
+     Ví dụ:    sunya 2tr9 630k 9100 341 29tr4                       */
+  $help = "Cách ghi số liệu quảng cáo:\n"
+        . "<code>&lt;sản phẩm&gt; &lt;chi phí&gt; &lt;lượt xem&gt; &lt;click&gt; &lt;đơn&gt; &lt;GMV&gt;</code>\n\n"
+        . "Ví dụ:\n<code>sunya 2tr9 630k 9100 341 29tr4</code>\n\n"
+        . "Đúng 5 con số, theo thứ tự trên. Viết tắt <code>2tr9</code>, <code>630k</code> đều hiểu.\n"
+        . "Kỳ đo mặc định là 7 ngày gần nhất. Nhắn <code>id</code> để xem chat id.";
+
+  if (tgNorm($text) === 'help' || tgNorm($text) === 'huong dan' || $text === '/start') {
+    tgSend($c['token'], $chat, $help, $th);
+    bye();
+  }
+
+  /* Tách từ phải sang: 5 cụm cuối là số, phần còn lại là tên sản phẩm. Làm
+     ngược từ cuối vì tên sản phẩm có thể gồm nhiều từ ("kem chống nắng"). */
+  $parts = preg_split('/\s+/u', $text) ?: [];
+  if (count($parts) < 6) {
+    tgSend($c['token'], $chat, "Mình cần tên sản phẩm và <b>5</b> con số.\n\n" . $help, $th);
+    bye();
+  }
+  $nums = array_slice($parts, -5);
+  $name = implode(' ', array_slice($parts, 0, count($parts) - 5));
+
+  $vals = [];
+  foreach ($nums as $n) {
+    $v = tgNumber((string)$n);
+    if ($v === null) {
+      tgSend($c['token'], $chat, 'Không đọc được con số <code>' . tgEsc($n) . "</code>.\n\n" . $help, $th);
+      bye();
+    }
+    $vals[] = $v;
+  }
+  [$cost, $imp, $clicks, $orders, $gmv] = $vals;
+
+  [$pid, $pname] = tgFindProduct($name);
+  if ($pid === null) {
+    tgSend($c['token'], $chat, $pname . "\n\nBạn gõ: <code>" . tgEsc($name) . '</code>', $th);
+    bye();
+  }
+
+  /* Kỳ đo mặc định: 7 ngày tính đến hôm nay. Nói rõ trong tin trả lời để
+     bạn thấy ngay nếu không phải khoảng mình muốn. */
+  $to   = $today;
+  $from = (clone $nowVn)->modify('-6 days')->format('Y-m-d');
+  $id = itemNew('adperiods', [
+    'productId' => $pid, 'from' => $from, 'to' => $to,
+    'cost' => $cost, 'impressions' => $imp, 'clicks' => $clicks,
+    'orders' => $orders, 'gmv' => $gmv,
+    'note' => 'ghi qua Telegram', 'label' => '', 'actionId' => '',
+  ]);
+
+  /* Đọc lại số vừa ghi kèm ROAS để bạn soi được lỗi gõ ngay tại chỗ */
+  $roas = $cost > 0 ? $gmv / $cost : 0;
+  $fmt  = fn($n) => number_format((float)$n, 0, ',', '.');
+  $msg  = '✅ Đã ghi <b>' . tgEsc($pname) . "</b>\n"
+        . date('d/m', (int)strtotime($from)) . '–' . date('d/m/Y', (int)strtotime($to)) . "\n\n"
+        . 'Chi phí: ' . $fmt($cost) . "đ\n"
+        . 'Lượt xem: ' . $fmt($imp) . "\n"
+        . 'Click: ' . $fmt($clicks) . "\n"
+        . 'Đơn: ' . $fmt($orders) . "\n"
+        . 'GMV: ' . $fmt($gmv) . "đ\n\n"
+        . '<b>ROAS ' . number_format($roas, 2, ',', '.') . 'x</b>'
+        . ($cost > 0 ? ' · ' . $fmt((int)round($cost / max(1, $orders))) . 'đ/đơn' : '');
+  tgSend($c['token'], $chat, $msg, $th, [
+    [['text' => '↩︎ Ghi sai, xoá đi', 'callback_data' => "1|undo|$id"]]
+  ]);
   bye();
 }
 
@@ -88,6 +168,17 @@ $stamp = function (string $line) use ($c, $chat, $mid, $text) {
 $parts = explode('|', $data);
 if (count($parts) < 3 || $parts[0] !== '1') { $answer('Nút này của bản cũ, mở app làm giúp nhé.'); bye(); }
 [, $op, $taskId] = $parts;
+
+/* Hoàn tác kỳ số liệu bot vừa ghi. Xử lý trước vì nó thao tác thẳng trên
+   bản ghi, không phải một việc trong danh sách nhắc. */
+if ($op === 'undo') {
+  $at = gmdate('Y-m-d\TH:i:s.v\Z');
+  $st = db()->prepare('UPDATE items SET deleted = 1, updated_at = ? WHERE kind = ? AND item_id = ?');
+  $st->execute([$at, 'adperiods', $taskId]);
+  if ($st->rowCount() > 0) { $answer('Đã xoá kỳ vừa ghi'); $stamp('<b>đã xoá</b>'); }
+  else                     { $answer('Không tìm thấy kỳ đó nữa'); }
+  bye();
+}
 
 $tasks = kvGet('reminders', []) ?: [];
 $task  = null;
