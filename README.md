@@ -86,13 +86,30 @@ cũ, chỉ mình bạn vào được. Cùng một ô mật khẩu, gõ mã nào 
 | Đăng xuất mọi thiết bị | được | không |
 
 **Chặn thật nằm ở máy chủ, không phải ở giao diện.** `requireOwner()` trong
-`api/index.php` từ chối cả bảy đầu mối cài đặt, và `push` bỏ qua mọi dòng có
-cờ `deleted` gửi lên từ phiên nhân viên. Ẩn nút chỉ để màn hình đỡ rối — ai
-mở bảng điều khiển trình duyệt gọi thẳng vào API thì vẫn nhận 403.
+`api/index.php` từ chối sáu đầu mối cài đặt, và `push` bỏ qua mọi dòng có cờ
+`deleted` gửi lên từ phiên nhân viên. Ẩn nút chỉ để màn hình đỡ rối — ai mở
+bảng điều khiển trình duyệt gọi thẳng vào API thì vẫn nhận 403.
 
-Nhân viên cũng không đẩy danh sách nhắc Telegram lên máy chủ. Máy họ có
-ngưỡng cảnh báo riêng (thiết lập lưu theo từng máy), đẩy lên sẽ ghi đè danh
-sách của bạn.
+Ba chỗ dễ làm sai mà đã sửa, ghi lại để đừng lặp lại:
+
+- **Vai trò phải mặc định là "chưa biết", không phải "chủ".** App vẽ khung
+  trước khi hỏi được máy chủ mình là ai; mặc định `owner` thì tab Cài đặt hiện
+  ra trong khoảnh khắc đó — và nếu đang mất mạng (vào bằng hạn dùng tạm) thì
+  nó ở luôn. `isOwner()` giờ chỉ trả `true` khi biết chắc.
+- **Vai trò phải nhớ lại được lúc mất mạng.** Vào bằng hạn dùng tạm thì không
+  hỏi được máy chủ, nên vai trò lấy từ `localStorage`. Thiếu bước này thì nhân
+  viên chỉ cần rút mạng là thấy đủ mục Cài đặt.
+- **Máy chủ chặn xoá thì máy gọi phải biết chặn dòng nào.** `push` trả về danh
+  sách `blocked`, và `sync.js` bỏ bản đã đánh dấu xoá trên máy rồi kéo lại bản
+  thật. Nếu chỉ trả về *số lượng*, mốc `srvPush` đã trôi qua nên lệnh xoá không
+  đẩy lại nữa: bản ghi còn trên máy chủ nhưng mất hẳn trên máy nhân viên, lệch
+  vĩnh viễn.
+
+Nhân viên **được** đẩy danh sách nhắc Telegram. Ban đầu chặn, nhưng như thế thì
+tuần nào chỉ nhân viên dùng app là danh sách trên máy chủ đứng yên và Telegram
+cứ nhắc booking đã xong. Cái giá: ngưỡng cảnh báo lưu theo từng máy, nên ngày
+hẹn của mấy việc *"gửi hàng lâu chưa thấy clip"* có thể lệch vài ngày tuỳ ai
+đồng bộ sau cùng.
 
 Đổi mật khẩu về sau: chạy lại lệnh trên rồi thay dòng tương ứng. Các máy đang
 đăng nhập **vẫn giữ phiên** — muốn đá hết ra thì bấm *Đăng xuất mọi thiết bị*

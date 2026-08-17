@@ -295,14 +295,15 @@ function api(req, res, body){
       const ins = db().prepare('INSERT INTO items (kind,item_id,data,updated_at,deleted) VALUES (?,?,?,?,?)');
       const upd = db().prepare('UPDATE items SET data=?, updated_at=?, deleted=? WHERE kind=? AND item_id=?');
       const mayDelete = role() === 'owner';
-      let saved = 0, skipped = 0, blocked = 0;
+      let saved = 0, skipped = 0; const blocked = [];
       db().exec('BEGIN');
       try {
         for (const r of inp.rows){
           const kind = String(r.kind || ''), id = String(r.item_id || ''), up = String(r.updated_at || '');
           if (!kind || !id || !up){ skipped++; continue; }
           const json = JSON.stringify(r.data ?? null), del = r.deleted ? 1 : 0;
-          if (del && !mayDelete){ blocked++; continue; }
+          /* trả về đúng dòng bị chặn, xem chú thích bên api/index.php */
+          if (del && !mayDelete){ if (blocked.length < 200) blocked.push({kind, item_id:id}); continue; }
           const cur = sel.get(kind, id);
           if (!cur)                        { ins.run(kind, id, json, up, del); saved++; }
           else if (cur.updated_at < up)    { upd.run(json, up, del, kind, id); saved++; }
@@ -393,7 +394,7 @@ function api(req, res, body){
                   'Bấm nút này trên bản đã upload lên hosting (https) thì mới đăng ký được.');
     }
     case 'remind_set': {
-      if (!owner()) return;
+      if (!need()) return;      /* nhân viên cũng được đẩy, xem js/sync.js */
       if (!Array.isArray(inp.tasks)) return fail('Thiếu danh sách tasks');
       kvSet('reminders', inp.tasks.slice(0, 500));
       kvSet('reminders_at', iso());

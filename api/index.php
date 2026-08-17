@@ -203,7 +203,7 @@ switch ($action) {
        ẩn nút, vì nút ẩn thì vẫn gọi thẳng vào địa chỉ này được. */
     $mayDelete = roleOf() === 'owner';
 
-    $saved = 0; $skipped = 0; $blocked = 0;
+    $saved = 0; $skipped = 0; $blockedRows = [];
     $pdo->beginTransaction();
     try {
       foreach ($rows as $r) {
@@ -213,7 +213,13 @@ switch ($action) {
         if ($kind === '' || $id === '' || $upAt === '') { $skipped++; continue; }
         $json = json_encode($r['data'] ?? null, JSON_UNESCAPED_UNICODE);
         $del  = !empty($r['deleted']) ? 1 : 0;
-        if ($del && !$mayDelete) { $blocked++; continue; }
+        if ($del && !$mayDelete) {
+          /* Trả về ĐÚNG dòng nào bị chặn, không phải chỉ số lượng — máy gọi
+             cần biết để kéo lại bản thật, nếu không nó sẽ tưởng đã xoá xong
+             và hai bên lệch nhau vĩnh viễn. */
+          if (count($blockedRows) < 200) $blockedRows[] = ['kind' => $kind, 'item_id' => $id];
+          continue;
+        }
 
         $sel->execute([$kind, $id]);
         $cur = $sel->fetch();
@@ -227,7 +233,7 @@ switch ($action) {
       fail('Ghi dữ liệu lỗi', 500);
     }
     out(['ok' => true, 'saved' => $saved, 'skipped' => $skipped,
-         'blocked' => $blocked, 'now' => gmdate('c')]);
+         'blocked' => $blockedRows, 'now' => gmdate('c')]);
   }
 
   /* ---------------- Telegram ---------------- */
@@ -358,7 +364,9 @@ switch ($action) {
 
   /* app đẩy lên danh sách việc kèm ngày hẹn — cron đọc lại mỗi sáng */
   case 'remind_set': {
-    requireOwner();
+    /* Nhân viên cũng được đẩy — xem chú thích ở pushReminders() trong
+       js/sync.js. Chặn ở đây thì lời nhắc sẽ đứng yên cả tuần. */
+    requireAuth();
     $tasks = $in['tasks'] ?? null;
     if (!is_array($tasks)) fail('Thiếu danh sách tasks');
     if (count($tasks) > 500) $tasks = array_slice($tasks, 0, 500);

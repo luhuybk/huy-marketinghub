@@ -11,18 +11,36 @@
 const Server = (() => {
   const GRACE = 'kolhub.session';       // hạn dùng tạm khi mất mạng
   const SEEN  = 'kolhub.hasserver';     // máy này từng thấy máy chủ chưa
+  const ROLE  = 'kolhub.role';          // vai trò lần đăng nhập gần nhất
   let mode = 'unknown';                 // unknown | none | anon | authed
-  let checking = null;
+
   /* owner = bạn · staff = nhân viên (không có Cài đặt, không xoá được).
-     Đây chỉ là bản sao để giao diện biết vẽ gì — máy chủ mới là chỗ chặn thật. */
-  let userRole = 'owner';
+     Đây chỉ là bản sao để giao diện biết vẽ gì — máy chủ mới là chỗ chặn thật.
+
+     Mặc định là '' (chưa biết), KHÔNG phải 'owner'. Đây là chỗ tôi làm sai
+     lần đầu: app vẽ khung trước khi biết mình là ai, nên tab Cài đặt hiện ra
+     rồi mới bị gỡ đi — và trong lúc mất mạng (dùng hạn tạm) thì nó không bị
+     gỡ nữa. Chưa biết thì coi như quyền thấp nhất, biết rồi mới mở thêm. */
+  let userRole = '';
+  let checking = null;
 
   const url = () => 'api/index.php';
   const available = () => mode === 'anon' || mode === 'authed';
   const authed    = () => mode === 'authed';
   const state     = () => mode;
   const role      = () => userRole;
-  const isOwner   = () => userRole !== 'staff';
+  /* Không có thư mục api/ (mở bằng file://) thì chẳng có tài khoản nào cả,
+     dữ liệu nằm ngay trên máy này — lúc đó bạn là chủ. */
+  const isOwner   = () => mode === 'none' || userRole === 'owner';
+
+  function setRole(r){
+    userRole = r === 'staff' ? 'staff' : 'owner';
+    try { localStorage.setItem(ROLE, userRole); } catch(e){}
+  }
+  function storedRole(){
+    try { return localStorage.getItem(ROLE) === 'staff' ? 'staff' : 'owner'; }
+    catch(e){ return 'staff'; }        // đọc không được thì chọn bên chặt hơn
+  }
 
   async function call(action, body){
     let res;
@@ -50,7 +68,10 @@ const Server = (() => {
 
   /* ---- hạn dùng tạm: cho phép mở app khi đang mất mạng ---- */
   function setGrace(iso){ try { localStorage.setItem(GRACE, iso || ''); } catch(e){} }
-  function clearGrace(){ try { localStorage.removeItem(GRACE); } catch(e){} }
+  function clearGrace(){
+    try { localStorage.removeItem(GRACE); localStorage.removeItem(ROLE); } catch(e){}
+    userRole = '';
+  }
   function graceOk(){
     try { const v = localStorage.getItem(GRACE); return !!v && v > new Date().toISOString(); }
     catch(e){ return false; }
@@ -66,7 +87,10 @@ const Server = (() => {
       .then(d => {
         try { localStorage.setItem(SEEN, '1'); } catch(e){}
         mode = d.auth ? 'authed' : 'anon';
-        if (d.auth) userRole = d.role === 'staff' ? 'staff' : 'owner';
+        /* Máy chủ bản cũ không trả role. Bản đó chỉ có MỘT mật khẩu và nó là
+           của bạn, nên phiên không ghi vai trò thì coi như chủ — giống
+           roleOf() bên PHP. */
+        if (d.auth) setRole(d.role || 'owner');
         if (d.auth && d.expires) setGrace(d.expires);
         return mode;
       })
@@ -83,6 +107,10 @@ const Server = (() => {
           let seen = false;
           try { seen = localStorage.getItem(SEEN) === '1'; } catch(e){}
           mode = seen ? (graceOk() ? 'authed' : 'anon') : 'none';
+          /* Vào bằng hạn dùng tạm: không hỏi được máy chủ mình là ai, nên
+             lấy lại vai trò của lần đăng nhập gần nhất. Thiếu bước này thì
+             nhân viên chỉ cần rút mạng là thấy đủ mục Cài đặt. */
+          if (mode === 'authed') userRole = storedRole();
         }
         return mode;
       })
@@ -93,7 +121,7 @@ const Server = (() => {
   async function login(password){
     const d = await call('login', {password});
     mode = 'authed';
-    userRole = d.role === 'staff' ? 'staff' : 'owner';
+    setRole(d.role || 'owner');
     setGrace(d.expires);
     return d;
   }
@@ -209,6 +237,9 @@ const Gate = (() => {
     toast('Đang tải dữ liệu từ máy chủ…');
     try { await Sync.run(true); } catch(e){}
     Sync.start();
+    /* boot() đăng ký cái này cho đường "mở app khi đã có phiên"; đường vừa
+       đăng nhập qua màn khoá thì thiếu, nên đèn đồng bộ ở thanh bên đứng im. */
+    Sync.onChange(() => renderSide());
     if (window.loadTg) loadTg(true);
     render();
     const st = Sync.status();

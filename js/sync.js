@@ -67,11 +67,32 @@ const Sync = (() => {
     const rows = localRows(since);
     if (!rows.length) return 0;
     /* chia lô để không vượt giới hạn kích thước yêu cầu */
+    let blocked = [];
     for (let i = 0; i < rows.length; i += 400){
-      await Server.push(rows.slice(i, i + 400));
+      const r = await Server.push(rows.slice(i, i + 400));
+      if (r && Array.isArray(r.blocked) && r.blocked.length) blocked = blocked.concat(r.blocked);
     }
     db.meta.srvPush = rows.reduce((m,r) => r.updated_at > m ? r.updated_at : m, since);
+    if (blocked.length) undoBlocked(blocked);
     return rows.length;
+  }
+
+  /* Máy chủ từ chối vài lệnh xoá (tài khoản nhân viên). Bản ghi vẫn còn ở
+     máy chủ, nên bản đã đánh dấu xoá trên máy này là SAI — phải bỏ nó đi và
+     kéo lại bản thật. Không làm bước này thì mốc srvPush đã trôi qua rồi,
+     lệnh xoá không đẩy lại nữa, mà bản ghi thì mất hẳn trên máy này. */
+  function undoBlocked(blocked){
+    let n = 0;
+    blocked.forEach(({kind, item_id}) => {
+      const arr = db[kind];
+      if (!arr) return;
+      const i = arr.findIndex(x => x.id === item_id);
+      if (i >= 0){ arr.splice(i, 1); n++; }
+    });
+    if (!n) return;
+    db.meta.srvPull = '';          // kéo lại từ đầu để lấy về bản thật
+    persist();
+    if (window.toast) toast('Tài khoản nhân viên không xoá được — đã lấy lại ' + n + ' bản ghi.');
   }
   async function doPull(){
     let cursor = db.meta.srvPull || '';
@@ -97,9 +118,11 @@ const Sync = (() => {
      lần trước. */
   let lastTasks = null;
   async function pushReminders(){
-    /* Nhân viên không đụng vào lời nhắc: máy chủ chặn (403) mà máy họ cũng
-       có ngưỡng cảnh báo riêng, đẩy lên sẽ ghi đè danh sách của bạn. */
-    if (!Server.isOwner()) return;
+    /* Nhân viên cũng được đẩy. Ban đầu tôi chặn, nhưng như thế thì tuần nào
+       chỉ nhân viên dùng app là danh sách trên máy chủ đứng yên — Telegram cứ
+       nhắc booking đã lên clip xong. Nhắc sai việc tệ hơn hẳn cái giá phải
+       trả: ngưỡng cảnh báo lưu theo từng máy, nên ngày hẹn của mấy việc
+       "gửi hàng lâu chưa thấy clip" có thể lệch vài ngày tuỳ ai đồng bộ sau. */
     let list;
     try { list = reminderTasks(); } catch(e){ return; }
     const json = JSON.stringify(list);
