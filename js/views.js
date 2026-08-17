@@ -495,7 +495,7 @@ function viewKol(id){
   if (k.note) h += sectionTitle('Ghi chú') + `<div class="card note">${nl(k.note)}</div>`;
 
   h += `<div class="btns" style="margin-top:20px">
-    <button class="btn dngr sm" data-act="delkol" data-id="${k.id}">Xoá KOC này</button></div>`;
+    ${isOwner() ? `<button class="btn dngr sm" data-act="delkol" data-id="${k.id}">Xoá KOC này</button>` : ''}</div>`;
   return h;
 }
 
@@ -891,7 +891,7 @@ function viewProduct(id){
   }
 
   h += `<div class="btns" style="margin-top:20px">
-    <button class="btn dngr sm" data-act="delproduct" data-id="${p.id}">Xoá sản phẩm</button></div>`;
+    ${isOwner() ? `<button class="btn dngr sm" data-act="delproduct" data-id="${p.id}">Xoá sản phẩm</button>` : ''}</div>`;
   return h;
 }
 

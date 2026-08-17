@@ -27,6 +27,10 @@ require __DIR__ . '/config.php';
 if (!defined('KH_PASSWORD') || KH_PASSWORD === '' || str_contains(KH_PASSWORD, 'DAN_MA_VAO_DAY'))
   khFail('Chưa đặt mật khẩu trong api/config.php. Chạy "node tools/hash-password.js" để tạo mã rồi dán vào.', 503);
 
+/* Mật khẩu thứ hai, cho nhân viên. Không khai báo hoặc để trống nghĩa là
+   không bật tài khoản nhân viên — app chạy y như cũ, chỉ mình bạn vào được. */
+if (!defined('KH_PASSWORD_STAFF')) define('KH_PASSWORD_STAFF', '');
+
 /* Múi giờ để biết "hôm nay" là ngày nào và "mấy giờ rồi" — hosting
    thường chạy giờ UTC, lệch 7 tiếng thì lời nhắc sáng sẽ tới lúc nửa đêm. */
 if (!defined('KH_TZ')) define('KH_TZ', 'Asia/Ho_Chi_Minh');
@@ -65,6 +69,11 @@ function db(): PDO {
   $pdo->exec('CREATE INDEX IF NOT EXISTS items_upd ON items(updated_at)');
   $pdo->exec('CREATE TABLE IF NOT EXISTS sessions (
       token_hash TEXT PRIMARY KEY, created_at TEXT, expires_at TEXT, label TEXT)');
+  /* Cột vai trò thêm sau, nên bảng cũ chưa có. SQLite không có
+     "ADD COLUMN IF NOT EXISTS" — cứ thử, đã có rồi thì bỏ qua lỗi.
+     Phiên cũ không ghi vai trò sẽ được coi là chủ (xem roleOf()). */
+  try { $pdo->exec("ALTER TABLE sessions ADD COLUMN role TEXT NOT NULL DEFAULT 'owner'"); }
+  catch (Throwable $e) { /* đã có cột rồi */ }
   $pdo->exec('CREATE TABLE IF NOT EXISTS login_fails (ip TEXT, at INTEGER)');
   /* kv: những thứ KHÔNG đồng bộ về máy — mã bot Telegram, khoá cron,
      danh sách việc cần nhắc. Mã bot mà đồng bộ xuống trình duyệt thì

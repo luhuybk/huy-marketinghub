@@ -13,11 +13,16 @@ const Server = (() => {
   const SEEN  = 'kolhub.hasserver';     // máy này từng thấy máy chủ chưa
   let mode = 'unknown';                 // unknown | none | anon | authed
   let checking = null;
+  /* owner = bạn · staff = nhân viên (không có Cài đặt, không xoá được).
+     Đây chỉ là bản sao để giao diện biết vẽ gì — máy chủ mới là chỗ chặn thật. */
+  let userRole = 'owner';
 
   const url = () => 'api/index.php';
   const available = () => mode === 'anon' || mode === 'authed';
   const authed    = () => mode === 'authed';
   const state     = () => mode;
+  const role      = () => userRole;
+  const isOwner   = () => userRole !== 'staff';
 
   async function call(action, body){
     let res;
@@ -61,6 +66,7 @@ const Server = (() => {
       .then(d => {
         try { localStorage.setItem(SEEN, '1'); } catch(e){}
         mode = d.auth ? 'authed' : 'anon';
+        if (d.auth) userRole = d.role === 'staff' ? 'staff' : 'owner';
         if (d.auth && d.expires) setGrace(d.expires);
         return mode;
       })
@@ -87,6 +93,7 @@ const Server = (() => {
   async function login(password){
     const d = await call('login', {password});
     mode = 'authed';
+    userRole = d.role === 'staff' ? 'staff' : 'owner';
     setGrace(d.expires);
     return d;
   }
@@ -125,7 +132,8 @@ const Server = (() => {
   const remind  = list  => call('remind_set', {tasks:list});
 
   return {probe, login, logout, logoutAll, pull, push, pushBeacon, stats,
-          tgGet, tgSave, tgTest, tgHook, remind, available, authed, state, call};
+          tgGet, tgSave, tgTest, tgHook, remind,
+          available, authed, state, role, isOwner, call};
 })();
 window.Server = Server;
 

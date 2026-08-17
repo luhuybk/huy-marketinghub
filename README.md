@@ -59,6 +59,45 @@ tệp đó đi, và xoá luôn `kolhub.v1` trong localStorage của trình duy�
 
 5. Mở tên miền. Chưa làm bước 4 thì app báo thẳng "Chưa có api/config.php".
 
+### Tài khoản nhân viên
+
+Muốn cho nhân viên vào nhập số liệu nhưng không đụng được cài đặt: tạo thêm
+một mã băm nữa với **mật khẩu khác**, rồi bỏ dấu `//` ở dòng cuối trong
+`config.php`:
+
+```bash
+node tools/hash-password.js "mật khẩu cho nhân viên"
+```
+
+```php
+define('KH_PASSWORD',       '…');   // của bạn
+define('KH_PASSWORD_STAFF', '…');   // của nhân viên
+```
+
+Không khai báo dòng thứ hai nghĩa là tắt tài khoản nhân viên — app chạy y như
+cũ, chỉ mình bạn vào được. Cùng một ô mật khẩu, gõ mã nào thì vào vai đó.
+
+| | Bạn (chủ) | Nhân viên |
+|---|---|---|
+| Booking · clip · quảng cáo · KOC | thêm, sửa | thêm, sửa |
+| Tài nguyên (thương hiệu, sản phẩm, mẫu tin nhắn) | thêm, sửa | thêm, sửa |
+| **Xoá bản ghi** | được | **không** |
+| **Cài đặt** (chấm điểm, ngưỡng cảnh báo, Telegram, sao lưu) | có | **không thấy** |
+| Đăng xuất mọi thiết bị | được | không |
+
+**Chặn thật nằm ở máy chủ, không phải ở giao diện.** `requireOwner()` trong
+`api/index.php` từ chối cả bảy đầu mối cài đặt, và `push` bỏ qua mọi dòng có
+cờ `deleted` gửi lên từ phiên nhân viên. Ẩn nút chỉ để màn hình đỡ rối — ai
+mở bảng điều khiển trình duyệt gọi thẳng vào API thì vẫn nhận 403.
+
+Nhân viên cũng không đẩy danh sách nhắc Telegram lên máy chủ. Máy họ có
+ngưỡng cảnh báo riêng (thiết lập lưu theo từng máy), đẩy lên sẽ ghi đè danh
+sách của bạn.
+
+Đổi mật khẩu về sau: chạy lại lệnh trên rồi thay dòng tương ứng. Các máy đang
+đăng nhập **vẫn giữ phiên** — muốn đá hết ra thì bấm *Đăng xuất mọi thiết bị*
+trong Cài đặt.
+
 ### Những gì KHÔNG được upload
 
 `build.js`, `serve.js`, `tools/`, `README.md` và `api/config.php` cố ý không

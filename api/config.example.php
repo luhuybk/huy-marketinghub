@@ -4,11 +4,20 @@
    KHÔNG đổi tên file mẫu này — cứ để nguyên nó làm bản tham chiếu.
    ============================================================ */
 
-/* --- 1. Mật khẩu đăng nhập ---
+/* --- 1. Mật khẩu của bạn (chủ) ---
    Tạo mã ở máy bạn:      node tools/hash-password.js
    Rồi dán nguyên chuỗi nó in ra vào giữa hai dấu nháy dưới đây.
    Mật khẩu thật không bao giờ nằm trong file này, chỉ có mã băm.  */
 define('KH_PASSWORD', 'DAN_MA_VAO_DAY');
+
+/* --- 1b. Mật khẩu nhân viên (không bắt buộc) ---
+   Tạo bằng đúng lệnh trên, với một mật khẩu KHÁC. Người đăng nhập bằng
+   mã này vào được mọi phần dữ liệu — booking, clip, quảng cáo, tài nguyên —
+   nhưng KHÔNG thấy Cài đặt và KHÔNG xoá được bản ghi nào.
+
+   Để nguyên dòng này bị chú thích (có //) nghĩa là tắt tài khoản nhân viên,
+   app chạy y như cũ: chỉ mình bạn vào được.                            */
+// define('KH_PASSWORD_STAFF', 'DAN_MA_NHAN_VIEN_VAO_DAY');
 
 /* --- 2. Nơi để file dữ liệu ---
    Mặc định: api/data/kolhub.sqlite (PHP tự tạo, tự chặn tải về).

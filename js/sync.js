@@ -97,6 +97,9 @@ const Sync = (() => {
      lần trước. */
   let lastTasks = null;
   async function pushReminders(){
+    /* Nhân viên không đụng vào lời nhắc: máy chủ chặn (403) mà máy họ cũng
+       có ngưỡng cảnh báo riêng, đẩy lên sẽ ghi đè danh sách của bạn. */
+    if (!Server.isOwner()) return;
     let list;
     try { list = reminderTasks(); } catch(e){ return; }
     const json = JSON.stringify(list);

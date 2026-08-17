@@ -23,11 +23,25 @@ const TITLES = {dash:'Tổng quan', pipeline:'Booking', kols:'KOL / KOC', clips:
 
 let route = {page:'dash', id:''};
 
+/* Nhân viên: vào được mọi phần dữ liệu, nhưng không thấy Cài đặt và không
+   xoá được gì. Đây chỉ là phần NHÌN THẤY — máy chủ mới là chỗ chặn thật
+   (xem requireOwner() trong api/index.php). Ẩn nút mà không chặn máy chủ
+   thì chỉ cần mở bảng điều khiển trình duyệt là qua mặt được. */
+const isOwner = () => !window.Server || Server.isOwner();
+
 /* ---------------- đường dẫn ---------------- */
 function parseHash(){
   const raw = (location.hash || '#dash').slice(1);
   const [page, id] = raw.split('/');
-  return {page: (TITLES[page] ? page : 'dash'), id: id || ''};
+  let page2 = TITLES[page] ? page : 'dash';
+  if (page2 === 'settings' && !isOwner()){
+    page2 = 'dash';
+    /* Sửa luôn đường dẫn cho khớp, nếu không thanh địa chỉ cứ đứng ở
+       #settings trong khi màn hình là Tổng quan. replaceState không bắn
+       hashchange nên không thành vòng lặp. */
+    try { history.replaceState(null, '', '#dash'); } catch(e){}
+  }
+  return {page: page2, id: id || ''};
 }
 function go(page, id){
   location.hash = '#' + page + (id ? '/' + id : '');
@@ -88,7 +102,8 @@ function renderSide(){
           st.state === 'error' ? 'lỗi đồng bộ' : 'chỉ lưu trên máy'}</div></div>
     </div>
     <div class="side-scroll">
-      ${NAV.map(n => `<button class="navi ${active === n.id ? 'on' : ''}" data-act="nav" data-id="${n.id}">
+      ${NAV.filter(n => n.id !== 'settings' || isOwner())
+           .map(n => `<button class="navi ${active === n.id ? 'on' : ''}" data-act="nav" data-id="${n.id}">
         <span class="i">${n.icon}</span>${esc(n.label)}
         ${badge[n.id] ? `<span class="b ${hot[n.id] ? 'hot' : ''}">${badge[n.id]}</span>` : ''}
       </button>`).join('')}
@@ -101,6 +116,9 @@ function renderSide(){
 
 function renderBar(){
   const t = $('#ttl'), s = $('#sub');
+  /* nút bánh răng nằm sẵn trong index.html nên phải giấu bằng tay */
+  const gear = $('.bar [data-act="nav"][data-id="settings"]');
+  if (gear) gear.style.display = isOwner() ? '' : 'none';
   if (route.page === 'kol'){
     const k = kolOf(route.id);
     t.textContent = k ? k.name : 'Hồ sơ KOC';
@@ -237,7 +255,7 @@ function formModal(o){
     fields.map(f => fieldHTML(f, getPath(o.values || {}, f.k))).join('')}</form>`
     + (o.extra || '');
   const foot = `<div class="btns end">
-    ${o.onDelete ? `<button class="btn dngr sm" data-act="formdel">Xoá</button>` : ''}
+    ${o.onDelete && isOwner() ? `<button class="btn dngr sm" data-act="formdel">Xoá</button>` : ''}
     <div class="grow"></div>
     <button class="btn sm" data-act="closem">Huỷ</button>
     <button class="btn pri" data-act="formsave">${esc(o.saveLabel || 'Lưu')}</button></div>`;
@@ -861,7 +879,7 @@ function copyText(text){
    NHẮC QUA TELEGRAM
    ============================================================ */
 async function loadTg(silent){
-  if (!Server.authed()) return;
+  if (!Server.authed() || !isOwner()) return;
   try {
     tgCfg = await Server.tgGet();
     /* màn Cài đặt đang mở thì phải vẽ lại, nếu không nó đứng mãi ở
@@ -1590,6 +1608,14 @@ document.addEventListener('click', e => {
   if (!act || !ACTIONS[act]) return;
   e.preventDefault();
   e.stopPropagation();
+  /* Một cửa duy nhất cho mọi thao tác, nên chặn quyền ở đây là đủ — khỏi
+     phải nhớ vá từng chỗ xoá rải khắp file. Nhân viên bấm nhầm (nút cũ còn
+     trong trang đang mở chẳng hạn) thì dừng ngay tại máy, không đánh dấu
+     xoá rồi mới bị máy chủ từ chối — như thế hai bên sẽ lệch nhau. */
+  if (!isOwner() && (act === 'formdel' || act.startsWith('del'))){
+    toast('Tài khoản nhân viên không xoá được. Nhờ chủ tài khoản làm giúp.');
+    return;
+  }
   ACTIONS[act](el.dataset.id || '', el);
   if (['nav','kol','product'].includes(act)){
     $('#side').classList.remove('open'); $('#scrim').classList.remove('on');

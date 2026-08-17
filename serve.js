@@ -30,13 +30,15 @@ if (!useSrc && !fs.existsSync(ROOT)){
 }
 
 /* ---------------- cấu hình: đọc thẳng từ api/config.php ---------------- */
-function loadPassword(){
+function loadPassword(name){
   const f = path.join(__dirname, 'api/config.php');
   if (!fs.existsSync(f)) return null;
-  const m = fs.readFileSync(f, 'utf8').match(/define\(\s*'KH_PASSWORD'\s*,\s*'([^']+)'\s*\)/);
-  return m && !m[1].includes('DAN_MA_VAO_DAY') ? m[1] : null;
+  const re = new RegExp("^\\s*define\\(\\s*'" + name + "'\\s*,\\s*'([^']+)'\\s*\\)", 'm');
+  const m = fs.readFileSync(f, 'utf8').match(re);
+  return m && !m[1].includes('DAN_MA') ? m[1] : null;
 }
-const KH_PASSWORD = loadPassword();
+const KH_PASSWORD       = loadPassword('KH_PASSWORD');
+const KH_PASSWORD_STAFF = loadPassword('KH_PASSWORD_STAFF');
 
 /* ---------------- kho dữ liệu ---------------- */
 let store = null;
@@ -52,9 +54,15 @@ function db(){
       PRIMARY KEY (kind, item_id));
     CREATE INDEX IF NOT EXISTS items_upd ON items(updated_at);
     CREATE TABLE IF NOT EXISTS sessions (
-      token_hash TEXT PRIMARY KEY, created_at TEXT, expires_at TEXT, label TEXT);
+      token_hash TEXT PRIMARY KEY, created_at TEXT, expires_at TEXT, label TEXT,
+      role TEXT NOT NULL DEFAULT 'owner');
     CREATE TABLE IF NOT EXISTS login_fails (ip TEXT, at INTEGER);
     CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);`);
+  /* Cột vai trò thêm sau nên bảng cũ chưa có, mà SQLite không có
+     "ADD COLUMN IF NOT EXISTS" — cứ thử, đã có rồi thì bỏ qua lỗi.
+     Giống hệt chỗ nâng cấp trong api/lib.php. */
+  try { store.exec("ALTER TABLE sessions ADD COLUMN role TEXT NOT NULL DEFAULT 'owner'"); }
+  catch(e){ /* đã có cột rồi */ }
   return store;
 }
 
@@ -161,9 +169,16 @@ function itemApply(ref, set, todayYmd){
 }
 
 /* ---------------- mật khẩu: giống hệt PHP ---------------- */
-function checkPassword(given){
-  if (!KH_PASSWORD) return false;
-  const p = KH_PASSWORD.split('$');
+/* Vai trò ứng với mật khẩu vừa gõ, hoặc '' nếu sai cả hai. Thử đủ cả hai
+   kể cả khi cái đầu đã khớp, để thời gian trả lời không tiết lộ gì. */
+function roleForPassword(given){
+  const owner = matchHash(KH_PASSWORD, given);
+  const staff = !!KH_PASSWORD_STAFF && matchHash(KH_PASSWORD_STAFF, given);
+  return owner ? 'owner' : (staff ? 'staff' : '');
+}
+function matchHash(stored, given){
+  if (!stored) return false;
+  const p = stored.split('$');
   if (p.length !== 4 || p[0] !== 'pbkdf2_sha256') return false;
   const salt = Buffer.from(p[2], 'base64');
   const want = Buffer.from(p[3], 'base64');
@@ -220,26 +235,35 @@ function api(req, res, body){
   let inp; try { inp = JSON.parse(body || '{}'); } catch(e){ return fail('JSON không hợp lệ'); }
   const s = session(req);
   const need = () => { if (!s) { fail('Chưa đăng nhập', 401); return false; } return true; };
+  /* phiên cũ chưa có cột role thì coi như chủ */
+  const role = () => s ? (s.role === 'staff' ? 'staff' : 'owner') : '';
+  /* Ẩn nút ở giao diện KHÔNG phải là chặn — chặn thật ở đây. */
+  const owner = () => {
+    if (!need()) return false;
+    if (role() !== 'owner'){ fail('Tài khoản nhân viên không mở được phần cài đặt.', 403); return false; }
+    return true;
+  };
   const ip = req.socket.remoteAddress || '?';
 
   switch (inp.action){
     case 'me':
-      return send({ok:true, auth:!!s, server:true, expires:s ? s.expires_at : null});
+      return send({ok:true, auth:!!s, server:true, role:role(), expires:s ? s.expires_at : null});
 
     case 'login': {
       db().prepare('DELETE FROM login_fails WHERE at < ?').run(Math.floor(Date.now()/1000) - FAIL_WIN);
       const fails = db().prepare('SELECT COUNT(*) c FROM login_fails WHERE ip = ?').get(ip).c;
       if (fails >= FAIL_MAX) return fail('Sai quá nhiều lần. Thử lại sau 15 phút.', 429);
-      if (!checkPassword(String(inp.password || ''))){
+      const newRole = roleForPassword(String(inp.password || ''));
+      if (!newRole){
         db().prepare('INSERT INTO login_fails (ip, at) VALUES (?, ?)').run(ip, Math.floor(Date.now()/1000));
         return fail(`Sai mật khẩu. Còn ${Math.max(0, FAIL_MAX - fails - 1)} lần thử.`, 401);
       }
       db().prepare('DELETE FROM login_fails WHERE ip = ?').run(ip);
       const token = crypto.randomBytes(32).toString('hex');
       const exp = iso(Date.now() + SESSION_DAY * 86400000);
-      db().prepare('INSERT INTO sessions (token_hash, created_at, expires_at, label) VALUES (?,?,?,?)')
-          .run(sha(token), iso(), exp, String(req.headers['user-agent'] || '').slice(0,120));
-      return send({ok:true, auth:true, expires:exp}, 200,
+      db().prepare('INSERT INTO sessions (token_hash, created_at, expires_at, label, role) VALUES (?,?,?,?,?)')
+          .run(sha(token), iso(), exp, String(req.headers['user-agent'] || '').slice(0,120), newRole);
+      return send({ok:true, auth:true, role:newRole, expires:exp}, 200,
         {'Set-Cookie': `kh_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAY*86400}`});
     }
 
@@ -249,7 +273,7 @@ function api(req, res, body){
       return send({ok:true, auth:false}, 200, {'Set-Cookie':'kh_session=; Path=/; HttpOnly; Max-Age=0'});
     }
     case 'logout_all':
-      if (!need()) return;
+      if (!owner()) return;
       db().exec('DELETE FROM sessions');
       return send({ok:true, auth:false}, 200, {'Set-Cookie':'kh_session=; Path=/; HttpOnly; Max-Age=0'});
 
@@ -270,13 +294,15 @@ function api(req, res, body){
       const sel = db().prepare('SELECT updated_at FROM items WHERE kind = ? AND item_id = ?');
       const ins = db().prepare('INSERT INTO items (kind,item_id,data,updated_at,deleted) VALUES (?,?,?,?,?)');
       const upd = db().prepare('UPDATE items SET data=?, updated_at=?, deleted=? WHERE kind=? AND item_id=?');
-      let saved = 0, skipped = 0;
+      const mayDelete = role() === 'owner';
+      let saved = 0, skipped = 0, blocked = 0;
       db().exec('BEGIN');
       try {
         for (const r of inp.rows){
           const kind = String(r.kind || ''), id = String(r.item_id || ''), up = String(r.updated_at || '');
           if (!kind || !id || !up){ skipped++; continue; }
           const json = JSON.stringify(r.data ?? null), del = r.deleted ? 1 : 0;
+          if (del && !mayDelete){ blocked++; continue; }
           const cur = sel.get(kind, id);
           if (!cur)                        { ins.run(kind, id, json, up, del); saved++; }
           else if (cur.updated_at < up)    { upd.run(json, up, del, kind, id); saved++; }
@@ -284,12 +310,12 @@ function api(req, res, body){
         }
         db().exec('COMMIT');
       } catch(e){ db().exec('ROLLBACK'); return fail('Ghi dữ liệu lỗi: ' + e.message, 500); }
-      return send({ok:true, saved, skipped, now:iso()});
+      return send({ok:true, saved, skipped, blocked, now:iso()});
     }
 
     /* ---- Telegram: cùng hợp đồng với bản PHP ---- */
     case 'tg_get': {
-      if (!need()) return;
+      if (!owner()) return;
       const c = tgConfig();
       let key = kvGet('cron_key', '');
       if (!key){ key = crypto.randomBytes(16).toString('hex'); kvSet('cron_key', key); }
@@ -304,7 +330,7 @@ function api(req, res, body){
         last:kvGet('tg_last', null), tz:TZ});
     }
     case 'tg_save': {
-      if (!need()) return;
+      if (!owner()) return;
       const c = tgConfig();
       const tok = String(inp.token || '').trim();
       if (tok) c.token = tok;
@@ -335,7 +361,7 @@ function api(req, res, body){
       return send({ok:true, rescheduled:changedHours});
     }
     case 'tg_test': {
-      if (!need()) return;
+      if (!owner()) return;
       const c = tgConfig();
       if (!c.token) return fail('Chưa có mã bot.');
       const list = TG_FEEDS.includes(inp.feed) ? [inp.feed] : TG_FEEDS;
@@ -355,7 +381,7 @@ function api(req, res, body){
       })();
     }
     case 'tg_hook': {
-      if (!need()) return;
+      if (!owner()) return;
       const c = tgConfig();
       if (!c.token) return fail('Chưa có mã bot.');
       if (inp.off)
@@ -367,7 +393,7 @@ function api(req, res, body){
                   'Bấm nút này trên bản đã upload lên hosting (https) thì mới đăng ký được.');
     }
     case 'remind_set': {
-      if (!need()) return;
+      if (!owner()) return;
       if (!Array.isArray(inp.tasks)) return fail('Thiếu danh sách tasks');
       kvSet('reminders', inp.tasks.slice(0, 500));
       kvSet('reminders_at', iso());
@@ -375,7 +401,7 @@ function api(req, res, body){
     }
 
     case 'stats': {
-      if (!need()) return;
+      if (!owner()) return;
       const q = sql => db().prepare(sql).get();
       const f = path.join(__dirname, 'api/data/dev.sqlite');
       return send({ok:true,

@@ -33,8 +33,8 @@ require __DIR__ . '/lib.php';
 /* ---------------- mật khẩu: PBKDF2-SHA256 ----------------
    Cùng thuật toán với tools/hash-password.js, nên mã tạo ở máy bạn
    dùng được thẳng ở đây mà không cần cài gì thêm.                */
-function checkPassword(string $given): bool {
-  $parts = explode('$', KH_PASSWORD);
+function matchHash(string $stored, string $given): bool {
+  $parts = explode('$', $stored);
   if (count($parts) !== 4 || $parts[0] !== 'pbkdf2_sha256') return false;
   [, $iter, $saltB64, $hashB64] = $parts;
   $salt = base64_decode($saltB64, true);
@@ -42,6 +42,14 @@ function checkPassword(string $given): bool {
   if ($salt === false || $want === false) return false;
   $got = hash_pbkdf2('sha256', $given, $salt, max(1, (int)$iter), strlen($want), true);
   return hash_equals($want, $got);   // so sánh thời gian không đổi
+}
+/* Trả về vai trò ứng với mật khẩu vừa gõ, hoặc '' nếu sai cả hai.
+   Luôn thử ĐỦ cả hai mật khẩu, kể cả khi cái đầu đã khớp — để thời gian
+   trả lời không tiết lộ mình vừa gõ trúng mật khẩu nào. */
+function roleForPassword(string $given): string {
+  $owner = matchHash(KH_PASSWORD, $given);
+  $staff = KH_PASSWORD_STAFF !== '' && matchHash(KH_PASSWORD_STAFF, $given);
+  return $owner ? 'owner' : ($staff ? 'staff' : '');
 }
 
 /* ---------------- phiên đăng nhập ---------------- */
@@ -73,6 +81,20 @@ function currentSession(): ?array {
 }
 function requireAuth(): void {
   if (!currentSession()) fail('Chưa đăng nhập', 401);
+}
+/* Phiên tạo từ bản cũ chưa có cột role — coi như chủ, vì hồi đó chỉ có
+   một mật khẩu duy nhất và nó là của bạn. */
+function roleOf(): string {
+  $s = currentSession();
+  if (!$s) return '';
+  return ($s['role'] ?? '') === 'staff' ? 'staff' : 'owner';
+}
+/* Những việc chỉ chủ được làm: cấu hình Telegram, xem/đổi thiết lập máy chủ,
+   đá thiết bị khác ra. Ẩn nút ở giao diện KHÔNG phải là chặn — ai cũng mở
+   được bảng điều khiển trình duyệt và gọi thẳng vào đây. Chặn thật ở chỗ này. */
+function requireOwner(): void {
+  requireAuth();
+  if (roleOf() !== 'owner') fail('Tài khoản nhân viên không mở được phần cài đặt.', 403);
 }
 
 /* ---------------- chống dò mật khẩu ---------------- */
@@ -106,15 +128,16 @@ switch ($action) {
   case 'me': {
     $s = currentSession();
     out(['ok' => true, 'auth' => (bool)$s, 'server' => true,
-         'expires' => $s['expires_at'] ?? null]);
+         'role' => $s ? roleOf() : '', 'expires' => $s['expires_at'] ?? null]);
   }
 
   case 'login': {
     if (failCount() >= FAIL_MAX)
       fail('Sai quá nhiều lần. Thử lại sau 15 phút.', 429);
 
-    $pw = (string)($in['password'] ?? '');
-    if ($pw === '' || !checkPassword($pw)) {
+    $pw   = (string)($in['password'] ?? '');
+    $role = $pw === '' ? '' : roleForPassword($pw);
+    if ($role === '') {
       db()->prepare('INSERT INTO login_fails (ip, at) VALUES (?, ?)')->execute([clientIp(), time()]);
       usleep(400000);                        // làm chậm mỗi lần thử
       $left = max(0, FAIL_MAX - failCount());
@@ -126,11 +149,11 @@ switch ($action) {
 
     $token = bin2hex(random_bytes(32));
     $exp   = time() + SESSION_DAY * 86400;
-    db()->prepare('INSERT INTO sessions (token_hash, created_at, expires_at, label) VALUES (?,?,?,?)')
+    db()->prepare('INSERT INTO sessions (token_hash, created_at, expires_at, label, role) VALUES (?,?,?,?,?)')
         ->execute([hash('sha256', $token), gmdate('c'), gmdate('c', $exp),
-                   substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 120)]);
+                   substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 120), $role]);
     setSessionCookie($token, $exp);
-    out(['ok' => true, 'auth' => true, 'expires' => gmdate('c', $exp)]);
+    out(['ok' => true, 'auth' => true, 'role' => $role, 'expires' => gmdate('c', $exp)]);
   }
 
   case 'logout': {
@@ -142,7 +165,7 @@ switch ($action) {
 
   /* thoát mọi phiên trên mọi máy — dùng khi nghi mật khẩu bị lộ */
   case 'logout_all': {
-    requireAuth();
+    requireOwner();
     db()->exec('DELETE FROM sessions');
     setSessionCookie('', time() - 3600);
     out(['ok' => true, 'auth' => false]);
@@ -176,7 +199,11 @@ switch ($action) {
     $ins = $pdo->prepare('INSERT INTO items (kind, item_id, data, updated_at, deleted) VALUES (?,?,?,?,?)');
     $upd = $pdo->prepare('UPDATE items SET data = ?, updated_at = ?, deleted = ? WHERE kind = ? AND item_id = ?');
 
-    $saved = 0; $skipped = 0;
+    /* Nhân viên được thêm và sửa, không được xoá. Chặn ở đây chứ không chỉ
+       ẩn nút, vì nút ẩn thì vẫn gọi thẳng vào địa chỉ này được. */
+    $mayDelete = roleOf() === 'owner';
+
+    $saved = 0; $skipped = 0; $blocked = 0;
     $pdo->beginTransaction();
     try {
       foreach ($rows as $r) {
@@ -186,6 +213,7 @@ switch ($action) {
         if ($kind === '' || $id === '' || $upAt === '') { $skipped++; continue; }
         $json = json_encode($r['data'] ?? null, JSON_UNESCAPED_UNICODE);
         $del  = !empty($r['deleted']) ? 1 : 0;
+        if ($del && !$mayDelete) { $blocked++; continue; }
 
         $sel->execute([$kind, $id]);
         $cur = $sel->fetch();
@@ -198,7 +226,8 @@ switch ($action) {
       $pdo->rollBack();
       fail('Ghi dữ liệu lỗi', 500);
     }
-    out(['ok' => true, 'saved' => $saved, 'skipped' => $skipped, 'now' => gmdate('c')]);
+    out(['ok' => true, 'saved' => $saved, 'skipped' => $skipped,
+         'blocked' => $blocked, 'now' => gmdate('c')]);
   }
 
   /* ---------------- Telegram ---------------- */
@@ -206,7 +235,7 @@ switch ($action) {
   /* Trả về cấu hình để hiện lên màn Cài đặt. KHÔNG trả mã bot —
      chỉ nói là "đã có" hay chưa. */
   case 'tg_get': {
-    requireAuth();
+    requireOwner();
     $c = tgConfig();
     $key = kvGet('cron_key', '');
     if (!$key) { $key = bin2hex(random_bytes(16)); kvSet('cron_key', $key); }
@@ -233,7 +262,7 @@ switch ($action) {
   }
 
   case 'tg_save': {
-    requireAuth();
+    requireOwner();
     $c = tgConfig();
     $tok = trim((string)($in['token'] ?? ''));
     /* để trống nghĩa là giữ mã cũ — vì màn hình không bao giờ nhìn thấy mã cũ */
@@ -280,7 +309,7 @@ switch ($action) {
   }
 
   case 'tg_test': {
-    requireAuth();
+    requireOwner();
     $c = tgConfig();
     if ($c['token'] === '') fail('Chưa có mã bot.');
     $feed = (string)($in['feed'] ?? '');
@@ -302,7 +331,7 @@ switch ($action) {
 
   /* bật/tắt đường về: Telegram gọi ngược vào api/tg.php khi bạn bấm nút */
   case 'tg_hook': {
-    requireAuth();
+    requireOwner();
     $c = tgConfig();
     if ($c['token'] === '') fail('Chưa có mã bot.');
     if (!empty($in['off'])) {
@@ -329,7 +358,7 @@ switch ($action) {
 
   /* app đẩy lên danh sách việc kèm ngày hẹn — cron đọc lại mỗi sáng */
   case 'remind_set': {
-    requireAuth();
+    requireOwner();
     $tasks = $in['tasks'] ?? null;
     if (!is_array($tasks)) fail('Thiếu danh sách tasks');
     if (count($tasks) > 500) $tasks = array_slice($tasks, 0, 500);
@@ -340,7 +369,7 @@ switch ($action) {
 
   /* vài con số để hiện trong Cài đặt */
   case 'stats': {
-    requireAuth();
+    requireOwner();
     $n = (int)db()->query('SELECT COUNT(*) c FROM items WHERE deleted = 0')->fetch()['c'];
     $d = (int)db()->query('SELECT COUNT(*) c FROM items WHERE deleted = 1')->fetch()['c'];
     $s = (int)db()->query('SELECT COUNT(*) c FROM sessions')->fetch()['c'];
