@@ -1,0 +1,14 @@
+{
+  "name": "KOL Hub — booking & Shopee Ads",
+  "short_name": "KOL Hub",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0e1014",
+  "theme_color": "#0e1014",
+  "lang": "vi",
+  "icons": [
+    {"src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "kol-hub",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["serve.js", "--src"],
+      "port": 5299
+    }
+  ]
+}
