@@ -1727,7 +1727,9 @@ function judgeImpactModal(id){
 
 /* ---- nạp số liệu từ file Shopee ---- */
 function spImportModal(presetProduct){
-  const ps = products().filter(p => !p.archived);
+  /* Kể cả sản phẩm đã ngưng theo dõi: bỏ nó ra khỏi danh sách đối chiếu thì
+     nạp lại số liệu của nó sẽ đẻ ra một bản ghi trùng tên thay vì báo lỗi. */
+  const ps = products();
   const body = `
     <div class="explain">Lấy file ở <b>Kênh Người Bán › Phân tích bán hàng › Hiệu suất sản phẩm</b>,
       chọn khoảng <b>một tuần</b> rồi bấm Xuất dữ liệu. Muốn có cả phần "doanh thu đến từ đâu"
@@ -1794,7 +1796,9 @@ function spImportModal(presetProduct){
     const nNew  = rows.filter(x => x.p && x.chk.ok && !x.ex).length;
     const nUpd  = rows.filter(x => x.p && x.chk.ok && x.ex).length;
     const nChan = rows.filter(x => x.p && !x.chk.ok).length;
-    const nMoi  = rows.filter(x => !x.p).length;
+    /* Đếm SỐ SẢN PHẨM sẽ tạo, không phải số dòng chưa khớp: một tệp bốn tuần
+       của cùng một sản phẩm có bốn dòng chưa khớp nhưng chỉ tạo một sản phẩm. */
+    const nMoi = new Set(rows.filter(x => !x.p).map(x => norm(x.r.sku) || norm(x.r.name))).size;
 
     res.innerHTML = `
       ${parsed.warn.map(w => `<div class="explain">${esc(w)}</div>`).join('')}
@@ -1830,7 +1834,8 @@ function spImportModal(presetProduct){
       }).join('') + `</tbody></table></div>
       <div class="dim" style="margin-top:8px">
         ${nNew ? nNew + ' tuần mới · ' : ''}${nUpd ? nUpd + ' tuần ghi đè · ' : ''}
-        ${nMoi ? nMoi + ' sản phẩm sẽ tạo mới · ' : ''}${nChan ? nChan + ' dòng bị chặn · ' : ''}
+        ${nMoi ? nMoi + (nMoi === 1 ? ' sản phẩm sẽ tạo mới · ' : ' sản phẩm sẽ tạo mới · ') : ''}${
+          nChan ? nChan + ' dòng bị chặn · ' : ''}
         ${plan.channels ? 'có kèm doanh thu theo kênh' : 'không có doanh thu theo kênh'}
       </div>`;
     btnGo.disabled = !rows.some(x => !x.p || x.chk.ok);
@@ -1863,23 +1868,30 @@ function spImportModal(presetProduct){
   btnGo.addEventListener('click', () => {
     if (!plan) return;
     let added = 0, updated = 0, made = 0, chan = 0, doiTen = 0;
+    /* Một tệp nhiều tuần có CÙNG sản phẩm ở mỗi dòng. Không nhớ lại cái vừa
+       tạo thì mỗi tuần đẻ ra một bản ghi sản phẩm mới trùng tên — và người
+       dùng chỉ phát hiện khi thấy sản phẩm của mình nhân lên bốn lần. */
+    const vuaTao = {};
     plan.rows.forEach((x, i) => {
       let p = x.p;
       if (p && !x.chk.ok){ chan++; return; }
-      if (!p){
+      const khoa = norm(x.r.sku) || norm(x.r.name);
+      if (!p && vuaTao[khoa]) p = vuaTao[khoa];
+      else if (!p){
         const cb = res.querySelector(`[data-mk="${i}"]`);
         if (cb && !cb.checked) return;
         p = stamp({name: x.r.name, sku: x.r.sku, brand:'', url:'', note:'', price:0,
                    archived:false, spStatus:'watch',
                    shopeeName: x.r.name, shopeeSku: x.r.sku});
-        db.products.push(p); made++;
+        db.products.push(p); vuaTao[khoa] = p; made++;
       } else {
-        /* Lần đầu nạp cho một sản phẩm có sẵn: khoá nó lại từ đây. */
-        if (!p.shopeeSku && !p.shopeeName){
-          p.shopeeName = x.r.name; p.shopeeSku = x.r.sku;
-          if (!p.sku) p.sku = x.r.sku;
-          stamp(p);
-        }
+        /* Khoá lại những gì còn thiếu. Khoá theo tên trước rồi lần sau mới có
+           mã thì phải ghi mã vào — không thì nó mãi không có bằng chứng chính. */
+        let doi = false;
+        if (!p.shopeeName){ p.shopeeName = x.r.name; doi = true; }
+        if (!p.shopeeSku && x.r.sku){ p.shopeeSku = x.r.sku; doi = true; }
+        if (!p.sku && x.r.sku){ p.sku = x.r.sku; doi = true; }
+        if (doi) stamp(p);
         const rn = res.querySelector(`[data-rn="${i}"]`);
         if (x.chk.rename && rn && rn.checked){
           p.shopeeName = x.chk.rename; stamp(p); doiTen++;

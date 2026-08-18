@@ -1560,6 +1560,28 @@ const spLastWeek  = pid => { const l = spWeeksOf(pid); return l.length ? l[l.len
 /* Sản phẩm đã nạp số liệu Shopee ít nhất một tuần, còn đang bán */
 const spProducts  = () => products().filter(p => !p.archived && spWeeksOf(p.id).length);
 
+/* ---- Hai tuần có thật sự liền nhau không ----
+   Bỏ lỡ một tuần nạp số liệu là chuyện sẽ xảy ra: bận, nghỉ lễ, quên. Vấn đề
+   là khi đó tuần 03/08 và tuần 24/08 nằm cạnh nhau trong danh sách, và mọi
+   phép so đều ngầm coi chúng là liền kề — "tụt 23% so với tuần trước" trong
+   khi thật ra là tụt sau ba tuần, có thể vì bất cứ chuyện gì trong hai tuần
+   không ai nhìn. Trả về số ngày trống ở giữa; 0 nghĩa là liền nhau thật. */
+function weekGap(a, b){
+  if (!a || !b) return null;
+  return Math.max(0, Math.round(
+    (new Date(b.from + 'T00:00:00') - new Date(a.to + 'T00:00:00')) / 86400000) - 1);
+}
+/* Những khoảng bị hụt trong cả chuỗi tuần của một sản phẩm */
+function spGaps(pid){
+  const ws = spWeeksOf(pid);
+  const out = [];
+  for (let i = 1; i < ws.length; i++){
+    const g = weekGap(ws[i-1], ws[i]);
+    if (g > 0) out.push({from: ws[i-1], to: ws[i], days: g, weeks: Math.round(g / 7)});
+  }
+  return out;
+}
+
 /* Tuần gần nhất so với tuần liền trước — "tôi đang tốt lên hay xấu đi" */
 function spTrend(pid){
   const ws = spWeeksOf(pid);
@@ -1569,7 +1591,8 @@ function spTrend(pid){
   const keys = ['impV','ctr','cartCr','cartToOrder','confirmR','cvr','gmv','rpm','aov','orderCr'];
   const d = {};
   if (prev) keys.forEach(k => d[k] = chgPct(cur[k], prev[k]));
-  return {week:last, prevWeek:before, cur, prev, d: prev ? d : null};
+  return {week:last, prevWeek:before, cur, prev, d: prev ? d : null,
+          gap: weekGap(before, last)};
 }
 
 /* ---- nguồn doanh thu ----
@@ -1768,6 +1791,10 @@ function spDiagnose(pid){
     dropping: tut[0] || null,
     gain,
     thin: thoImp || thoVisit,
+    /* >0 nghĩa là "tuần trước" thật ra cách xa mấy tuần — mọi kết luận về
+       xu hướng phải nói kèm điều đó, không thì nó là lời nói dối gọn gàng. */
+    gap: tr ? tr.gap : null,
+    gaps: spGaps(pid),
     /* Nguồn doanh thu lấy từ tuần gần nhất CÓ số liệu kênh, không nhất thiết
        là tuần gần nhất — xem spChannelWeek(). */
     chWeek: spChannelWeek(pid),
@@ -1819,12 +1846,23 @@ function impactWeeks(im){
   const ws = spWeeksOf(im.productId);
   const base = ws.filter(w => w.to < im.date).pop() || null;
   const after = ws.find(w => w.from >= im.date) || null;
-  return {base, after, straddling: ws.find(w => w.from < im.date && w.to >= im.date) || null};
+  const cach = n => n == null ? null : Math.max(0, n);
+  return {
+    base, after,
+    straddling: ws.find(w => w.from < im.date && w.to >= im.date) || null,
+    /* Bao nhiêu ngày trống giữa tuần mốc và ngày làm, giữa ngày làm và tuần đo.
+       Đo một thay đổi bằng một tuần cách nó hai tuần thì con số đo được là của
+       hai tuần đó, không phải của thay đổi. */
+    hutTruoc: base ? cach(Math.round(
+      (new Date(im.date + 'T00:00:00') - new Date(base.to + 'T00:00:00')) / 86400000) - 1) : null,
+    hutSau: after ? cach(Math.round(
+      (new Date(after.from + 'T00:00:00') - new Date(im.date + 'T00:00:00')) / 86400000)) : null
+  };
 }
 /* Kết quả thật của một hành động. null nghĩa là chưa đủ tuần để nói gì. */
 function impactResult(im){
-  const {base, after, straddling} = impactWeeks(im);
-  if (!base || !after) return {base, after, straddling, ready:false};
+  const {base, after, straddling, hutTruoc, hutSau} = impactWeeks(im);
+  if (!base || !after) return {base, after, straddling, hutTruoc, hutSau, ready:false};
   const b = spMetrics(base), a = spMetrics(after);
   const st0 = im.metric ? SP_STAGE[im.metric] : null;
   const key = st0 ? (st0.key === 'imp' ? 'impV' : st0.key) : '';
@@ -1857,7 +1895,22 @@ function impactResult(im){
     else if (Math.abs(dMetric) < 10 && Math.abs(dGmv) < 10)
       luuY = 'Gần như không đổi. Thay đổi quá nhẹ, hoặc chưa đủ lượng để thấy.';
   }
-  return {base, after, straddling, ready:true, b, a, dMetric, dGmv, suggest,
+  /* Khoảng trống lấn át mọi lời bàn về nguyên nhân, nên nó được nói TRƯỚC.
+     Ngưỡng là MỘT TUẦN TRÒN, không phải vài ngày: đổi ảnh bìa vào thứ Năm thì
+     tuần đo bắt đầu sau đó 4 ngày — đó là nhịp bình thường của việc đo theo
+     tuần, không phải dữ liệu bị thiếu. Đặt ngưỡng 3 ngày thì gần như lần đo
+     nào cũng bị gắn cảnh báo, và một cảnh báo lúc nào cũng bật thì không còn
+     là cảnh báo nữa. */
+  const xa = (hutTruoc > 7 || hutSau > 7);
+  if (xa)
+    luuY = 'Thiếu tuần số liệu quanh ngày làm' +
+      (hutTruoc > 7 ? ' (tuần mốc kết thúc trước đó ' + hutTruoc + ' ngày)' : '') +
+      (hutSau > 7 ? ' (tuần đo mãi ' + hutSau + ' ngày sau mới bắt đầu)' : '') +
+      ' — con số đo được là của cả khoảng đó, không riêng của thay đổi này.' +
+      (luuY ? ' ' + luuY : '');
+
+  return {base, after, straddling, hutTruoc, hutSau, gapped: xa,
+          ready:true, b, a, dMetric, dGmv, suggest,
           text: cau.join(' · '), note: luuY, stage: s};
 }
 
@@ -2052,7 +2105,8 @@ function alerts(){
     if (!d || !d.dropping || d.thin) return;
     const x = d.dropping;
     out.push({level:'warn', kind:'spdrop', productId:p.id,
-      title: p.name + ': ' + x.stage.label.toLowerCase() + ' tụt ' + Math.round(-x.delta) + '%',
+      title: p.name + ': ' + x.stage.label.toLowerCase() + ' tụt ' + Math.round(-x.delta) + '%' +
+             (d.gap ? ' (so với tuần cách ' + d.gap + ' ngày)' : ''),
       sub: 'tuần ' + fmtShort(d.week.from) + '–' + fmtShort(d.week.to) + ' · sửa bằng: ' + x.stage.fix,
       sort: 200 + (-x.delta)});
   });

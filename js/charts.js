@@ -117,9 +117,15 @@ const Chart = (() => {
                 <title>${esc2(rows[p.i].label)} · ${esc2(l.label)}: ${esc2(fmtL(p.v))}</title></circle>`;
         /* Cả hai trục đã bị cột chiếm thì đường không còn thang nào để đọc —
            ghi thẳng con số lên điểm, đằng nào đó cũng là số bạn muốn đọc chính xác. */
+        /* Viền cùng màu nền vẽ TRƯỚC chữ (paint-order) tạo một vành sáng quanh
+           chữ, nên số vẫn đọc được khi nó nằm đè lên đường kẻ hoặc lên chính
+           đường biểu đồ. Không có vành này thì chữ chìm hẳn — đúng chuyện đã
+           xảy ra ở bản trước. */
         if (l.showValue)
-          s += `<text x="${cx(p.i).toFixed(1)}" y="${(yL(p.v)-9).toFixed(1)}"
-                      class="c-ax c-ax-c" fill="${l.color}">${esc2(fmtL(p.v))}</text>`;
+          s += `<text x="${cx(p.i).toFixed(1)}" y="${(yL(p.v)-11).toFixed(1)}"
+                      class="c-val c-ax-c" fill="${l.color}"
+                      stroke="var(--bg2)" stroke-width="3.5" stroke-linejoin="round"
+                      paint-order="stroke">${esc2(fmtL(p.v))}</text>`;
       });
     });
 

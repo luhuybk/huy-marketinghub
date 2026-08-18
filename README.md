@@ -495,6 +495,23 @@ Khi hai con số đá nhau, app nói ra thay vì gộp thành một kết luận
 | xấu đi | tăng | doanh thu tăng nhưng không phải nhờ việc này |
 | gần như không đổi | gần như không đổi | thay đổi quá nhẹ, hoặc chưa đủ lượng để thấy |
 
+### Tuần bị hụt
+
+Bỏ lỡ một tuần nạp số liệu là chuyện sẽ xảy ra: bận, nghỉ lễ, quên. Vấn đề là
+lúc đó tuần 03/08 và tuần 24/08 nằm cạnh nhau trong danh sách, và mọi phép so
+ngầm coi chúng là liền kề — *“tụt 23% so với tuần trước”* trong khi thật ra là
+tụt sau **ba tuần**, có thể vì bất cứ chuyện gì trong hai tuần không ai nhìn.
+
+App phát hiện và nói ra ở ba chỗ: băng cảnh báo trên trang sản phẩm (*“chuỗi
+tuần bị hụt 1 chỗ: 09/08 → 24/08, thiếu 2 tuần”*), dòng “so tuần cách N ngày”
+thay cho “so tuần trước”, và ghi chú trên kết quả đo của hành động rơi vào
+khoảng hụt.
+
+Ngưỡng là **một tuần tròn**, không phải vài ngày: đổi ảnh bìa vào thứ Năm thì
+tuần đo bắt đầu sau đó 4 ngày — đó là nhịp bình thường của việc đo theo tuần.
+Đặt ngưỡng 3 ngày thì gần như lần đo nào cũng bị gắn cảnh báo, và một cảnh báo
+lúc nào cũng bật thì không còn là cảnh báo.
+
 **Tuần nằm vắt qua ngày làm thay đổi bị bỏ ra khỏi phép so** — nửa cũ nửa mới
 trộn vào nhau thì so gì cũng vô nghĩa. App nói rõ khi điều đó xảy ra.
 

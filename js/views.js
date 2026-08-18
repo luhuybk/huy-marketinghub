@@ -1100,11 +1100,16 @@ function viewImprove(){
       </div></div>`;
 
   /* ---- tới hạn nạp lại số liệu để đo ---- */
+  /* Quét từ danh sách hành động, không từ danh sách sản phẩm đã có số liệu:
+     ghi một hành động rồi mới nạp số liệu lần đầu là trình tự bình thường, và
+     kiểu quét cũ làm việc đó biến mất khỏi đúng cái trang sinh ra để nhắc nó. */
   const due = [];
-  list.forEach(({product}) => openImpactsOf(product.id).forEach(im => {
+  openImpacts().forEach(im => {
+    const p = productOf(im.productId);
+    if (!p || p.archived) return;
     const d = dayDiff(im.reviewAt);
-    if (d <= 0) due.push({p: product, im, d});
-  }));
+    if (d <= 0) due.push({p, im, d});
+  });
   due.sort((a,b) => a.im.reviewAt.localeCompare(b.im.reviewAt));
   if (due.length){
     h += `<div class="mod">` + moduleHead('⚡', 'Tới hạn nạp số liệu để đo',
@@ -1157,8 +1162,8 @@ function viewImprove(){
               ${weak.stage.unit === 'n' ? num(weak.value) : pctText(weak.value, 2)}
               so với trung vị ${weak.stage.unit === 'n' ? num(weak.med) : pctText(weak.med, 2)}</span></div>` : ''}
           ${drop ? `<div class="sp-line"><span class="sp-ic bad">↓</span>
-              <span>Tụt so với tuần trước: <b>${esc(drop.stage.label.toLowerCase())}</b>
-              ${Math.round(-drop.delta)}%</span></div>` : ''}
+              <span>Tụt <b>${Math.round(-drop.delta)}%</b> ở <b>${esc(drop.stage.label.toLowerCase())}</b>
+              ${d.gap ? 'so với tuần cách ' + d.gap + ' ngày' : 'so với tuần trước'}</span></div>` : ''}
           ${!weak && !drop ? `<div class="sp-line dim"><span class="sp-ic">✓</span>
               <span>${d.thin ? 'Số liệu còn mỏng, chưa kết luận được gì.'
                              : 'Không thấy khúc nào yếu rõ rệt so với các sản phẩm khác.'}</span></div>` : ''}
@@ -1220,7 +1225,8 @@ function viewSp(id){
   const w = d.week, cur = d.cur, tr = d.trend;
   h += `<div class="tiles">
     ${tile('Lượt hiển thị', num(cur.impV),
-      tr && tr.d ? (deltaChip(tr.d.impV, true) || 'so tuần trước') : 'tuần đầu tiên')}
+      tr && tr.d ? (deltaChip(tr.d.impV, true) ||
+        (tr.gap ? 'so tuần cách ' + tr.gap + ' ngày' : 'so tuần trước')) : 'tuần đầu tiên')}
     ${tile('CTR', pctText(cur.ctr), tr && tr.d ? (deltaChip(tr.d.ctr, true) || '&nbsp;') : '&nbsp;')}
     ${tile('CVR', pctText(cur.cvr), tr && tr.d ? (deltaChip(tr.d.cvr, true) || '&nbsp;') : '&nbsp;')}
     ${tile('Doanh thu', moneyShort(cur.gmv),
@@ -1231,6 +1237,16 @@ function viewSp(id){
     d.thin ? ' · <b class="warn">số liệu tuần này còn mỏng, tỉ lệ chưa đáng tin</b>' : ''}
     <br>CVR tính trên <b>người mua có đơn đã xác nhận</b> chia <b>lượt truy cập sản phẩm</b> —
     không tính theo đơn đã đặt, vì đơn đặt rồi huỷ không phải doanh thu.</div>`;
+
+  /* Thiếu tuần thì nói ngay, trước mọi con số. Mọi phép so bên dưới đều ngầm
+     coi hai tuần cạnh nhau trong danh sách là liền kề. */
+  if (d.gaps && d.gaps.length){
+    h += `<div class="explain warn">⚠︎ Chuỗi tuần bị hụt ${d.gaps.length} chỗ:
+      ${d.gaps.slice(0,3).map(g => esc(fmtShort(g.from.to) + ' → ' + fmtShort(g.to.from)) +
+        ' (thiếu ' + g.weeks + ' tuần)').join(' · ')}${d.gaps.length > 3 ? '…' : ''}.
+      Mọi phép so "tuần này với tuần trước" ở đây đang nhảy qua chỗ hụt đó —
+      con số chênh lệch là của cả khoảng, không riêng của một tuần.</div>`;
+  }
 
   /* ============ đang chờ đo ============ */
   const open = openImpactsOf(p.id);
@@ -1372,7 +1388,7 @@ function viewSp(id){
      là thấy được đường đi, giống hệt trục ngang của biểu đồ ngay phía trên.
      Xếp ngược thì mắt phải đọc bảng một chiều và biểu đồ một chiều khác. */
   h += `<div class="tblwrap" style="margin-top:12px"><table class="tbl"><thead><tr>
-    <th>Tuần</th><th class="r">Hiển thị</th><th class="r">CTR</th><th class="r">Vào trang</th>
+    <th>Tuần</th><th class="r">Hiển thị</th><th class="r">CTR</th>
     <th class="r">Thêm giỏ</th><th class="r">Đặt hàng</th><th class="r">Xác nhận</th>
     <th class="r">CVR</th><th class="r">Doanh thu</th></tr></thead><tbody>` +
     ws.map(x => {
@@ -1383,14 +1399,14 @@ function viewSp(id){
           ${ch.length ? `<div class="dim">⌄ ${ch.map(a => esc(IMP_TYPES[a.type].label)).join(' · ')}</div>` : ''}
           ${x.by && x.by !== 'owner' ? `<div class="dim">${esc(BY[x.by] || x.by)}</div>` : ''}</td>
         <td class="r">${num(m.impV)}</td><td class="r">${pctText(m.ctr)}</td>
-        <td class="r">${num(m.visits || m.uclicks)}</td><td class="r">${pctText(m.cartCr)}</td>
+        <td class="r">${pctText(m.cartCr)}</td>
         <td class="r">${pctText(m.cartToOrder)}</td><td class="r">${pctText(m.confirmR)}</td>
         <td class="r"><b>${pctText(m.cvr)}</b></td>
         <td class="r"><b>${moneyShort(m.gmv)}</b></td></tr>`;
     }).join('') + `</tbody>` + (() => {
       const t = spSum(ws);
       return `<tfoot><tr><th>Cộng ${ws.length} tuần</th><th class="r">${num(t.impV)}</th>
-        <th class="r">${pctText(t.ctr)}</th><th class="r">${num(t.visits || t.uclicks)}</th>
+        <th class="r">${pctText(t.ctr)}</th>
         <th class="r">${pctText(t.cartCr)}</th><th class="r">${pctText(t.cartToOrder)}</th>
         <th class="r">${pctText(t.confirmR)}</th><th class="r">${pctText(t.cvr)}</th>
         <th class="r">${moneyShort(t.gmv)}</th></tr></tfoot>`;
@@ -1456,8 +1472,9 @@ function impactCard(im){
         d > 0 ? 'còn ' + d + ' ngày' : d === 0 ? 'tới hạn hôm nay' : 'quá hạn ' + (-d) + ' ngày'}</span>
     </div>
     ${im.detail ? `<div class="pd-detail">${nl(im.detail)}</div>` : ''}
-    ${r.ready ? `<div class="pd-detail ${r.suggest === 'better' ? 'ok' : r.suggest === 'worse' ? 'bad' : ''}">
-        Đã có số để đo: ${esc(r.text)}</div>` : ''}
+    ${r.ready ? `<div class="pd-detail ${r.gapped ? 'warn' : r.suggest === 'better' ? 'ok'
+        : r.suggest === 'worse' ? 'bad' : ''}">
+        Đã có số để đo: ${esc(r.text)}${r.gapped ? '<br>⚠︎ ' + esc(r.note) : ''}</div>` : ''}
     <div class="btns" style="margin-top:10px">
       ${r.ready
         ? `<button class="btn pri sm" data-act="judgeimpact" data-id="${im.id}">Chốt đánh giá</button>`

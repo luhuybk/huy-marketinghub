@@ -281,6 +281,9 @@ select.inp{appearance:none;padding-right:26px;
 .c-grid{stroke:var(--line);stroke-width:1}
 .c-ax{fill:var(--tx3);font-size:10px}
 .c-ax-r{text-anchor:end} .c-ax-c{text-anchor:middle}
+/* Số ghi thẳng lên đường biểu đồ — to và đậm hơn nhãn trục, vì đây là con số
+   để ĐỌC chứ không phải để tham chiếu. Màu do từng đường tự đặt. */
+.c-val{font-size:11.5px;font-weight:750;letter-spacing:-.2px}
 .c-legend{display:flex;gap:13px;justify-content:center;flex-wrap:wrap;padding:2px 0 8px}
 .c-lg{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--tx3)}
 .c-lg i{width:9px;height:9px;border-radius:3px;display:block}
