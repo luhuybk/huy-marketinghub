@@ -14,14 +14,18 @@ const NAV = [
   {id:'kols',     icon:'☺', label:'KOL / KOC'},
   {id:'clips',    icon:'▶', label:'Clip'},
   {id:'ads',      icon:'◎', label:'Shopee Ads'},
+  {id:'improve',  icon:'🔻',label:'Cải thiện SP'},
+  {id:'newprod',  icon:'💡',label:'Sản phẩm mới'},
   {id:'compare',  icon:'⇄', label:'So sánh kênh'},
   {id:'resources',icon:'▤', label:'Tài nguyên'},
   {id:'review',   icon:'⚑', label:'Cần bạn duyệt', ownerOnly:true},
   {id:'settings', icon:'⚙', label:'Cài đặt', ownerOnly:true}
 ];
 const TITLES = {today:'Hôm nay', dash:'Tổng quan', pipeline:'Booking', kols:'KOL / KOC',
-                clips:'Clip', ads:'Shopee Ads', compare:'So sánh kênh', resources:'Tài nguyên',
-                review:'Cần bạn duyệt', settings:'Cài đặt', kol:'Hồ sơ KOC', product:'Sản phẩm'};
+                clips:'Clip', ads:'Shopee Ads', improve:'Cải thiện sản phẩm',
+                newprod:'Xây dựng sản phẩm mới', compare:'So sánh kênh', resources:'Tài nguyên',
+                review:'Cần bạn duyệt', settings:'Cài đặt', kol:'Hồ sơ KOC', product:'Sản phẩm',
+                sp:'Sức khoẻ trên Shopee'};
 /* Trang chỉ chủ mở được. Nhân viên gõ thẳng đường dẫn cũng bị đưa về Hôm nay. */
 const OWNER_PAGES = ['settings', 'review'];
 
@@ -68,6 +72,9 @@ function render(){
       case 'kol':      html = viewKol(route.id); break;
       case 'clips':    html = viewClips(); break;
       case 'ads':      html = viewAds(); break;
+      case 'improve':  html = viewImprove(); break;
+      case 'newprod':  html = viewNewProd(); break;
+      case 'sp':       html = viewSp(route.id); break;
       case 'compare':  html = viewCompare(); break;
       case 'product':  html = viewProduct(route.id); break;
       case 'resources':html = viewResources(); break;
@@ -131,12 +138,15 @@ function renderSide(){
     kols: kols().length,
     clips: clips().length,
     ads: products().filter(p => ['due','overdue'].includes(trackState(p.id).key)).length,
+    improve: openImpacts().filter(im => dayDiff(im.reviewAt) <= 0).length,
+    newprod: dueIdeas().length,
     dash: alerts().filter(a => a.level === 'bad').length,
     today: todayCount(),
     review: reviewCount()
   };
-  const hot = {dash:1, ads:1, today:1};
-  const active = route.page === 'kol' ? 'kols' : route.page === 'product' ? 'ads' : route.page;
+  const hot = {dash:1, ads:1, today:1, improve:1};
+  const active = route.page === 'kol' ? 'kols' : route.page === 'product' ? 'ads'
+               : route.page === 'sp' ? 'improve' : route.page;
   const st = Sync.status();
   const dot = st.state === 'syncing' ? 'sync' : st.state === 'error' ? 'bad' : st.state === 'idle' ? 'ok' : '';
 
@@ -170,10 +180,12 @@ function renderBar(){
     const k = kolOf(route.id);
     t.textContent = k ? k.name : 'Hồ sơ KOC';
     s.textContent = k ? tierOf(k).label + ' · ' + num(followers(k)) + ' người theo dõi' : '';
-  } else if (route.page === 'product'){
+  } else if (route.page === 'product' || route.page === 'sp'){
     const p = productOf(route.id);
     t.textContent = p ? p.name : 'Sản phẩm';
-    s.textContent = p && p.brand ? p.brand : '';
+    s.textContent = route.page === 'sp'
+      ? 'Sức khoẻ trên Shopee' + (p && spWeeksOf(p.id).length ? ' · ' + spWeeksOf(p.id).length + ' tuần' : '')
+      : (p && p.brand ? p.brand : '');
   } else {
     t.textContent = TITLES[route.page] || 'KOL Hub';
     s.textContent = route.page === 'dash' ? new Date().toLocaleDateString('vi-VN',
@@ -220,10 +232,20 @@ function setPath(o, p, v){
 }
 
 function fieldHTML(f, val){
+  /* Vạch chia trong biểu mẫu dài. Không phải một ô nhập nên thoát ra sớm,
+     đừng bọc vào .fld — bọc vào là nó ăn nửa hàng của ô kế tiếp. */
+  if (f.t === 'sec')
+    return `<div class="fsec">${esc(f.l)}<span class="ln"></span></div>`;
+
   const id = 'f_' + f.k.replace(/\./g,'_');
   const common = `id="${id}" data-f="${f.k}" class="inp ${f.cls||''}"`;
   let inner;
   switch (f.t){
+    case 'checks':
+      inner = `<div class="chklist" data-f="${f.k}">` + (f.opts || []).map(c =>
+        `<label class="chk"><input type="checkbox" data-chk="${esc(c.id)}"
+           ${val && val[c.id] ? 'checked' : ''}> ${esc(c.label)}</label>`).join('') + `</div>`;
+      break;
     case 'textarea':
       inner = `<textarea ${common} rows="${f.rows||3}" placeholder="${esc(f.ph||'')}">${esc(val||'')}</textarea>`;
       break;
@@ -264,6 +286,20 @@ function fieldHTML(f, val){
     ${inner}${f.hint ? `<div class="hint">${esc(f.hint)}</div>` : ''}</div>`;
 }
 
+/* Trường khai bằng khoá có dấu chấm ("score.demand") đọc ra thành khoá phẳng.
+   Hàm này rải chúng về đúng chỗ lồng nhau rồi dọn khoá phẳng đi. Không dọn
+   thì bản ghi mang cả hai bản — "score.demand" và score.demand — và lần đọc
+   sau không biết tin bản nào. */
+function nestForm(rec, v){
+  Object.assign(rec, v);
+  Object.keys(v).forEach(k => {
+    if (!k.includes('.')) return;
+    setPath(rec, k, v[k]);
+    delete rec[k];
+  });
+  return rec;
+}
+
 /* Một dãy 8 chữ số liền nhau thì không ai đếm nổi — 29400000 và 2940000 nhìn
    như nhau. Chen dấu chấm ngay lúc gõ, nhưng chỉ khi ô đang là số thuần:
    người quen viết "500k" hay "1tr2" vẫn gõ được bình thường, tới lúc rời ô
@@ -278,9 +314,17 @@ function groupDigits(s){
 function readForm(el, fields){
   const out = {};
   fields.forEach(f => {
+    if (f.t === 'sec') return;
     if (f.t === 'stars'){
       const d = el.querySelector(`.stars[data-f="${f.k}"]`);
       out[f.k] = d ? +d.dataset.v || 0 : 0;
+      return;
+    }
+    if (f.t === 'checks'){
+      const box = el.querySelector(`.chklist[data-f="${f.k}"]`);
+      const o = {};
+      if (box) box.querySelectorAll('[data-chk]').forEach(c => { if (c.checked) o[c.dataset.chk] = true; });
+      out[f.k] = o;
       return;
     }
     const i = el.querySelector(`[data-f="${f.k}"]`);
@@ -298,8 +342,11 @@ function readForm(el, fields){
 /* onSave(values) — trả về false để giữ hộp thoại mở (khi thiếu dữ liệu) */
 function formModal(o){
   const fields = o.fields.filter(Boolean);
+  /* Vạch chia (t:'sec') không có khoá `k`. Gọi getPath với khoá rỗng thì nó
+     làm undefined.split() và cả biểu mẫu sập trước khi vẽ được ô nào — hỏng
+     ở chỗ dựng chuỗi nên không có gì trong trang để lần ra nguyên nhân. */
   const body = `<form class="form" id="theform">${
-    fields.map(f => fieldHTML(f, getPath(o.values || {}, f.k))).join('')}</form>`
+    fields.map(f => fieldHTML(f, f.k ? getPath(o.values || {}, f.k) : null)).join('')}</form>`
     + (o.extra || '');
   const foot = `<div class="btns end">
     ${o.onDelete && isOwner() ? `<button class="btn dngr sm" data-act="formdel">Xoá</button>` : ''}
@@ -1096,7 +1143,15 @@ function productForm(p){
       {k:'price', l:'Giá bán', t:'money', half:true},
       {k:'url',   l:'Link quảng cáo / link sản phẩm', t:'url', ph:'https://shopee.vn/…',
         hint:'Chỉ để bấm mở lại cho nhanh — Shopee không cho lấy số liệu tự động'},
+      {k:'spStatus', l:'Trạng thái theo dõi', t:'select', half:true,
+        opts: Object.keys(SP_STATUS).map(k2 => [k2, SP_STATUS[k2].icon + ' ' + SP_STATUS[k2].label]),
+        hint:'Đổi nhanh hơn bằng thanh trạng thái ngay trên thẻ sản phẩm'},
       {k:'archived', l:'', t:'check', ph:'Ngừng theo dõi sản phẩm này'},
+      {t:'sec', l:'Khoá với sản phẩm trên Shopee'},
+      {k:'shopeeSku',  l:'Mã sản phẩm trên Shopee', t:'text', half:true,
+        hint:'File nạp vào phải khớp mã này. Để trống thì lần nạp đầu tự khoá.'},
+      {k:'shopeeName', l:'Tên sản phẩm trên Shopee', t:'text', half:true,
+        hint:'Tên nguyên văn trong file, có thể khác tên bạn đặt ở trên'},
       {k:'note',  l:'Ghi chú', t:'textarea', rows:2}
     ],
     onSave(v){
@@ -1470,6 +1525,487 @@ function pasteAdsModal(presetProduct){
 }
 
 /* ============================================================
+   CẢI THIỆN SẢN PHẨM — biểu mẫu và nạp số liệu
+   ============================================================ */
+
+/* Nhập tay một tuần số liệu. Chỉ hỏi những ô thật sự cần cho phễu — bảng
+   Shopee có 33 cột, gõ tay hết thì không ai làm nổi lần thứ hai. Đường
+   chính vẫn là nạp file; ô này để vá một tuần thiếu hoặc sửa số nhập sai. */
+function spWeekForm(w, presetProduct){
+  const ps = products().filter(p => !p.archived || (w && w.productId === p.id));
+  if (!ps.length){ toast('Thêm sản phẩm trước đã'); productForm(null); return; }
+  const isNew = !w;
+  const def = mondayOf(addDays(today(), -7));
+  w = w || {productId: presetProduct || ps[0].id, from: def, to: addDays(def, 6), ch:{}, src:{}};
+
+  formModal({
+    title: isNew ? 'Nhập tay một tuần số liệu' : 'Sửa tuần số liệu',
+    values: w, wide: true,
+    saveLabel: 'Lưu tuần',
+    extra: `<div class="explain">Đường chính là <b>nạp file</b> — ô này để vá một tuần thiếu
+      hoặc sửa số nhập sai. Chỉ cần <b>hiển thị duy nhất · nhấp duy nhất · khách thêm giỏ ·
+      người mua · doanh số</b> là đủ vẽ cả phễu; mấy ô còn lại chỉ làm số liệu đầy hơn.
+      Tên ô lấy đúng tên cột trong bảng Shopee để bạn dò cho nhanh.</div>`,
+    fields: [
+      {k:'productId', l:'Sản phẩm', t:'select', opts: ps.map(p => [p.id, p.name])},
+      {k:'from', l:'Tuần từ ngày', t:'date', half:true},
+      {k:'to',   l:'đến ngày',     t:'date', half:true},
+      {t:'sec', l:'Phễu'},
+      {k:'uimp',    l:'Lượt hiển thị sản phẩm duy nhất', t:'count', half:true},
+      {k:'uclicks', l:'Lượt nhấp sản phẩm duy nhất',     t:'count', half:true},
+      {k:'visits',  l:'Lượt truy cập sản phẩm',          t:'count', half:true},
+      {k:'carts',   l:'Số khách đã thêm hàng vào giỏ',   t:'count', half:true},
+      {k:'buyers',  l:'Người mua đã đặt hàng',           t:'count', half:true},
+      {k:'orders',  l:'Tất cả các đơn',                  t:'count', half:true},
+      {k:'gmv',     l:'Doanh số (Đơn đã đặt)',           t:'money', half:true},
+      {k:'cBuyers', l:'Người mua có đơn đã xác nhận',    t:'count', half:true},
+      {t:'sec', l:'Số thô — chỉ để đối chiếu với bảng của sàn'},
+      {k:'imp',     l:'Lượt hiển thị sản phẩm', t:'count', half:true},
+      {k:'clicks',  l:'Lượt nhấp vào sản phẩm', t:'count', half:true},
+      {k:'bounce',  l:'Khách thoát trang',      t:'count', half:true},
+      {k:'likes',   l:'Lượt thích',             t:'count', half:true},
+      {t:'sec', l:'Doanh thu theo kênh — để trống nếu không có'},
+      ...SP_CHANNELS.map(c => ({k:'ch.' + c.id, l:c.label, t:'money', half:true})),
+      {t:'sec', l:'Trong kênh Thẻ sản phẩm'},
+      ...SP_SOURCES.filter(x => x.id !== 'other')
+                   .map(x => ({k:'src.' + x.id, l:x.label, t:'money', half:true})),
+      {k:'note', l:'Ghi chú', t:'textarea', rows:2,
+       ph:'tuần này sàn có sale · hết hàng giữa tuần · vừa đổi giá…'}
+    ],
+    onSave(v){
+      if (!v.productId){ toast('Chọn sản phẩm'); return false; }
+      if (!v.from){ toast('Chọn ngày bắt đầu'); return false; }
+      if (!v.to) v.to = addDays(v.from, 6);
+      if (v.to < v.from){ toast('Ngày kết thúc phải sau ngày bắt đầu'); return false; }
+      /* Hai tuần phủ nhau thì mọi phép cộng đếm hai lần cùng một đồng. Hỏi
+         thẳng chứ không lặng lẽ ghi rồi để bảng tổng sai mà không ai biết. */
+      const clash = spWeeksOf(v.productId).filter(x => x.id !== (isNew ? '' : w.id) &&
+                                                       x.from <= v.to && v.from <= x.to);
+      if (clash.length && !confirm(
+        `Khoảng ngày này phủ lên ${clash.length} tuần đã có:\n` +
+        clash.slice(0,4).map(c => '· ' + fmtShort(c.from) + '–' + fmtShort(c.to)).join('\n') +
+        `\n\nGhi tiếp thì bảng cộng của sản phẩm sẽ đếm hai lần phần chồng nhau.\nVẫn ghi?`
+      )) return false;
+      const rec = isNew ? stamp({}) : db.spweeks.find(x => x.id === w.id);
+      nestForm(rec, v);
+      stamp(rec);
+      if (isNew) db.spweeks.push(rec);
+      ensure(); save();
+      toast(isNew ? 'Đã thêm tuần số liệu' : 'Đã lưu');
+    },
+    onDelete: isNew ? null : () => {
+      if (!confirm('Xoá tuần số liệu này?')) return false;
+      const rec = db.spweeks.find(x => x.id === w.id);
+      rec.deleted = true; stamp(rec); save(); toast('Đã xoá'); render();
+    }
+  });
+}
+
+/* Ghi một hành động cải thiện. Ô quan trọng nhất không phải "làm gì" mà là
+   "nhắm vào khúc nào" — có nó thì 7 ngày sau app biết soi đúng con số. */
+function impactForm(im, presetProduct, presetMetric){
+  const ps = products().filter(p => !p.archived || (im && im.productId === p.id));
+  if (!ps.length){ toast('Thêm sản phẩm trước đã'); productForm(null); return; }
+  const isNew = !im;
+  if (isNew){
+    /* Mở từ một vạch phễu: chọn sẵn loại việc hay dùng cho khúc đó, để bạn
+       không phải dịch "CTR yếu" thành "vậy thì đổi ảnh bìa" trong đầu. */
+    const type = presetMetric
+      ? (Object.keys(IMP_TYPES).find(k => IMP_TYPES[k].metric === presetMetric) || 'other')
+      : 'cover';
+    im = {productId: presetProduct || ps[0].id, date: today(), reviewDays:7,
+          type, metric: presetMetric || IMP_TYPES[type].metric || ''};
+  }
+
+  formModal({
+    title: isNew ? 'Ghi hành động cải thiện' : 'Sửa hành động',
+    values: im, wide: true,
+    extra: `<div class="explain">App sẽ nhắc bạn nạp lại số liệu sau đúng số ngày bạn hẹn, rồi tự
+      lấy <b>tuần trước</b> và <b>tuần sau</b> ngày làm ra so. Vì thế đừng làm hai thay đổi cùng
+      lúc trên một sản phẩm — số liệu sẽ đổi, nhưng bạn không tách được cái nào có tác dụng.</div>`,
+    fields: [
+      {k:'productId', l:'Sản phẩm', t:'select', opts: ps.map(p => [p.id, p.name])},
+      {k:'type', l:'Đổi cái gì', t:'select', half:true,
+       opts: Object.keys(IMP_TYPES).map(k => [k, IMP_TYPES[k].icon + ' ' + IMP_TYPES[k].label])},
+      {k:'metric', l:'Nhắm kéo khúc nào lên', t:'select', half:true,
+       opts: [['', '— chỉ xem doanh thu —'], ...SP_STAGES.map(x => [x.id, x.label])],
+       hint:'Có khúc cụ thể thì app chấm theo khúc đó, không chấm theo doanh thu'},
+      {k:'title', l:'Ghi ngắn cho dễ nhớ', t:'text',
+       ph:'ảnh bìa nền trắng → nền vàng gắn nhãn Giảm 40K'},
+      {k:'date', l:'Làm ngày', t:'date', half:true},
+      {k:'reviewDays', l:'Đo lại sau', t:'select', half:true,
+       opts: [['7','7 ngày — vừa đúng một tuần số liệu'], ['14','14 ngày'],
+              ['21','21 ngày'], ['30','30 ngày']]},
+      {k:'detail', l:'Trước thế nào, sau thế nào', t:'textarea', rows:3,
+       ph:'trước: nền trắng, chỉ có sản phẩm\nsau: nền vàng, gắn nhãn giảm giá, thêm ảnh dùng thử'},
+      ...(isNew ? [] : [
+        {t:'sec', l:'Đánh giá'},
+        {k:'verdict', l:'Kết luận', t:'select',
+         opts: [['','— chưa đánh giá —'], ...Object.keys(VERDICTS).map(k => [k, VERDICTS[k].label])],
+         hint:'Chấm kết luận là khép việc lại, app thôi nhắc'},
+        {k:'verdictNote', l:'Ghi lại để lần sau còn nhớ', t:'textarea', rows:2}
+      ])
+    ],
+    onSave(v){
+      if (!v.productId){ toast('Chọn sản phẩm'); return false; }
+      if (!v.date){ toast('Chọn ngày làm'); return false; }
+      const rec = isNew ? stamp({}) : db.impacts.find(x => x.id === im.id);
+      Object.assign(rec, v);
+      rec.reviewDays = +v.reviewDays || 7;
+      rec.reviewAt = addDays(rec.date, rec.reviewDays);
+      if (rec.verdict) rec.done = true;
+      stamp(rec);
+      if (isNew) db.impacts.push(rec);
+      ensure(); save();
+      toast(isNew ? 'Đã ghi · sẽ nhắc bạn ngày ' + fmtDate(rec.reviewAt) : 'Đã lưu');
+    },
+    onDelete: isNew ? null : () => {
+      if (!confirm('Xoá hành động này khỏi nhật ký?')) return false;
+      const rec = db.impacts.find(x => x.id === im.id);
+      rec.deleted = true; stamp(rec); save(); toast('Đã xoá'); render();
+    }
+  });
+}
+
+/* Chốt đánh giá khi đã có tuần sau để so. Hiện sẵn con số app đo được rồi
+   mới hỏi bạn kết luận — chấm điểm mà không nhìn số thì chấm bằng cảm giác. */
+function judgeImpactModal(id){
+  const im = impactOf(id);
+  if (!im) return;
+  const r = impactResult(im);
+  if (!r.ready){ toast('Chưa có đủ tuần trước và tuần sau để so'); return; }
+  const p = productOf(im.productId);
+  const s = r.stage;
+
+  const el = openModal('Kết quả: ' + (im.title || IMP_TYPES[im.type].label), `
+    <div class="explain">${esc(p ? p.name : '')} · ${esc(IMP_TYPES[im.type].label)}
+      ngày ${esc(fmtDate(im.date))}</div>
+    <div class="tblwrap"><table class="tbl sm"><thead><tr><th>Chỉ số</th>
+      <th class="r">${esc(fmtShort(r.base.from))}–${esc(fmtShort(r.base.to))}</th>
+      <th class="r">${esc(fmtShort(r.after.from))}–${esc(fmtShort(r.after.to))}</th>
+      <th class="r">Đổi</th></tr></thead><tbody>
+      ${SP_STAGES.map(st => {
+        const k = st.key === 'imp' ? 'impV' : st.key;
+        const f = v => v == null ? '—' : st.unit === 'n' ? num(v) : pctText(v, 2);
+        const dd = chgPct(r.a[k], r.b[k]);
+        return `<tr class="${s && s.id === st.id ? 'rowhi' : ''}">
+          <td>${s && s.id === st.id ? '<b>▸ ' + esc(st.label) + '</b>' : esc(st.label)}</td>
+          <td class="r">${f(r.b[k])}</td><td class="r">${f(r.a[k])}</td>
+          <td class="r">${deltaChip(dd, true) || '—'}</td></tr>`;
+      }).join('')}
+      <tr><td><b>Doanh thu</b></td><td class="r">${moneyShort(r.b.gmv)}</td>
+        <td class="r">${moneyShort(r.a.gmv)}</td><td class="r">${deltaChip(r.dGmv, true) || '—'}</td></tr>
+    </tbody></table></div>
+    ${r.note ? `<div class="explain warn">${esc(r.note)}</div>` : ''}
+    ${r.straddling ? `<div class="explain">Có một tuần (${esc(fmtShort(r.straddling.from))}–${
+      esc(fmtShort(r.straddling.to))}) nằm vắt qua ngày bạn làm thay đổi. Tuần đó bị bỏ ra khỏi
+      phép so, vì nửa cũ nửa mới trộn vào nhau thì so gì cũng không có nghĩa.</div>` : ''}
+    <div class="fld"><label>Kết luận của bạn</label>
+      <select class="inp" id="jv">${Object.keys(VERDICTS).map(k =>
+        `<option value="${k}" ${k === r.suggest ? 'selected' : ''}>${esc(VERDICTS[k].label)}</option>`).join('')}
+      </select></div>
+    <div class="dim">App gợi ý "<b>${esc(VERDICTS[r.suggest] ? VERDICTS[r.suggest].label : '—')}</b>"
+      dựa trên ${s ? 'chỉ số bạn nhắm tới' : 'doanh thu'} — không dựa trên doanh thu nếu bạn đã
+      nhắm một khúc cụ thể, vì tuần có sale sàn thì doanh thu tăng dù bạn chẳng làm gì.</div>
+    <div class="fld"><label>Ghi lại để lần sau còn nhớ</label>
+      <textarea class="inp" id="jn" rows="3" placeholder="giữ nền vàng · lần sau thử thêm nhãn freeship"
+        >${esc(im.verdictNote || '')}</textarea></div>`,
+    `<div class="btns end"><div class="grow"></div>
+      <button class="btn sm" data-act="closem">Huỷ</button>
+      <button class="btn pri" id="jgo">Chốt &amp; khép việc</button></div>`, true);
+
+  el.querySelector('#jgo').addEventListener('click', () => {
+    const rec = db.impacts.find(x => x.id === id);
+    if (!rec) return;
+    rec.verdict = el.querySelector('#jv').value;
+    rec.verdictNote = el.querySelector('#jn').value.trim();
+    rec.done = true;
+    stamp(rec); save(); closeModal(); render();
+    toast('Đã chốt: ' + VERDICTS[rec.verdict].label);
+  });
+}
+
+/* ---- nạp số liệu từ file Shopee ---- */
+function spImportModal(presetProduct){
+  const ps = products().filter(p => !p.archived);
+  const body = `
+    <div class="explain">Lấy file ở <b>Kênh Người Bán › Phân tích bán hàng › Hiệu suất sản phẩm</b>,
+      chọn khoảng <b>một tuần</b> rồi bấm Xuất dữ liệu. Muốn có cả phần "doanh thu đến từ đâu"
+      thì xuất <b>riêng từng sản phẩm</b> — xuất cả shop thì Shopee gộp số liệu kênh lại,
+      không tách theo sản phẩm được.</div>
+    <div class="drop" id="dz">
+      <div class="drop-ic">📥</div>
+      <div><b>Kéo file .xlsx vào đây</b><div class="dim">hoặc bấm để chọn file</div></div>
+      <input type="file" id="dzf" accept=".xlsx" hidden>
+    </div>
+    <details class="det"><summary>Không tải được file? Dán bảng vào đây</summary>
+      <div class="dim" style="margin:8px 0">Mở file bằng Excel/Google Sheet, bôi đen <b>cả dòng
+        tiêu đề</b> lẫn dòng số liệu rồi dán. App đọc theo tên cột nên không cần bạn chỉ cột nào là gì.</div>
+      <textarea class="inp mono" id="pt" rows="4"
+        placeholder="Ngày&#9;Sản phẩm&#9;Mã sản phẩm&#9;Lượt hiển thị sản phẩm&#9;…"></textarea>
+      <div class="btns" style="margin-top:8px"><button class="btn sm" id="ptgo">Đọc bảng đã dán</button></div>
+    </details>
+    <div id="ires"></div>`;
+
+  const el = openModal('Nạp số liệu tuần từ Shopee', body,
+    `<div class="btns end"><div class="grow"></div>
+      <button class="btn sm" data-act="closem">Đóng</button>
+      <button class="btn pri" id="igo" disabled>Nhập</button></div>`, true);
+
+  const dz = el.querySelector('#dz'), fi = el.querySelector('#dzf');
+  const res = el.querySelector('#ires'), btnGo = el.querySelector('#igo');
+  let plan = null;
+
+  const fail = msg => {
+    plan = null; btnGo.disabled = true;
+    res.innerHTML = `<div class="explain warn">⚠︎ ${esc(msg)}</div>`;
+  };
+
+  /* Khớp dòng trong file với một sản phẩm đã có.
+     Tìm ứng viên theo mã trước (Shopee không đổi mã), rồi mới tới tên. Tìm
+     được rồi vẫn phải qua spMatch() — kể cả khi bạn đã chọn sẵn sản phẩm.
+     Chỗ "đã chọn sẵn" chính là chỗ nguy hiểm nhất: mở trang sản phẩm A rồi
+     kéo nhầm file của sản phẩm B vào là số liệu của B chảy thẳng vào A mà
+     không có gì báo. */
+  function matchProduct(row){
+    const sku = norm(row.sku);
+    if (sku){
+      const bySku = ps.find(p => norm(p.shopeeSku || p.sku) === sku);
+      if (bySku) return bySku;
+    }
+    const nm = norm(row.name);
+    const byName = ps.find(p => norm(p.shopeeName || p.name) === nm);
+    if (byName) return byName;
+    const loose = ps.filter(p => norm(p.name).includes(nm) || nm.includes(norm(p.name)));
+    return loose.length === 1 ? loose[0] : null;
+  }
+
+  function show(parsed){
+    const rows = parsed.weeks.map(r => {
+      const p = presetProduct ? productOf(presetProduct) : matchProduct(r);
+      const chk = p ? spMatch(p, r) : null;
+      const ex = p && chk && chk.ok
+        ? db.spweeks.find(x => !x.deleted && x.productId === p.id &&
+                               x.from === r.from && x.to === r.to)
+        : null;
+      return {r, p, chk, ex};
+    });
+    plan = {rows, channels: parsed.channels};
+    const nNew  = rows.filter(x => x.p && x.chk.ok && !x.ex).length;
+    const nUpd  = rows.filter(x => x.p && x.chk.ok && x.ex).length;
+    const nChan = rows.filter(x => x.p && !x.chk.ok).length;
+    const nMoi  = rows.filter(x => !x.p).length;
+
+    res.innerHTML = `
+      ${parsed.warn.map(w => `<div class="explain">${esc(w)}</div>`).join('')}
+      ${nChan ? `<div class="explain warn">⚠︎ <b>${nChan} dòng bị chặn</b> vì không khớp với
+        sản phẩm đang nhắm tới. App khoá mỗi sản phẩm với đúng một sản phẩm trên Shopee
+        (tên + mã) từ lần nạp đầu — nạp nhầm số của sản phẩm khác vào đây thì biểu đồ vẫn
+        liền mạch mà mọi kết luận sau đó đều sai, nên thà chặn.</div>` : ''}
+      ${sectionTitle('Đọc được ' + rows.length + ' dòng', '', true)}
+      <div class="tblwrap"><table class="tbl sm"><thead><tr><th>Tuần</th><th>Sản phẩm trong file</th>
+        <th>Vào sản phẩm nào</th><th class="r">Hiển thị</th><th class="r">Người mua</th>
+        <th class="r">Doanh thu</th></tr></thead><tbody>` +
+      rows.map((x, i) => {
+        const m = spMetrics(x.r);
+        const chan = x.p && !x.chk.ok;
+        let ô;
+        if (chan)
+          ô = `<b class="bad">✕ Chặn — ${esc(x.p.name)}</b><div class="dim">${esc(x.chk.text)}</div>`;
+        else if (x.p)
+          ô = `<b>${esc(x.p.name)}</b><div class="dim ${x.chk.level === 'warn' ? 'warn' : ''}">${
+                esc(x.chk.text)}${x.ex ? ' · ghi đè tuần đã có' : ''}</div>` +
+              (x.chk.rename ? `<label class="chk"><input type="checkbox" data-rn="${i}" checked>
+                 cập nhật tên đã khoá theo file</label>` : '');
+        else
+          ô = `<label class="chk"><input type="checkbox" data-mk="${i}" checked>
+                 tạo sản phẩm mới &amp; khoá theo tên + mã này</label>`;
+        return `<tr class="${chan ? 'rowbad' : ''}">
+          <td>${esc(fmtShort(x.r.from))}–${esc(fmtShort(x.r.to))}</td>
+          <td class="ell" style="max-width:200px" title="${esc(x.r.name)}">${esc(x.r.name)}
+            ${x.r.sku ? `<div class="dim">mã ${esc(x.r.sku)}</div>` : '<div class="dim bad">không có mã</div>'}</td>
+          <td>${ô}</td>
+          <td class="r">${num(m.impV)}</td><td class="r">${num(m.buyers)}</td>
+          <td class="r">${moneyShort(m.gmv)}</td></tr>`;
+      }).join('') + `</tbody></table></div>
+      <div class="dim" style="margin-top:8px">
+        ${nNew ? nNew + ' tuần mới · ' : ''}${nUpd ? nUpd + ' tuần ghi đè · ' : ''}
+        ${nMoi ? nMoi + ' sản phẩm sẽ tạo mới · ' : ''}${nChan ? nChan + ' dòng bị chặn · ' : ''}
+        ${plan.channels ? 'có kèm doanh thu theo kênh' : 'không có doanh thu theo kênh'}
+      </div>`;
+    btnGo.disabled = !rows.some(x => !x.p || x.chk.ok);
+  }
+
+  async function readFile(f){
+    if (!f) return;
+    res.innerHTML = `<div class="dim" style="padding:12px">Đang đọc ${esc(f.name)}…</div>`;
+    try { show(await ShopeeFile.parseFile(f)); }
+    catch(e){ fail(e.message); }
+  }
+
+  dz.addEventListener('click', () => fi.click());
+  fi.addEventListener('change', () => readFile(fi.files[0]));
+  ['dragenter','dragover'].forEach(ev => dz.addEventListener(ev, e => {
+    e.preventDefault(); dz.classList.add('over');
+  }));
+  ['dragleave','drop'].forEach(ev => dz.addEventListener(ev, e => {
+    e.preventDefault(); dz.classList.remove('over');
+  }));
+  dz.addEventListener('drop', e => {
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) readFile(f);
+  });
+  el.querySelector('#ptgo').addEventListener('click', () => {
+    try { show(ShopeeFile.parseText(el.querySelector('#pt').value)); }
+    catch(e){ fail(e.message); }
+  });
+
+  btnGo.addEventListener('click', () => {
+    if (!plan) return;
+    let added = 0, updated = 0, made = 0, chan = 0, doiTen = 0;
+    plan.rows.forEach((x, i) => {
+      let p = x.p;
+      if (p && !x.chk.ok){ chan++; return; }
+      if (!p){
+        const cb = res.querySelector(`[data-mk="${i}"]`);
+        if (cb && !cb.checked) return;
+        p = stamp({name: x.r.name, sku: x.r.sku, brand:'', url:'', note:'', price:0,
+                   archived:false, spStatus:'watch',
+                   shopeeName: x.r.name, shopeeSku: x.r.sku});
+        db.products.push(p); made++;
+      } else {
+        /* Lần đầu nạp cho một sản phẩm có sẵn: khoá nó lại từ đây. */
+        if (!p.shopeeSku && !p.shopeeName){
+          p.shopeeName = x.r.name; p.shopeeSku = x.r.sku;
+          if (!p.sku) p.sku = x.r.sku;
+          stamp(p);
+        }
+        const rn = res.querySelector(`[data-rn="${i}"]`);
+        if (x.chk.rename && rn && rn.checked){
+          p.shopeeName = x.chk.rename; stamp(p); doiTen++;
+        }
+      }
+      const ex = db.spweeks.find(y => !y.deleted && y.productId === p.id &&
+                                      y.from === x.r.from && y.to === x.r.to);
+      const rec = ex || stamp({productId: p.id, note:''});
+      SP_COUNTS.forEach(f => rec[f] = x.r[f] || 0);
+      rec.gmv = x.r.gmv; rec.cGmv = x.r.cGmv;
+      rec.from = x.r.from; rec.to = x.r.to;
+      if (plan.channels && plan.rows.length === 1){
+        rec.ch  = Object.assign({}, plan.channels.ch);
+        rec.src = Object.assign({search:0, rec:0, shop:0, cart:0, promo:0, other:0},
+                                plan.channels.src || {});
+        rec.chFrom = plan.channels.from || '';
+        rec.chTo   = plan.channels.to || '';
+      }
+      stamp(rec);
+      if (ex) updated++; else { db.spweeks.push(rec); added++; }
+    });
+    if (made) linkProducts();
+    ensure(); save(); closeModal();
+    const first = plan.rows.find(x => x.p && x.chk.ok) || plan.rows.find(x => x.p);
+    if (first && first.p) go('sp', first.p.id); else render();
+    toast(`Đã nạp ${added} tuần mới` + (updated ? `, cập nhật ${updated} tuần` : '') +
+          (made ? `, tạo ${made} sản phẩm` : '') + (doiTen ? `, cập nhật ${doiTen} tên` : '') +
+          (chan ? ` · BỎ QUA ${chan} dòng không khớp` : ''));
+  });
+}
+
+/* ============================================================
+   SẢN PHẨM MỚI/* ============================================================
+   SẢN PHẨM MỚI
+   ============================================================ */
+function ideaForm(i){
+  const isNew = !i;
+  i = i || {stage:'idea', score:{}, checks:{}, dates:{idea: today()}};
+
+  formModal({
+    title: isNew ? 'Ý tưởng sản phẩm mới' : (i.name || 'Sửa ý tưởng'),
+    values: i, wide: true,
+    saveLabel: isNew ? 'Thêm ý tưởng' : 'Lưu',
+    extra: `<div class="explain">Bốn trục do <b>bạn</b> chấm, không phải máy. Chưa lên sàn thì
+      không có số nào để tính — mọi con số máy đưa ra lúc này đều là đoán. Trục nào để 0 thì
+      app coi là <b>chưa chấm</b> và không tính vào điểm, chứ không tính là 0 điểm.</div>`,
+    fields: [
+      {k:'name', l:'Tên / mô tả ngắn', t:'text', req:true, ph:'Sáp vuốt tóc mờ giữ nếp mạnh'},
+      {k:'stage', l:'Đang ở chặng', t:'select', half:true,
+       opts: IDEA_STAGES.map(s => [s.id, s.icon + ' ' + s.label])},
+      {k:'category', l:'Ngành hàng', t:'text', half:true, ph:'Tạo kiểu tóc nam'},
+      {k:'brand', l:'Thương hiệu dự kiến', t:'text', half:true, list: allBrands()},
+      {k:'source', l:'Ý tưởng từ đâu', t:'text', half:true,
+       ph:'shop X bán 2k đơn/tháng · khách hỏi nhiều · đang trend TikTok'},
+      {t:'sec', l:'Tiền — điền được bao nhiêu thì điền, để trống thì app không đoán'},
+      {k:'price', l:'Giá bán dự kiến', t:'money', half:true},
+      {k:'cost',  l:'Giá vốn, cả ship về', t:'money', half:true,
+       hint:'Chưa trừ phí sàn và voucher — nhớ tính khi xem lời'},
+      {k:'compPrice', l:'Giá đối thủ đang bán', t:'money', half:true},
+      {t:'sec', l:'Chấm bốn trục'},
+      ...IDEA_AXES.map(a => ({k:'score.' + a.id, l:a.label, t:'stars', hint:a.hint})),
+      {t:'sec', l:'Nguồn hàng'},
+      {k:'supplier', l:'Nhà cung cấp / nơi lấy hàng', t:'text', half:true},
+      {k:'link', l:'Link tham khảo', t:'text', half:true, ph:'link đối thủ hoặc nguồn hàng'},
+      {t:'sec', l:'Việc kế tiếp — không đặt thì ý tưởng này sẽ nằm im'},
+      {k:'nextNote', l:'Việc kế tiếp là gì', t:'text', half:true, ph:'gọi NCC hỏi giá 100 cái'},
+      {k:'nextAt', l:'Hẹn ngày', t:'date', half:true,
+       hint:'Có ngày này thì app và Telegram mới nhắc được'},
+      {t:'sec', l:'Phải xong trước khi đăng bán'},
+      {k:'checks', l:'', t:'checks', opts: IDEA_CHECKS},
+      {k:'note', l:'Ghi chú', t:'textarea', rows:3},
+      {k:'killReason', l:'Nếu dừng thì vì sao', t:'text',
+       ph:'giá vốn cao quá · nguồn hàng không ổn định · đối thủ quá mạnh'}
+    ],
+    onSave(v){
+      if (!v.name || !v.name.trim()){ toast('Đặt tên cho ý tưởng đã'); return false; }
+      const rec = isNew ? stamp({}) : db.ideas.find(x => x.id === i.id);
+      const cu = rec.stage;
+      nestForm(rec, v);
+      /* Ghi mốc ngày cho chặng vừa chuyển tới. Đây là thứ duy nhất về sau cho
+         biết một ý tưởng đứng ở mỗi chặng bao lâu, tức là khâu nào đang tắc. */
+      if (!rec.dates) rec.dates = {};
+      if (rec.stage !== cu && IDEA_STAGE[rec.stage] && !rec.dates[rec.stage])
+        rec.dates[rec.stage] = today();
+      stamp(rec);
+      if (isNew) db.ideas.push(rec);
+      ensure(); save();
+      toast(isNew ? 'Đã thêm ý tưởng' : 'Đã lưu');
+    },
+    onDelete: isNew ? null : () => {
+      if (!confirm(`Xoá ý tưởng "${i.name}"?`)) return false;
+      const rec = db.ideas.find(x => x.id === i.id);
+      rec.deleted = true; stamp(rec); save(); toast('Đã xoá'); render();
+    }
+  });
+}
+
+/* Lên sàn: tạo bản ghi sản phẩm thật rồi nối vào, để từ đây nó chảy tiếp
+   sang Cải thiện sản phẩm và Shopee Ads mà không phải gõ lại. */
+function ideaGoLive(id){
+  const i = db.ideas.find(x => x.id === id && !x.deleted);
+  if (!i) return;
+  if (i.productId){ go('sp', i.productId); return; }
+  const thieu = IDEA_CHECKS.filter(c => !i.checks[c.id]);
+  if (!confirm(`Tạo sản phẩm "${i.name}" và chuyển ý tưởng sang chặng "Đã lên sàn"?` +
+      (thieu.length ? `\n\nCòn ${thieu.length} việc chưa tick:\n• ` +
+        thieu.slice(0,4).map(c => c.label).join('\n• ') +
+        (thieu.length > 4 ? `\n• …và ${thieu.length - 4} việc nữa` : '') : ''))) return;
+
+  const p = stamp({name: i.name, sku:'', brand: i.brand || '', url: i.link || '',
+                   price: i.price || 0, archived:false,
+                   note: [i.note, i.supplier ? 'Nguồn: ' + i.supplier : '',
+                          i.cost ? 'Giá vốn: ' + money(i.cost) : ''].filter(Boolean).join('\n')});
+  db.products.push(p);
+  i.productId = p.id;
+  i.stage = 'live';
+  if (!i.dates.live) i.dates.live = today();
+  i.nextAt = addDays(today(), 7);
+  i.nextNote = i.nextNote || 'Nạp số liệu Shopee tuần đầu để có mốc gốc';
+  stamp(i);
+  linkProducts(); ensure(); save();
+  go('sp', p.id);
+  toast('Đã tạo sản phẩm · nạp số liệu tuần đầu làm mốc gốc');
+}
+
+/* ============================================================
    TÌM KIẾM
    ============================================================ */
 function searchModal(){
@@ -1586,6 +2122,37 @@ const ACTIONS = {
     a.done = true; stamp(a); save(); render(); toast('Đã bỏ qua');
   },
 
+  /* cải thiện sản phẩm */
+  sp:          id => go('sp', id),
+  spstatus:   (id, el) => {
+    const p = db.products.find(x => x.id === id && !x.deleted);
+    if (!p) return;
+    /* bấm lại đúng trạng thái đang chọn = bỏ chọn */
+    const v = el.dataset.s || '';
+    p.spStatus = (p.spStatus === v) ? '' : v;
+    stamp(p); save(); render();
+    toast(p.spStatus ? SP_STATUS[p.spStatus].label : 'Đã bỏ trạng thái');
+  },
+  spgo:        id => go('sp', id),
+  spimport:    id => spImportModal(id),
+  newspweek:   id => spWeekForm(null, id),
+  editspweek:  id => spWeekForm(db.spweeks.find(x => x.id === id)),
+  newimpact:  (id, el) => impactForm(null, id, el.dataset.m || ''),
+  editimpact:  id => impactForm(impactOf(id)),
+  judgeimpact: id => judgeImpactModal(id),
+  skipimpact:  id => {
+    const im = db.impacts.find(x => x.id === id);
+    if (!im || !confirm('Bỏ qua lần đo này? Hành động vẫn nằm trong nhật ký.')) return;
+    im.done = true; stamp(im); save(); render(); toast('Đã bỏ qua');
+  },
+
+  /* sản phẩm mới */
+  newidea:  () => ideaForm(null),
+  editidea: id => ideaForm(ideaOf(id)),
+  idea:     id => ideaForm(ideaOf(id)),
+  ideadead: () => { ui.ideaShowDead = !ui.ideaShowDead; render(); },
+  idealive: id => ideaGoLive(id),
+
   /* tài nguyên */
   restab:     id => { ui.resTab = id; render(); },
   newbrand:   () => brandForm(null),
@@ -1621,6 +2188,8 @@ const ACTIONS = {
     if (t.ref.kind === 'kols')     go('kol', t.ref.id);
     else if (t.ref.kind === 'bookings'){ const b = bookingOf(t.ref.id); if (b) go('kol', b.kolId); }
     else if (t.ref.kind === 'actions'){ const a = db.actions.find(x => x.id === t.ref.id); if (a) go('product', a.productId); }
+    else if (t.ref.kind === 'impacts'){ const im = impactOf(t.ref.id); if (im) go('sp', im.productId); }
+    else if (t.ref.kind === 'ideas'){ go('newprod'); setTimeout(() => ideaForm(ideaOf(t.ref.id)), 120); }
   },
 
   /* cần bạn duyệt */
@@ -1673,6 +2242,9 @@ const ACTIONS = {
     else if (p === 'clips') clipForm(null);
     else if (p === 'product') periodForm(null, {product: route.id});
     else if (p === 'ads') productForm(null);
+    else if (p === 'sp') spImportModal(route.id);
+    else if (p === 'improve') spImportModal('');
+    else if (p === 'newprod') ideaForm(null);
     else if (p === 'resources') {
       ({brands: brandForm, products: productForm, statuses: statusForm,
         templates: templateForm}[ui.resTab] || brandForm)(null);
@@ -1844,7 +2416,10 @@ function checkBuild(){
   }
 
   const vers = Array.from(new Set(list.map(x => x[1])));
-  const dsPhaiCo = 6;
+  /* Đếm từ chính các thẻ <script> trong trang, không viết cứng con số. Viết
+     cứng thì thêm một tệp JS là bộ kiểm tra này báo lệch trên một bản dựng
+     hoàn toàn đúng — nó tự dựng ra đúng cái lỗi nó sinh ra để bắt. */
+  const dsPhaiCo = document.querySelectorAll('script[src^="js/"]').length || list.length;
   if (vers.length === 1 && list.length >= dsPhaiCo) return true;
 
   const KEY = 'kolhub.reloaded';

@@ -113,9 +113,13 @@ function apiBase(): string {
 /* Ba luồng riêng. Nhắc booking lúc 8 giờ sáng thì hợp lý, nhưng số quảng cáo
    sáng sớm chưa nói lên gì — nên mỗi luồng có giờ riêng, và có thể chỉ về một
    nhánh (topic) riêng trong cùng một group. */
-const TG_FEEDS = ['booking', 'clip', 'ads'];
-const TG_FEED_LABEL = ['booking' => 'Booking', 'clip' => 'Clip', 'ads' => 'Shopee Ads'];
-const TG_FEED_HOUR  = ['booking' => 8, 'clip' => 9, 'ads' => 17];
+/* Thêm một luồng ở đây là xong: cron, tg_save, hộp thoại Cài đặt đều đọc
+   từ ba mảng này chứ không viết cứng tên luồng ở đâu cả. Luồng mới chưa có
+   trong cấu hình đã lưu thì tgConfig() vá bằng giá trị mặc định. */
+const TG_FEEDS = ['booking', 'clip', 'ads', 'prod'];
+const TG_FEED_LABEL = ['booking' => 'Booking', 'clip' => 'Clip', 'ads' => 'Shopee Ads',
+                       'prod' => 'Sản phẩm'];
+const TG_FEED_HOUR  = ['booking' => 8, 'clip' => 9, 'ads' => 17, 'prod' => 10];
 
 function tgConfig(): array {
   $c = array_merge(['token' => '', 'chat' => '', 'enabled' => false, 'feeds' => []],

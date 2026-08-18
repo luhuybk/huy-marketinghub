@@ -5,6 +5,12 @@ Theo dõi hiệu suất booking KOL/KOC và quảng cáo Shopee, trong một app
 Câu hỏi mà app này sinh ra để trả lời: **tháng này tiền marketing nên dồn vào
 booking KOC hay đổ vào Shopee Ads, cho từng sản phẩm cụ thể?**
 
+Rồi hai câu kế tiếp, mỗi câu một tab:
+
+- **🔻 Cải thiện sản phẩm** — trong kho sản phẩm của tôi, ngồi xuống sửa cái nào
+  thì được nhiều tiền nhất, và sửa **khúc nào** của nó?
+- **💡 Sản phẩm mới** — ý tưởng nào đang nằm im ở chặng nào, và việc kế tiếp là gì?
+
 ---
 
 ## Chạy thử trên máy
@@ -300,6 +306,281 @@ phủ**, để cột tuần và cột tháng không đứng cạnh nhau một c�
 
 ---
 
+## Cải thiện sản phẩm
+
+Tab này trả lời một câu khác hẳn Shopee Ads. Ads hỏi *“một đồng quảng cáo đổi
+được mấy đồng doanh thu”*. Chỗ này hỏi *“cái trang sản phẩm của tôi đang rò ở
+khúc nào”* — và câu trả lời thường không liên quan gì tới tiền quảng cáo.
+
+### Phễu năm khúc
+
+Doanh thu là phép **nhân** của năm khúc:
+
+```
+Hiển thị → Nhìn thấy→bấm vào → Vào trang→thêm giỏ → Thêm giỏ→đặt hàng → Đặt→xác nhận
+```
+
+Khúc đầu là cột **“Lượt hiển thị sản phẩm”** trong bảng Shopee.
+Sửa một khúc là cả chuỗi phía sau được nhân theo. Đó cũng là lý do app xếp
+sản phẩm theo **tiền đang rơi ra**, không theo tỉ lệ tệ nhất: một sản phẩm CTR
+2% với 200 lượt hiển thị thì sửa xong cũng chẳng thêm được đồng nào.
+
+Mỗi khúc có riêng phần “sửa bằng gì”, và nút **+ Ghi hành động** ngay cạnh nó
+chọn sẵn loại việc hay dùng cho khúc đó — để bạn không phải tự dịch “CTR yếu”
+thành “vậy thì đổi ảnh bìa” trong đầu.
+
+### Mọi con số khớp với bảng Shopee
+
+Nguyên tắc: lấy **đúng cột** Shopee in ra, tính **đúng mẫu số** họ dùng. Bạn
+phải mở bảng của sàn ra đối chiếu được, không thì không có lý gì để tin app.
+Đã kiểm trên file xuất thật, khớp tới hai chữ số thập phân:
+
+| | App | Bảng Shopee |
+|---|---|---|
+| Lượt hiển thị sản phẩm | 9.642 | 9.642 |
+| CTR | 6,55% | 6,55% |
+| Tỉ lệ thêm giỏ | 24,74% | 24,74% |
+| Thêm giỏ → đặt hàng | 37,23% | 37,23% |
+| Đặt → xác nhận | 91,43% | 91,43% |
+| CVR | 8,42% | 8,42% |
+| Doanh thu mỗi đơn | 391.944đ | 391.944đ |
+
+**CVR** = người mua có đơn **đã xác nhận** ÷ lượt truy cập sản phẩm. Cố ý không
+tính theo đơn *đã đặt*: đơn đặt rồi huỷ không phải doanh thu, và tỉ lệ tính
+trên đơn đã đặt luôn đẹp hơn thực tế khoảng một phần mười.
+
+Hệ quả phải biết: **nhân năm khúc lại không ra đúng doanh thu.** Lượt hiển thị
+và lượt nhấp là số thô (đếm cả những lần một người bấm lại nhiều lượt) còn các
+khúc sau đếm theo người. Muốn phép nhân khép kín thì phải dùng lượt *duy nhất*,
+nhưng lúc đó CTR hiện ra 8,25% trong khi Shopee ghi 6,55% — và một app nói khác
+sàn là một app không dùng được. App vẫn lưu cả số duy nhất (`uimp`, `uclicks`)
+để dùng khi cần, chỉ không mang ra làm mặt tiền.
+
+### Khoá mỗi sản phẩm với đúng một sản phẩm trên Shopee
+
+Nạp nhầm số liệu của sản phẩm A vào sản phẩm B là kiểu hỏng tệ nhất có thể xảy
+ra ở đây: không có gì báo, biểu đồ vẫn liền mạch, và mọi kết luận rút ra sau đó
+đều sai. Nên lần nạp đầu app ghi lại **tên + mã sản phẩm** trên Shopee, rồi mọi
+lần sau đối chiếu lại cả hai (`spMatch()` trong `js/state.js`):
+
+| Tình huống | Xử lý |
+|---|---|
+| chưa khoá gì | cho, và khoá lại từ lần này |
+| mã khớp, tên khớp | cho |
+| mã khớp, tên trên Shopee đã đổi | cho, kèm đề nghị cập nhật tên đã khoá |
+| **mã khác nhau** | **chặn** |
+| **file không có mã mà mình đã khoá mã** | **chặn** |
+| **chưa có mã hai bên, tên khác hẳn** | **chặn** |
+| chưa có mã hai bên, tên khớp | cho |
+
+Mã sản phẩm là bằng chứng chính vì Shopee không đổi nó; tên thì bạn sửa lúc nào
+cũng được, nên tên lệch chỉ là cảnh báo.
+
+Kiểm tra này áp cho **cả** đường "đã chọn sẵn sản phẩm" — mở trang sản phẩm A
+rồi kéo nhầm file của B vào chính là chỗ nguy hiểm nhất, và trước đây nó là chỗ
+duy nhất được cho qua thẳng.
+
+### Mốc so sánh là chính kho sản phẩm của bạn
+
+App **không** dùng “chuẩn ngành”. Tôi không biết ngành hàng của bạn, và một con
+số bịa ra sẽ khiến bạn đi sửa thứ không cần sửa. Mốc là **trung vị các sản phẩm
+khác của bạn** — cùng shop, cùng tệp khách, luôn đúng ngữ cảnh.
+
+Hai điều kiện để phần này có nghĩa:
+
+- **Từ 3 sản phẩm** đã nạp số liệu. Ít hơn thì app nói thẳng là chưa đủ, và bạn
+  vẫn dùng được phần *“tụt so với tuần trước”* — chỉ cần 2 tuần.
+- **So cùng một tuần**. Lấy tuần gần nhất của mỗi bên rồi so với nhau là so
+  tuần 33 của cái này với tuần 31 của cái kia; sàn có sale, mùa vụ, đối thủ hạ
+  giá — chênh lệch đo được sẽ phần lớn là chênh lệch của *thời gian*. Bên nào
+  không có tuần đó thì mới lùi về tuần gần nhất của nó, và app ghi rõ có bao
+  nhiêu sản phẩm so được đúng tuần.
+
+Dưới trung vị **15%** mới gắn cờ đỏ. Với 4 sản phẩm thì hai cái nằm dưới trung
+vị là chuyện đương nhiên — tô đỏ mọi thứ là không tô gì cả. Và chênh dưới 3%
+thì không tính là “khúc thấp nhất”: 24,97% với 25,00% là nhiễu, nhưng in thành
+một dòng chẩn đoán thì đọc y như một phát hiện.
+
+Con số **“+…/tuần”** là ước lượng thô, dùng để xếp thứ tự nên sửa cái nào
+trước — không phải để hứa doanh thu. Nó **nhân** các khúc thiếu hụt lại chứ
+không cộng: phễu là phép nhân, nên thấp 20% ở hai khúc làm mất 36% doanh thu,
+không phải 40%. Cộng lại là kê khống ở đúng con số người ta dùng để quyết định.
+
+### Doanh thu đến từ đâu
+
+Bốn kênh (Thẻ sản phẩm · Tiếp thị liên kết · Livestream · Video), và bên trong
+Thẻ sản phẩm là Tìm kiếm · Đề xuất · Cửa hàng · Giỏ hàng. Cột cuối bảng nói
+**sửa cái gì thì ăn vào nguồn nào** — đổi tiêu đề chỉ ăn vào Tìm kiếm, book KOC
+chỉ ăn vào Tiếp thị liên kết. Không biết tiền đang nằm ở kênh nào thì mọi hành
+động đều là đoán.
+
+Một kênh chiếm quá **60%** thì app cảnh báo: kênh đó tụt là cả sản phẩm tụt và
+bạn không có chân thứ hai để đỡ.
+
+Hai chỗ Shopee làm khác đi mà app phải xử lý:
+
+- Số liệu kênh là của **cả lần xuất**, không tách theo sản phẩm. Nên app chỉ
+  gắn khi tệp có **đúng một sản phẩm**; nhiều sản phẩm thì bỏ qua phần kênh và
+  nói rõ vì sao, chứ không gắn sai.
+- Sheet nguồn truy cập của Shopee dùng **khoảng ngày khác** với sheet phễu
+  (03/08–10/08 so với 03/08–09/08 trong tệp mẫu). App lưu cả hai mốc và ghi chú
+  khi chúng lệch, chứ không tự sửa.
+- Tuần nào không có số kênh thì khối này lấy **tuần gần nhất có số** và nói rõ
+  là số của tuần nào — thà vậy còn hơn để cả khối biến mất rồi tuần sau hiện lại.
+
+### Hai biểu đồ, ba độ lớn
+
+Trang một sản phẩm có hai biểu đồ, và lý do tách làm hai là chuyện độ lớn:
+
+**Biểu đồ 1** — lượt hiển thị (cột) · doanh thu (cột) · CVR (đường). Ba đại
+lượng chênh nhau hàng nghìn lần: lượt hiển thị hàng chục nghìn, doanh thu hàng
+chục triệu, CVR vài phần trăm. Ép chung một thang thì cột lượt hiển thị dẹp
+xuống thành một vệt sát đáy, nhìn như tuần nào cũng bằng 0 — đúng chuyện đã xảy
+ra ở bản đầu. Nên hai cột đứng trên **hai thang riêng** (trái = lượt hiển thị,
+phải = doanh thu), còn CVR **ghi thẳng số lên từng điểm**: đằng nào CVR cũng là
+con số bạn muốn đọc chính xác chứ không phải ước lượng bằng mắt theo chiều cao.
+
+**Biểu đồ 2** — bốn khúc tỉ lệ trên cùng một trục phần trăm. Trộn chung với
+biểu đồ trên thì lượt hiển thị hàng nghìn sẽ dìm cả bốn đường thành một vệt.
+
+Cả hai đều có **vạch ⌄** ở tuần bạn làm thay đổi, và bảng bên dưới ghi luôn
+thay đổi đó là gì. Bảng xếp **tuần cũ trước**, cùng chiều với trục ngang của
+biểu đồ — xếp ngược thì mắt phải đọc bảng một chiều và biểu đồ một chiều khác.
+
+### Trạng thái theo dõi, do bạn đặt
+
+👀 Đang theo dõi · 🔧 Đang tối ưu · ✓ Ổn định · 🚀 Đang đẩy mạnh · ⏸ Tạm dừng ·
+✕ Cân nhắc bỏ.
+
+Khác `trackState()` bên Shopee Ads (thứ đó *suy ra* từ hành động đang chờ). Đây
+là **ý định của bạn** với sản phẩm, và máy không suy ra được: "ổn định" với
+"đang bỏ mặc" nhìn từ số liệu giống hệt nhau.
+
+Bấm thẳng trên thẻ để đổi, bấm lại đúng nút đang chọn thì bỏ chọn. Chỉ nút đang
+chọn mới hiện chữ — bảy nút cùng hiện chữ thì thanh này dài hơn cả thẻ sản phẩm
+và cướp mất sự chú ý của số liệu, thứ chính cần đọc.
+
+Dưới mỗi thẻ là **đếm ngược** tới lần đo kế tiếp. Một ngày hẹn nằm trong biểu
+mẫu thì bạn phải tự trừ ngày trong đầu mỗi lần nhìn; "còn 3 ngày" thì không.
+
+### Vòng lặp: ghi hành động → 7 ngày → đo
+
+```
+Ghi hành động (kèm khúc phễu muốn kéo lên)
+      ↓
+app nhắc đúng ngày (trong app · Hôm nay · Telegram)
+      ↓
+nạp số liệu tuần mới
+      ↓
+app tự lấy TUẦN TRƯỚC và TUẦN SAU ngày làm ra so
+      ↓
+bạn chốt đánh giá
+```
+
+Điểm khác biệt với một cuốn sổ tay: mỗi hành động khai sẵn nó **nhắm vào khúc
+nào**. Nên lúc đo, app không nói “doanh thu tăng 12%” (câu đó không cho bạn
+biết gì) mà nói:
+
+> Nhìn thấy → bấm vào: 8,25% → 10,60% (+28%) · doanh thu 14,1tr → 18,1tr (+28%)
+
+và chấm điểm theo **chỉ số được nhắm**, không theo doanh thu — tuần có sale sàn
+thì doanh thu tăng dù bạn chẳng làm gì, lấy nó chấm thì hành động nào cũng hoá
+ra thành công.
+
+Khi hai con số đá nhau, app nói ra thay vì gộp thành một kết luận đẹp:
+
+| Chỉ số nhắm | Doanh thu | App nói |
+|---|---|---|
+| tốt lên | giảm | khúc sau đang chặn, xem tiếp phễu |
+| xấu đi | tăng | doanh thu tăng nhưng không phải nhờ việc này |
+| gần như không đổi | gần như không đổi | thay đổi quá nhẹ, hoặc chưa đủ lượng để thấy |
+
+**Tuần nằm vắt qua ngày làm thay đổi bị bỏ ra khỏi phép so** — nửa cũ nửa mới
+trộn vào nhau thì so gì cũng vô nghĩa. App nói rõ khi điều đó xảy ra.
+
+Đừng làm hai thay đổi cùng lúc trên một sản phẩm. Số liệu sẽ đổi, nhưng bạn
+không tách được cái nào có tác dụng.
+
+### Nạp số liệu
+
+Lấy file ở **Kênh Người Bán › Phân tích bán hàng › Hiệu suất sản phẩm**, chọn
+khoảng **một tuần**, bấm Xuất dữ liệu, rồi kéo thẳng tệp `.xlsx` vào app.
+
+App tự đọc `.xlsx` **không dùng thư viện nào** (`js/shopee.js`): một xlsx thật
+ra là tệp zip chứa XML, và trình duyệt đã có sẵn `DecompressionStream` để bung
+nén. Nhúng một thư viện đọc Excel vào đây sẽ nặng hơn toàn bộ phần còn lại của
+app. Đường **dán bảng** vẫn giữ làm lối thoát, và nó dùng lại đúng bộ đọc đó
+nên hai đường không thể cho ra kết quả khác nhau.
+
+Khớp dòng với sản phẩm theo **mã sản phẩm trước**, rồi mới theo tên (Shopee
+không đổi mã, nhưng bạn có thể sửa tên). Không khớp gì thì app đề nghị **tạo
+sản phẩm mới** — chứ không im lặng bỏ qua, vì bỏ qua thì bạn tưởng đã nạp rồi.
+
+Hai cái bẫy đã gặp và đã xử lý:
+
+- **`parseCount()` không dùng được cho tệp của sàn.** Cột “Tất cả các đơn”
+  Shopee ghi là `36,00`. `parseCount()` sinh ra để hiểu thứ *bạn* gõ (`350K`,
+  `1,5tr`) nên nó bỏ hết dấu phẩy → ra **3.600**, gấp trăm lần. Số đơn sai trăm
+  lần thì doanh thu trên mỗi đơn cũng sai trăm lần, mà cả hai vẫn là số nguyên
+  trông rất bình thường. Tệp của sàn có quy tắc riêng (`.` ngăn nghìn, `,` là
+  thập phân) nên đọc bằng bộ đọc riêng — `spNum()`.
+- **Khớp tiêu đề phải bằng chuỗi đầy đủ, không phải “có chứa”.** “Lượt hiển thị
+  sản phẩm” nằm trọn trong “Lượt hiển thị sản phẩm duy nhất”, nên khớp kiểu
+  chứa sẽ nhét số duy nhất vào ô số thô — sai gấp đôi mà không có dấu hiệu nào.
+
+Dòng chia theo **từng ngày** bị bỏ qua (app đo theo tuần) và app nói rõ đã bỏ
+bao nhiêu dòng, chứ không lặng lẽ.
+
+---
+
+## Xây dựng sản phẩm mới
+
+Một bảng theo chặng, không phải một danh sách phẳng: ý tưởng ít khi chết vì dở,
+nó chết vì nằm im ở một chặng ba tháng mà không ai nhớ.
+
+```
+💡 Ý tưởng → 🔍 Nghiên cứu → 📦 Chờ mẫu/báo giá → 🎨 Làm hình & listing
+                                                         ↓
+                              🏁 Đã chạy ổn  ←  🚀 Đã lên sàn
+```
+
+Mỗi ý tưởng có:
+
+- **Bốn trục bạn tự chấm** (có người mua · dễ chen vào · lời đủ dày · mình làm
+  nổi). Cố ý không cho máy chấm: chưa lên sàn thì không có số nào để tính, mọi
+  con số máy đưa ra lúc đó đều là đoán. Trục để 0 là **chưa chấm** và không
+  tính vào điểm — khác hẳn “chấm 0 điểm”. Điểm hiện kèm dấu `*` khi còn trục
+  chưa chấm.
+- **Tiền**: giá bán · giá vốn · giá đối thủ, app tính lời mỗi đơn. Để trống thì
+  app không đoán.
+- **10 việc phải xong trước khi đăng bán** — không phải quy trình bắt buộc, chỉ
+  là danh sách những thứ hay bị bỏ sót rồi phải sửa sau khi đã có đơn.
+- **Một việc kế tiếp có ngày hẹn.** Không đặt thì ý tưởng sẽ nằm im; có đặt thì
+  app và Telegram nhắc.
+
+Nút **🚀 Lên sàn** tạo bản ghi sản phẩm thật, mang theo giá bán, nguồn hàng và
+giá vốn vào ghi chú, rồi đặt việc kế tiếp là *“nạp số liệu tuần đầu làm mốc
+gốc”*. Từ đó nó chảy tiếp sang Cải thiện sản phẩm và Shopee Ads mà bạn không
+phải gõ lại gì. Còn việc chưa tick thì app liệt kê ra trước khi hỏi, nhưng
+không chặn — bạn vẫn là người quyết.
+
+### Luồng Telegram thứ tư
+
+Hai tab mới dùng chung một luồng nhắc: **🛍 Sản phẩm**, mặc định 10 giờ sáng.
+Thêm luồng chỉ cần sửa ba mảng trong `api/lib.php` (và bản Node trong
+`serve.js`) — cron, `tg_save`, hộp thoại Cài đặt đều đọc từ đó chứ không viết
+cứng tên luồng ở đâu cả. Cấu hình đã lưu chưa có luồng mới thì `tgConfig()` vá
+bằng giá trị mặc định.
+
+Máy chủ **không cần biết** `impacts` hay `ideas` là gì: mỗi việc mang theo
+`ref` / `doneSet` / `dueField` do `reminderTasks()` soạn, PHP chỉ ghi vào đúng
+những ô được chỉ tên. Hai bộ dữ liệu mới chạy qua nút Telegram mà không phải
+sửa một dòng nào ở máy chủ — đã kiểm cả hai: nút *Xong* trên một ý tưởng xoá
+đúng `nextAt`/`nextNote` và không đụng chặng, nút *⏰ 3 ngày* trên một hành
+động dời `reviewAt` đúng 3 ngày kể từ hôm nay.
+
+---
+
 ## Điều quan trọng cần biết trước khi dùng
 
 **Shopee và TikTok không cho lấy số liệu tự động.** Số nằm sau tài khoản đăng
@@ -578,6 +859,7 @@ mới là hỏng.
 index.html          khung trang
 css/style.css       toàn bộ giao diện
 js/state.js         dữ liệu, tiện ích, MỌI phép tính
+js/shopee.js        đọc .xlsx Shopee xuất ra — tự bung zip, không thư viện ngoài
 js/charts.js        biểu đồ SVG viết tay, không thư viện ngoài
 js/api.js           gọi máy chủ + cổng đăng nhập
 js/sync.js          đồng bộ nhiều thiết bị
@@ -607,3 +889,16 @@ Ba quy ước giữ cho mã không rối khi lớn dần:
    `sync.js` lo dữ liệu đang nằm trên máy chủ. Thiếu chỗ thứ hai thì bản ghi
    cũ kéo về sẽ bị lặng lẽ vứt đi — mất dữ liệu mà không báo gì.
    (Đây đúng là chuyện đã xảy ra khi `adweeks` đổi thành `adperiods`.)
+
+4. **Thêm một bộ dữ liệu chỉ cần khai trong `COLLECTIONS`.** `sync.js` lặp theo
+   mảng đó, và máy chủ không có danh sách trắng nào cho `kind` — nên `spweeks`,
+   `impacts`, `ideas` đồng bộ được mà không sửa một dòng PHP. Đổi lại: bản app
+   **cũ** kéo về bộ dữ liệu nó chưa biết sẽ bỏ qua (`absorb()` chặn kind lạ).
+   Không mất gì — máy chủ vẫn giữ — nhưng máy đó sẽ không thấy dữ liệu mới cho
+   tới khi cập nhật.
+
+5. **Thêm một tệp JS phải khai ở ba chỗ**: `index.html`, mảng `JS` trong
+   `build.js`, và… không cần chỗ thứ ba nữa. `checkBuild()` từng viết cứng
+   “phải có 6 tệp”; giờ nó đếm thẳng từ các thẻ `<script>` trong trang. Viết
+   cứng thì thêm một tệp là bộ kiểm tra báo lệch trên một bản dựng hoàn toàn
+   đúng — nó tự dựng ra đúng cái lỗi nó sinh ra để bắt.

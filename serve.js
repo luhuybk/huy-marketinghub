@@ -78,9 +78,9 @@ function kvSet(k, v){
       .run(k, JSON.stringify(v));
 }
 /* ---------------- Telegram: bản Node của api/lib.php ---------------- */
-const TG_FEEDS = ['booking', 'clip', 'ads'];
-const TG_FEED_LABEL = {booking:'Booking', clip:'Clip', ads:'Shopee Ads'};
-const TG_FEED_HOUR  = {booking:8, clip:9, ads:17};
+const TG_FEEDS = ['booking', 'clip', 'ads', 'prod'];
+const TG_FEED_LABEL = {booking:'Booking', clip:'Clip', ads:'Shopee Ads', prod:'Sản phẩm'};
+const TG_FEED_HOUR  = {booking:8, clip:9, ads:17, prod:10};
 
 function tgConfig(){
   const c = Object.assign({token:'', chat:'', enabled:false, feeds:{}}, kvGet('tg', {}) || {});

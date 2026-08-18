@@ -14,7 +14,8 @@ const dir  = __dirname;
 const DIST = path.join(dir, 'dist');
 const read = p => fs.readFileSync(path.join(dir, p), 'utf8');
 
-const JS = ['js/state.js','js/charts.js','js/api.js','js/sync.js','js/views.js','js/app.js'];
+const JS = ['js/state.js','js/shopee.js','js/charts.js','js/api.js','js/sync.js',
+            'js/views.js','js/app.js'];
 
 /* ---------- mã phiên bản: đổi khi và chỉ khi mã nguồn đổi ---------- */
 const srcFiles = ['index.html', 'css/style.css', ...JS];

@@ -110,6 +110,163 @@ const TRACK = {
   idle:    {label:'Chưa có hành động',  color:'var(--tx3)',  chip:''}
 };
 
+/* ============================================================
+   CẢI THIỆN SẢN PHẨM — sức khoẻ của cái listing trên Shopee
+
+   Khác hẳn Shopee Ads. Ads trả lời "một đồng quảng cáo đổi được mấy đồng
+   doanh thu". Chỗ này trả lời "cái trang sản phẩm của tôi đang rò ở khúc
+   nào" — và câu trả lời gần như không liên quan gì tới tiền quảng cáo.
+
+   PHỄU. Năm khúc:
+
+     hiển thị → nhấp → thêm giỏ → đặt hàng → xác nhận
+
+   Mọi con số ở đây lấy ĐÚNG cột mà Shopee in ra trong bảng của họ, và tỉ lệ
+   tính đúng theo mẫu số họ dùng. Đã đối chiếu với file xuất thật, khớp tới hai
+   chữ số thập phân: CTR 6,55% · thêm giỏ 24,74% · chuyển đổi đơn 9,21% · đặt
+   thành xác nhận 91,43% · doanh thu mỗi đơn 391.944đ.
+
+   Vì sao khớp với sàn quan trọng hơn là "đẹp về mặt toán": bạn phải mở bảng
+   Shopee ra đối chiếu được, không thì không có lý gì để tin app. Hệ quả phải
+   biết — nhân năm khúc lại KHÔNG ra đúng doanh thu, vì lượt hiển thị và lượt
+   nhấp là số thô (đếm cả những lần một người bấm lại nhiều lượt) còn các khúc
+   sau đếm theo người. Muốn phép nhân khép kín thì phải dùng số duy nhất, và
+   lúc đó CTR hiện ra là 8,25% trong khi Shopee ghi 6,55%. App vẫn lưu cả số
+   duy nhất (`uimp`, `uclicks`) để dùng khi cần, chỉ không mang ra làm mặt tiền.
+   ============================================================ */
+
+/* Mỗi khúc phễu: đọc số nào, tỉ lệ của nó, và hỏng thì sửa bằng cách gì.
+   `key` trỏ thẳng vào ô mà spMetrics() trả ra — có nó thì mọi chỗ dùng chung
+   một tên, không nơi nào phải tự đoán "khúc này lấy ô nào".
+   `good` chỉ để tô màu; xếp hạng thật vẫn so với chính các sản phẩm khác
+   của bạn (spBenchmark), không so với con số tôi đặt ra. */
+const SP_STAGES = [
+  {id:'imp', key:'imp', label:'Hiển thị', unit:'n',
+   what:'Lượt hiển thị sản phẩm — sàn đưa nó ra trước mắt khách bao nhiêu lần',
+   fix:'từ khoá trong tiêu đề · ngành hàng · giá cạnh tranh · Flash Sale · quảng cáo · Live/KOC'},
+  {id:'ctr', key:'ctr', label:'Nhìn thấy → bấm vào', unit:'%', good:5,
+   what:'Ảnh bìa và giá có đủ hấp dẫn để bấm không',
+   fix:'ảnh bìa (nền) · tiêu đề · giá hiện ra · mã giảm gắn trên thẻ · số đánh giá'},
+  {id:'cartCr', key:'cartCr', label:'Vào trang → thêm giỏ', unit:'%', good:12,
+   what:'Xem xong có muốn mua không',
+   fix:'ảnh chi tiết · video · mô tả · đánh giá · giá · phí ship'},
+  {id:'cartToOrder', key:'cartToOrder', label:'Thêm giỏ → đặt hàng', unit:'%', good:30,
+   what:'Đã thích rồi, còn gì cản lúc bấm mua',
+   fix:'CTKM · voucher · freeship · combo mua kèm · giá'},
+  {id:'confirmR', key:'confirmR', label:'Đặt → xác nhận', unit:'%', good:90,
+   what:'Đơn đặt rồi có thành đơn thật không',
+   fix:'tồn kho · tốc độ chuẩn bị hàng · tự huỷ đơn'}
+];
+const SP_STAGE = Object.fromEntries(SP_STAGES.map(s => [s.id, s]));
+
+/* Hành động cải thiện. `metric` là khúc phễu mà việc này ĐÁNG LẼ phải làm
+   tốt lên — app chỉ gợi ý sẵn, bạn đổi được. Có nó thì 7 ngày sau app biết
+   phải soi đúng con số nào, thay vì chỉ nói chung chung "doanh thu tăng". */
+const IMP_TYPES = {
+  cover:   {label:'Đổi ảnh bìa / nền',          icon:'🖼', metric:'ctr'},
+  title:   {label:'Đổi tiêu đề / từ khoá',      icon:'🔤', metric:'imp'},
+  price:   {label:'Đổi giá bán',                icon:'₫',  metric:'ctr'},
+  promo:   {label:'Đổi CTKM / voucher',         icon:'%',  metric:'cartToOrder'},
+  images:  {label:'Đổi ảnh chi tiết / video',   icon:'📷', metric:'cartCr'},
+  desc:    {label:'Sửa mô tả sản phẩm',         icon:'✎',  metric:'cartCr'},
+  reviews: {label:'Đẩy đánh giá / xử lý sao xấu',icon:'★',  metric:'cartCr'},
+  ship:    {label:'Đổi phí ship / freeship',    icon:'🚚', metric:'cartToOrder'},
+  combo:   {label:'Combo · mua kèm deal sốc',   icon:'🎁', metric:'cartToOrder'},
+  stock:   {label:'Xử lý tồn kho / giao hàng',  icon:'📦', metric:'confirmR'},
+  flash:   {label:'Đăng ký Flash Sale / sự kiện',icon:'⚡', metric:'imp'},
+  push:    {label:'Đẩy Live · Video · KOC',     icon:'▶',  metric:'imp'},
+  ads:     {label:'Bật / tăng quảng cáo',       icon:'◎',  metric:'imp'},
+  other:   {label:'Khác',                       icon:'•',  metric:''}
+};
+
+/* Bốn kênh Shopee chia doanh thu. Thứ tự cố định để bảng không nhảy. */
+const SP_CHANNELS = [
+  {id:'card',      label:'Thẻ sản phẩm', color:'var(--acc)',  hint:'khách tự tìm thấy trên sàn'},
+  {id:'affiliate', label:'Tiếp thị liên kết', color:'var(--ok2)', hint:'KOC · affiliate video/live'},
+  {id:'live',      label:'Livestream',   color:'var(--warn)', hint:'live của shop'},
+  {id:'video',     label:'Video',        color:'var(--acc2)', hint:'video của shop'}
+];
+/* Bên trong kênh "Thẻ sản phẩm" — đây mới là chỗ nói được nên sửa cái gì */
+const SP_SOURCES = [
+  {id:'search', label:'Tìm kiếm',      hint:'gõ từ khoá — sửa tiêu đề & từ khoá là ăn vào đây'},
+  {id:'rec',    label:'Đề xuất',       hint:'sàn tự gợi ý — ăn theo tỉ lệ chuyển đổi'},
+  {id:'shop',   label:'Cửa hàng',      hint:'khách vào shop rồi mới thấy'},
+  {id:'cart',   label:'Giỏ hàng',      hint:'đã thêm giỏ từ trước, giờ mới mua'},
+  {id:'promo',  label:'Khuyến mãi',    hint:'trang khuyến mãi của sàn'},
+  {id:'other',  label:'Khác',          hint:''}
+];
+
+/* ---- Trạng thái theo dõi, do BẠN đặt ----
+   Khác `trackState()` bên Shopee Ads (thứ đó suy ra từ hành động đang chờ).
+   Ở đây là ý định của bạn với sản phẩm: đang soi kỹ, đang tối ưu, hay đã yên
+   tâm để đó. Máy không suy ra được điều đó — "ổn định" và "đang bỏ mặc" nhìn
+   từ số liệu giống hệt nhau. */
+const SP_STATUS = {
+  '':       {label:'Chưa đặt trạng thái', icon:'○', chip:''},
+  watch:    {label:'Đang theo dõi',       icon:'👀', chip:'acc'},
+  fixing:   {label:'Đang tối ưu',         icon:'🔧', chip:'warn'},
+  stable:   {label:'Ổn định',             icon:'✓',  chip:'ok'},
+  scale:    {label:'Đang đẩy mạnh',       icon:'🚀', chip:'ok'},
+  paused:   {label:'Tạm dừng',            icon:'⏸',  chip:''},
+  drop:     {label:'Cân nhắc bỏ',         icon:'✕',  chip:'bad'}
+};
+const SP_STATUS_IDS = Object.keys(SP_STATUS).filter(Boolean);
+
+/* Mọi ô đếm được của một tuần Shopee. Chỉ số gốc — CTR, tỉ lệ thêm giỏ,
+   tỉ lệ xác nhận đều tính lại ở spMetrics() mỗi lần cần.
+     imp/clicks    số thô (đếm cả lượt bấm lại) — để đối chiếu với bảng Shopee
+     uimp/uclicks  số duy nhất (mỗi người một lần) — dùng cho phép nhân phễu
+     visits/views  vào trang · số trang đã xem
+     buyers/items/orders           đơn đã ĐẶT
+     cBuyers/cItems/cOrders/cGmv   đơn đã XÁC NHẬN  */
+const SP_COUNTS = ['imp','clicks','uimp','uclicks','visits','views','bounce','searchClicks',
+                   'likes','carts','cartItems','buyers','items','orders',
+                   'cBuyers','cItems','cOrders'];
+
+/* ============================================================
+   XÂY DỰNG SẢN PHẨM MỚI
+   Một ý tưởng đi từ "nghe nói bán được" tới "đã lên sàn có đơn".
+   Chặng cuối nối sang bản ghi sản phẩm thật, để nó chảy tiếp vào
+   Cải thiện sản phẩm và Shopee Ads mà không phải gõ lại.
+   ============================================================ */
+const IDEA_STAGES = [
+  {id:'idea',     label:'Ý tưởng',        icon:'💡', color:'var(--tx3)',  live:true},
+  {id:'research', label:'Đang nghiên cứu',icon:'🔍', color:'var(--acc)',  live:true},
+  {id:'sample',   label:'Chờ mẫu / báo giá',icon:'📦',color:'var(--acc2)',live:true},
+  {id:'listing',  label:'Làm hình & listing',icon:'🎨',color:'var(--warn)',live:true},
+  {id:'live',     label:'Đã lên sàn',     icon:'🚀', color:'var(--ok)',   live:true},
+  {id:'won',      label:'Đã chạy ổn',     icon:'🏁', color:'var(--ok2)',  live:false},
+  {id:'killed',   label:'Đã dừng',        icon:'✕',  color:'var(--bad)',  live:false}
+];
+const IDEA_STAGE = Object.fromEntries(IDEA_STAGES.map(s => [s.id, s]));
+const IDEA_LIVE = IDEA_STAGES.filter(s => s.live).map(s => s.id);
+
+/* Chấm điểm ý tưởng: bốn trục, mỗi trục 1-5 sao.
+   Cố ý KHÔNG cho máy tự chấm — chưa lên sàn thì không có số nào để tính,
+   mọi con số máy đưa ra lúc này đều là đoán. Bạn chấm, app chỉ cộng lại
+   và nhắc bạn rằng trục nào chưa chấm thì chưa tính. */
+const IDEA_AXES = [
+  {id:'demand', label:'Có người mua không', hint:'thấy đối thủ bán chạy, có người hỏi, mùa vụ đang tới'},
+  {id:'comp',   label:'Dễ chen vào không',  hint:'ít shop bán · chưa ai làm tốt · mình có gì khác'},
+  {id:'margin', label:'Lời có đủ dày không',hint:'sau phí sàn, ship, voucher, tiền KOC còn lại bao nhiêu'},
+  {id:'ease',   label:'Mình làm nổi không', hint:'nguồn hàng ổn định · vốn · kho · đổi trả'}
+];
+
+/* Việc phải xong trước khi bấm đăng bán. Không phải quy trình bắt buộc —
+   chỉ là danh sách những thứ hay bị bỏ sót rồi phải sửa sau khi đã có đơn. */
+const IDEA_CHECKS = [
+  {id:'price',  label:'Chốt giá bán & giá vốn, tính ra lời thật'},
+  {id:'supply', label:'Xác nhận nguồn hàng đủ cho 1 tháng đầu'},
+  {id:'sample', label:'Nhận mẫu, tự dùng thử'},
+  {id:'photo',  label:'Ảnh bìa + ảnh chi tiết + video'},
+  {id:'title',  label:'Tiêu đề có từ khoá người ta thật sự gõ'},
+  {id:'desc',   label:'Mô tả, thông số, hướng dẫn dùng'},
+  {id:'ship',   label:'Cân nặng & kích thước để tính phí ship'},
+  {id:'promo',  label:'CTKM mở bán + voucher'},
+  {id:'seed',   label:'Kế hoạch 10 đánh giá đầu tiên'},
+  {id:'koc',    label:'Danh sách KOC sẽ book đợt đầu'}
+];
+
 /* Tình trạng KOL/KOC mặc định.
    Id cố định, KHÔNG sinh ngẫu nhiên: hai máy cùng khởi tạo lần đầu sẽ tạo ra
    đúng cùng bộ id, nên khi đồng bộ chúng gộp vào nhau thay vì nhân đôi. */
@@ -360,12 +517,13 @@ function percentile(value, all, dir){
 
 /* ---------------- kho dữ liệu ---------------- */
 const KEY = 'kolhub.v1';
-const COLLECTIONS = ['kols','bookings','clips','products','adperiods','actions','brands','statuses','templates'];
+const COLLECTIONS = ['kols','bookings','clips','products','adperiods','actions','brands','statuses',
+                     'templates','spweeks','impacts','ideas'];
 
 function blank(){
   return {
     kols:[], bookings:[], clips:[], products:[], adperiods:[], actions:[], brands:[], statuses:[],
-    templates:[],
+    templates:[], spweeks:[], impacts:[], ideas:[],
     settings:{
       theme:'dark',
       myName:'',
@@ -529,7 +687,11 @@ function ensure(){
   });
   db.products.forEach(p => {
     if (typeof p.name !== 'string') p.name = String(p.name || 'Không tên');
-    ['sku','brand','url','note'].forEach(f => { if (p[f] === undefined) p[f] = ''; });
+    /* shopeeName/shopeeSku: chốt lại từ lần nạp số liệu đầu tiên, rồi mọi lần
+       nạp sau phải khớp cả hai mới cho vào — xem spMatch(). */
+    ['sku','brand','url','note','spStatus','shopeeName','shopeeSku']
+      .forEach(f => { if (p[f] === undefined) p[f] = ''; });
+    if (!SP_STATUS[p.spStatus]) p.spStatus = '';
     p.price = parseMoney(p.price);
     if (p.archived === undefined) p.archived = false;
   });
@@ -568,6 +730,45 @@ function ensure(){
     if (typeof t.body !== 'string') t.body = String(t.body || '');
     if (!TPL_CATS[t.cat]) t.cat = 'other';
     if (typeof t.order !== 'number') t.order = i;
+  });
+  /* Tuần số liệu Shopee. Mọi ô đếm phải là số — một ô còn là chuỗi "1.229"
+     thì mọi phép cộng bên dưới lặng lẽ nối chuỗi thay vì cộng. */
+  db.spweeks.forEach(w => {
+    if (!w.from) w.from = thisMonday();
+    if (!w.to || w.to < w.from) w.to = addDays(w.from, 6);
+    SP_COUNTS.forEach(f => w[f] = parseCount(w[f]));
+    w.gmv  = parseMoney(w.gmv);
+    w.cGmv = parseMoney(w.cGmv);
+    w.ch  = Object.assign({card:0, live:0, video:0, affiliate:0}, w.ch || {});
+    w.src = Object.assign({search:0, rec:0, shop:0, cart:0, promo:0, other:0}, w.src || {});
+    Object.keys(w.ch).forEach(k => w.ch[k] = parseMoney(w.ch[k]));
+    Object.keys(w.src).forEach(k => w.src[k] = parseMoney(w.src[k]));
+    ['productId','note','chFrom','chTo'].forEach(f => { if (w[f] === undefined) w[f] = ''; });
+  });
+  db.impacts.forEach(im => {
+    if (!IMP_TYPES[im.type]) im.type = 'other';
+    if (!im.date) im.date = today();
+    if (im.reviewDays === undefined) im.reviewDays = 7;
+    if (!im.reviewAt && im.reviewDays) im.reviewAt = addDays(im.date, im.reviewDays);
+    if (!SP_STAGE[im.metric]) im.metric = IMP_TYPES[im.type].metric || '';
+    if (!VERDICTS[im.verdict]) im.verdict = '';
+    ['productId','title','detail','verdictNote'].forEach(f => { if (im[f] === undefined) im[f] = ''; });
+    im.done = !!im.done;
+  });
+  db.ideas.forEach(i => {
+    if (typeof i.name !== 'string') i.name = String(i.name || 'Chưa đặt tên');
+    if (!IDEA_STAGE[i.stage]) i.stage = 'idea';
+    i.cost  = parseMoney(i.cost);
+    i.price = parseMoney(i.price);
+    i.compPrice = parseMoney(i.compPrice);
+    i.score = Object.assign({demand:0, comp:0, margin:0, ease:0}, i.score || {});
+    IDEA_AXES.forEach(a => i.score[a.id] = clamp(+i.score[a.id] || 0, 0, 5));
+    if (typeof i.checks !== 'object' || !i.checks) i.checks = {};
+    i.dates = Object.assign({idea:'', research:'', sample:'', listing:'', live:'', won:''}, i.dates || {});
+    ['brand','category','source','supplier','link','note','nextAt','nextNote',
+     'productId','killReason'].forEach(f => { if (i[f] === undefined) i[f] = ''; });
+    /* trỏ tới sản phẩm đã xoá thì cắt liên kết, đừng để tra ra undefined */
+    if (i.productId && !db.products.some(p => p.id === i.productId && !p.deleted)) i.productId = '';
   });
 }
 
@@ -748,11 +949,14 @@ function missingVars(text){
    ============================================================ */
 const REVIEW_KINDS = {
   adperiods: 'Kỳ số liệu quảng cáo',
+  spweeks:   'Tuần số liệu Shopee',
+  impacts:   'Hành động cải thiện sản phẩm',
   clips:     'Clip',
   bookings:  'Booking',
   kols:      'Hồ sơ KOC',
   actions:   'Hành động quảng cáo',
   products:  'Sản phẩm',
+  ideas:     'Sản phẩm mới',
   brands:    'Thương hiệu',
   statuses:  'Tình trạng KOC',
   templates: 'Mẫu tin nhắn'
@@ -790,6 +994,25 @@ function reviewLabel(kind, rec){
     }
     case 'products':
       return {title: rec.name, sub: 'sản phẩm', go: ['product', rec.id]};
+    case 'spweeks': {
+      const p = productOf(rec.productId);
+      const m = spMetrics(rec);
+      return {title: (p ? p.name : 'sản phẩm đã xoá') + ' · tuần ' + fmtShort(rec.from) + '–' + fmtShort(rec.to),
+              sub: num(m.impV) + ' lượt hiển thị · CTR ' + pctText(m.ctr) +
+                   ' · ' + num(m.buyers) + ' người mua · ' + moneyShort(m.gmv),
+              go: rec.productId ? ['sp', rec.productId] : null};
+    }
+    case 'impacts': {
+      const p = productOf(rec.productId);
+      const s = rec.metric ? SP_STAGE[rec.metric] : null;
+      return {title: (p ? p.name + ': ' : '') + (rec.title || IMP_TYPES[rec.type].label),
+              sub: IMP_TYPES[rec.type].label + ' · làm ngày ' + fmtDate(rec.date) +
+                   (s ? ' · nhắm vào ' + s.label.toLowerCase() : ''),
+              go: rec.productId ? ['sp', rec.productId] : null};
+    }
+    case 'ideas':
+      return {title: rec.name, sub: 'sản phẩm mới · ' + IDEA_STAGE[rec.stage].label,
+              go: ['newprod', '']};
     default:
       return {title: rec.name || '(không tên)', sub: REVIEW_KINDS[kind] || kind, go: null};
   }
@@ -833,7 +1056,8 @@ const reviewCount = () => (window.Server && !Server.isOwner()) ? 0 : pendingRevi
 const TG_FEEDS = {
   booking: {label:'Booking',    icon:'🤝', hint:'KOC tới hẹn liên hệ lại'},
   clip:    {label:'Clip',       icon:'🎬', hint:'chờ lên clip, đã gửi hàng lâu chưa thấy'},
-  ads:     {label:'Shopee Ads', icon:'📊', hint:'thử nghiệm quảng cáo tới hạn xem kết quả'}
+  ads:     {label:'Shopee Ads', icon:'📊', hint:'thử nghiệm quảng cáo tới hạn xem kết quả'},
+  prod:    {label:'Sản phẩm',   icon:'🛍', hint:'cải thiện sản phẩm tới hạn đo lại · sản phẩm mới tới việc kế tiếp'}
 };
 const TG_FEED_IDS = Object.keys(TG_FEEDS);
 
@@ -879,6 +1103,32 @@ function reminderTasks(){
          sub:ACTION_TYPES[a.type].label + ' · ' + (a.title || 'không ghi chi tiết') + ' · làm ngày ' + fmtDate(a.date),
          ref:{kind:'actions', id:a.id},
          doneLabel:'✅ Bỏ qua lần này', doneSet:{done:true}, dueField:'reviewAt'});
+  });
+
+  /* Cải thiện sản phẩm: tới hạn nạp lại số liệu để xem thay đổi có ăn không.
+     Giống trên, "xong" chỉ là khép việc lại — muốn biết kết quả thì phải nạp
+     số liệu tuần mới, việc đó cần mở app. */
+  openImpacts().forEach(im => {
+    const p = productOf(im.productId);
+    if (!p || p.archived) return;
+    const s = im.metric ? SP_STAGE[im.metric] : null;
+    add({id:'imp_' + im.id, feed:'prod', due:im.reviewAt, icon:IMP_TYPES[im.type].icon,
+         title:p.name + ': tới hạn nạp số liệu để đo',
+         sub:IMP_TYPES[im.type].label + ' ngày ' + fmtDate(im.date) +
+             (s ? ' · nhắm vào ' + s.label.toLowerCase() : ''),
+         ref:{kind:'impacts', id:im.id},
+         doneLabel:'✅ Bỏ qua lần này', doneSet:{done:true}, dueField:'reviewAt'});
+  });
+
+  /* Sản phẩm mới: việc kế tiếp bạn tự hẹn cho mình. Không có cái này thì một
+     ý tưởng nằm ở chặng "chờ mẫu" ba tháng mà chẳng ai nhắc. */
+  liveIdeas().forEach(i => {
+    if (!i.nextAt) return;
+    add({id:'idea_' + i.id, feed:'prod', due:i.nextAt, icon:IDEA_STAGE[i.stage].icon,
+         title:'Sản phẩm mới: ' + i.name,
+         sub:IDEA_STAGE[i.stage].label + (i.nextNote ? ' · ' + i.nextNote : ' · chưa ghi việc gì'),
+         ref:{kind:'ideas', id:i.id},
+         doneLabel:'✅ Đã làm', doneSet:{nextAt:'', nextNote:''}, dueField:'nextAt'});
   });
 
   return out.sort((x,y) => x.due.localeCompare(y.due));
@@ -1241,6 +1491,402 @@ function judgePeriod(w){
 }
 
 /* ============================================================
+   CẢI THIỆN SẢN PHẨM — phễu, chẩn đoán, nguồn doanh thu
+   ============================================================ */
+
+/* Mọi tỉ lệ tính lại từ số gốc. Mẫu số của từng tỉ lệ đã đối chiếu với
+   file "Hiệu suất sản phẩm" Shopee xuất ra, khớp tới hai chữ số thập phân —
+   để bạn mở bảng của sàn ra so được, không phải tin app suông. */
+function spMetrics(w){
+  const g = f => w[f] || 0;
+  const imp = g('imp'), clk = g('clicks'), uimp = g('uimp'), uclk = g('uclicks');
+  const visits = g('visits'), carts = g('carts'), buyers = g('buyers');
+  const orders = g('orders'), gmv = w.gmv || 0;
+  const cBuyers = g('cBuyers'), cGmv = w.cGmv || 0, cOrders = g('cOrders');
+  /* Vào trang gần bằng lượt-nhấp-duy-nhất. Chưa nhập số vào trang thì dùng
+     lượt nhấp duy nhất thay, còn hơn để cả phễu trống. */
+  const vis = visits || uclk;
+  return {
+    imp, clicks: clk, uimp, uclicks: uclk, visits, views: g('views'),
+    carts, buyers, orders, items: g('items'), gmv,
+    cBuyers, cOrders, cGmv, likes: g('likes'),
+
+    /* Lượt hiển thị: cột "Lượt hiển thị sản phẩm". Lùi về số duy nhất chỉ khi
+       tuần đó không có số thô (nhập tay thiếu), để phễu không trống hẳn. */
+    impV: imp || uimp,
+    /* CTR: đúng con số Shopee in ra — lượt nhấp / lượt hiển thị. */
+    ctr: (imp || uimp) ? (clk || uclk) / (imp || uimp) * 100 : null,
+    /* Bản tính theo lượt duy nhất, giữ lại để đối chiếu khi cần. */
+    uctr: uimp ? uclk / uimp * 100 : null,
+
+    cartCr:  vis ? carts / vis * 100 : null,
+    orderCr: vis ? buyers / vis * 100 : null,
+    cartToOrder: carts ? buyers / carts * 100 : null,
+    confirmR: buyers ? cBuyers / buyers * 100 : null,
+    bounceR: vis ? g('bounce') / vis * 100 : null,
+    aov:  orders ? gmv / orders : null,
+
+    /* CVR — tỉ lệ chuyển đổi THẬT: người mua có đơn ĐÃ XÁC NHẬN trên lượt truy
+       cập. Cố ý không dùng đơn "đã đặt": đơn đặt rồi huỷ không phải doanh thu,
+       và tỉ lệ tính trên đơn đã đặt luôn đẹp hơn thực tế khoảng một phần mười. */
+    cvr: vis ? cBuyers / vis * 100 : null,
+
+    /* gộp cả phễu vào một số: 1000 lần được nhìn thấy ra mấy đồng */
+    rpm:  (imp || uimp) ? gmv / (imp || uimp) * 1000 : null
+  };
+}
+/* Cộng nhiều tuần rồi mới tính tỉ lệ. Cộng trung bình các tỉ lệ là sai —
+   một tuần 56 lượt hiển thị sẽ có trọng số bằng một tuần 3.338 lượt. */
+function spSum(list){
+  const t = {gmv:0, cGmv:0};
+  SP_COUNTS.forEach(f => t[f] = 0);
+  const ch = {card:0, live:0, video:0, affiliate:0};
+  const src = {search:0, rec:0, shop:0, cart:0, promo:0, other:0};
+  list.forEach(w => {
+    SP_COUNTS.forEach(f => t[f] += w[f] || 0);
+    t.gmv += w.gmv || 0; t.cGmv += w.cGmv || 0;
+    Object.keys(ch).forEach(k => ch[k] += (w.ch || {})[k] || 0);
+    Object.keys(src).forEach(k => src[k] += (w.src || {})[k] || 0);
+  });
+  const m = spMetrics(t);
+  m.ch = ch; m.src = src; m.n = list.length;
+  return m;
+}
+
+const spWeeks     = () => alive(db.spweeks);
+const spWeeksOf   = pid => spWeeks().filter(w => w.productId === pid)
+                                   .sort((a,b) => a.from.localeCompare(b.from));
+const spLastWeek  = pid => { const l = spWeeksOf(pid); return l.length ? l[l.length-1] : null; };
+/* Sản phẩm đã nạp số liệu Shopee ít nhất một tuần, còn đang bán */
+const spProducts  = () => products().filter(p => !p.archived && spWeeksOf(p.id).length);
+
+/* Tuần gần nhất so với tuần liền trước — "tôi đang tốt lên hay xấu đi" */
+function spTrend(pid){
+  const ws = spWeeksOf(pid);
+  if (!ws.length) return null;
+  const last = ws[ws.length-1], before = ws.length > 1 ? ws[ws.length-2] : null;
+  const cur = spMetrics(last), prev = before ? spMetrics(before) : null;
+  const keys = ['impV','ctr','cartCr','cartToOrder','confirmR','cvr','gmv','rpm','aov','orderCr'];
+  const d = {};
+  if (prev) keys.forEach(k => d[k] = chgPct(cur[k], prev[k]));
+  return {week:last, prevWeek:before, cur, prev, d: prev ? d : null};
+}
+
+/* ---- nguồn doanh thu ----
+   Câu hỏi thật đằng sau: sửa cái gì thì ăn vào đâu. Đổi tiêu đề chỉ ăn vào
+   Tìm kiếm; book KOC chỉ ăn vào Tiếp thị liên kết. Không biết doanh thu đang
+   nằm ở kênh nào thì mọi hành động đều là đoán. */
+function spChannelMix(w){
+  const ch = w.ch || {};
+  const tot = SP_CHANNELS.reduce((s,c) => s + (ch[c.id] || 0), 0);
+  return {
+    total: tot,
+    list: SP_CHANNELS.map(c => ({...c, gmv: ch[c.id] || 0,
+                                 share: tot ? (ch[c.id] || 0) / tot * 100 : null}))
+                     .sort((a,b) => b.gmv - a.gmv)
+  };
+}
+function spSourceMix(w){
+  const src = w.src || {};
+  const tot = SP_SOURCES.reduce((s,c) => s + (src[c.id] || 0), 0);
+  return {
+    total: tot,
+    list: SP_SOURCES.map(c => ({...c, gmv: src[c.id] || 0,
+                                share: tot ? (src[c.id] || 0) / tot * 100 : null}))
+                    .filter(c => c.gmv > 0).sort((a,b) => b.gmv - a.gmv)
+  };
+}
+/* Nguồn doanh thu lớn nhất, tính xuyên qua cả hai tầng: nếu tiền vào chủ yếu
+   qua Thẻ sản phẩm thì đi tiếp vào trong xem là Tìm kiếm hay Đề xuất. */
+function spMainSource(w){
+  const cm = spChannelMix(w);
+  const top = cm.list[0];
+  if (!top || !top.gmv) return null;
+  if (top.id !== 'card') return {label: top.label, gmv: top.gmv, share: top.share, deep: false};
+  const sm = spSourceMix(w);
+  const s = sm.list[0];
+  if (!s || !s.gmv) return {label: top.label, gmv: top.gmv, share: top.share, deep: false};
+  return {label: top.label + ' → ' + s.label, gmv: s.gmv,
+          share: cm.total ? s.gmv / cm.total * 100 : null, deep: true, hint: s.hint};
+}
+
+/* ---- Khoá một sản phẩm với đúng một sản phẩm trên Shopee ----
+   Nạp nhầm số liệu của sản phẩm A vào sản phẩm B là kiểu hỏng tệ nhất có thể
+   xảy ra ở đây: không có gì báo, biểu đồ vẫn liền mạch, và mọi kết luận rút ra
+   sau đó đều sai. Nên lần nạp đầu app ghi lại tên + mã sản phẩm trên Shopee,
+   rồi những lần sau đối chiếu lại cả hai.
+
+   Mã sản phẩm là thứ Shopee không đổi, nên nó là bằng chứng chính. Tên thì bạn
+   sửa lúc nào cũng được, nên tên lệch chỉ là cảnh báo — kèm lời mời cập nhật
+   lại tên đã ghi, chứ không chặn. */
+function spMatch(p, row){
+  const sku  = String((row && row.sku)  || '').trim();
+  const name = String((row && row.name) || '').trim();
+  const gSku = String(p.shopeeSku || p.sku || '').trim();
+  const gName = String(p.shopeeName || p.name || '').trim();
+
+  if (!gSku && !p.shopeeName)
+    return {ok:true, level:'new', text:'lần đầu — sẽ khoá theo tên và mã này'};
+
+  if (gSku && sku && gSku !== sku)
+    return {ok:false, level:'block',
+            text:'mã khác nhau: đã khoá ' + gSku + ', file là ' + sku};
+
+  if (!sku && gSku)
+    return {ok:false, level:'block', text:'file không có mã sản phẩm để đối chiếu'};
+
+  const tenKhop = norm(gName) === norm(name);
+  if (gSku && sku && gSku === sku)
+    return tenKhop
+      ? {ok:true, level:'ok', text:'khớp cả tên và mã ' + sku}
+      : {ok:true, level:'warn', rename:name,
+         text:'mã khớp (' + sku + ') nhưng tên trên Shopee đã đổi'};
+
+  return tenKhop
+    ? {ok:true, level:'ok', text:'khớp tên (chưa có mã để đối chiếu)'}
+    : {ok:false, level:'block', text:'tên khác nhau và không có mã để đối chiếu'};
+}
+
+/* Việc kế tiếp của một sản phẩm — dùng để đếm ngược trên thẻ */
+function nextImpact(pid){
+  return openImpactsOf(pid)[0] || null;
+}
+
+/* Tuần gần nhất CÓ số liệu kênh. Không phải tuần nào cũng có: Shopee chỉ
+   tách kênh khi bạn xuất riêng một sản phẩm, nên tuần nào bạn xuất cả shop
+   là tuần đó trống phần kênh. Lấy tuần gần nhất có số còn hơn là để cả khối
+   "doanh thu đến từ đâu" biến mất rồi tuần sau lại hiện ra. */
+function spChannelWeek(pid){
+  const ws = spWeeksOf(pid);
+  for (let i = ws.length - 1; i >= 0; i--){
+    const ch = ws[i].ch || {};
+    if (SP_CHANNELS.some(c => (ch[c.id] || 0) > 0)) return ws[i];
+  }
+  return null;
+}
+
+/* ---- mốc so sánh: chính các sản phẩm khác CỦA BẠN ----
+   Cố ý không dùng "chuẩn ngành". Tôi không biết ngành hàng của bạn, và một
+   con số bịa ra sẽ khiến bạn đi sửa thứ không cần sửa. Trung vị chính kho
+   sản phẩm của bạn thì luôn đúng ngữ cảnh — cùng shop, cùng tệp khách.
+
+   So CÙNG MỘT TUẦN nếu sản phẩm kia cũng có tuần đó. Lấy tuần gần nhất của
+   mỗi bên rồi so với nhau là so tuần 33 của cái này với tuần 31 của cái kia:
+   sàn có sale, mùa vụ, đối thủ hạ giá — tuần nào cũng khác tuần nào, nên
+   chênh lệch đo được sẽ phần lớn là chênh lệch của thời gian, không phải của
+   sản phẩm. Bên nào không có tuần đó thì mới lùi về tuần gần nhất của nó. */
+function spBenchmark(exceptId, from){
+  let sameWeek = 0;
+  const rows = spProducts().filter(p => p.id !== exceptId).map(p => {
+    const ws = spWeeksOf(p.id);
+    const hit = from ? ws.find(w => w.from === from) : null;
+    if (hit) sameWeek++;
+    return spMetrics(hit || ws[ws.length - 1]);
+  });
+  const med = {};
+  SP_STAGES.forEach(s => {
+    const key = s.key === 'imp' ? 'impV' : s.key;
+    med[s.id] = median(rows.map(r => r[key]));
+  });
+  return {n: rows.length, sameWeek, med, enough: rows.length >= 2};
+}
+
+/* ---- chẩn đoán một sản phẩm ----
+   Trả về từng khúc phễu kèm hai câu trả lời khác nhau, vì chúng dùng cho
+   hai việc khác nhau:
+
+     yếu   — so với các sản phẩm khác của bạn (cần ≥3 sản phẩm mới có nghĩa)
+     tụt   — so với chính nó tuần trước (chỉ cần 2 tuần là dùng được)
+
+   Có cả hai vì lúc mới bắt đầu bạn chỉ có một sản phẩm, mốc so sánh chưa
+   tồn tại — nhưng "tuần này tụt so với tuần trước" thì luôn dùng được ngay.
+
+   `gain` là ước lượng thô: nếu khúc này lên tới mức trung vị thì tuần này
+   thêm bao nhiêu doanh thu. Giả định các khúc sau không đổi — không đúng
+   tuyệt đối, nhưng đủ để xếp thứ tự nên sửa cái nào trước, mà đó mới là
+   việc cần. Chỗ nào số bé quá thì bỏ ra chứ không tính, vì 56 lượt hiển
+   thị thì mọi tỉ lệ đều là nhiễu. */
+const SP_MIN_IMP = 300;      // dưới mức này thì tỉ lệ chưa đáng tin
+const SP_MIN_VISIT = 20;
+
+function spDiagnose(pid){
+  const w = spLastWeek(pid);
+  if (!w) return null;
+  const cur = spMetrics(w);
+  const tr = spTrend(pid);
+  const bm = spBenchmark(pid, w.from);
+  const thoImp = (cur.impV || 0) < SP_MIN_IMP;
+  const thoVisit = (cur.visits || cur.uclicks || 0) < SP_MIN_VISIT;
+
+  const stages = SP_STAGES.map(s => {
+    const key = s.key === 'imp' ? 'impV' : s.key;
+    const v = cur[key];
+    const med = bm.med[s.id];
+    /* khúc hiển thị chỉ cần đủ tuần để so; các khúc tỉ lệ cần đủ mẫu */
+    const dungDuoc = v != null && isFinite(v) && v > 0 &&
+      (s.id === 'imp' ? true : (!thoImp && !thoVisit));
+    const soVoiMoc = (dungDuoc && bm.enough && med != null && med > 0) ? v / med : null;
+    const doiTuanTruoc = tr && tr.d ? tr.d[key] : null;
+    /* doanh thu tăng thêm nếu khúc này lên tới trung vị */
+    let gain = null;
+    if (soVoiMoc != null && soVoiMoc < 1 && cur.gmv > 0)
+      gain = cur.gmv * (Math.min(med / v, 3) - 1);
+    return {
+      stage: s, value: v, med, ratio: soVoiMoc, delta: doiTuanTruoc, gain,
+      usable: dungDuoc,
+      /* Dưới trung vị 15% mới gọi là yếu. Với 4 sản phẩm thì hai cái nằm dưới
+         trung vị là chuyện đương nhiên, nên gắn cờ ngay khi dưới mốc sẽ tô đỏ
+         nửa kho mỗi tuần — tô đỏ mọi thứ là không tô gì cả. Thứ tự nên sửa
+         cái nào trước vẫn do `gain` quyết, cờ này chỉ để đập vào mắt. */
+      weak: soVoiMoc != null && soVoiMoc < 0.85,
+      dropped: doiTuanTruoc != null && doiTuanTruoc <= -10
+    };
+  });
+
+  /* Khúc đáng sửa nhất: dưới mốc nhiều nhất, ưu tiên chỗ hứa nhiều tiền nhất.
+     Dưới mốc 3% trở xuống thì không tính là "khúc thấp nhất". Chênh 24,97% với
+     25,00% là nhiễu, nhưng in ra thành một dòng chẩn đoán thì đọc y như một
+     phát hiện — rồi bạn đi sửa một thứ vốn không hỏng. */
+  const duoiMoc = stages.filter(x => x.ratio != null && x.ratio < 0.97);
+  const yeu = duoiMoc.filter(x => x.weak).sort((a,b) => (b.gain || 0) - (a.gain || 0));
+  const tut = stages.filter(x => x.dropped && x.usable)
+                    .sort((a,b) => (a.delta || 0) - (b.delta || 0));
+
+  /* Tổng tiền đang rơi: NHÂN các khúc lại, không cộng.
+     Phễu là phép nhân — CTR thấp 20% và tỉ lệ thêm giỏ thấp 20% thì doanh thu
+     mất 36%, không phải 40%. Cộng lại là kê khống, và kê khống ở đúng con số
+     người ta dùng để quyết định làm gì trước. Chặn ở 5 lần cho khỏi ra những
+     con số hoang đường khi một khúc gần bằng 0. */
+  let heSo = 1;
+  duoiMoc.forEach(x => { if (x.med > 0 && x.value > 0) heSo *= Math.min(x.med / x.value, 3); });
+  const gain = cur.gmv > 0 && heSo > 1 ? cur.gmv * (Math.min(heSo, 5) - 1) : 0;
+
+  return {
+    week: w, cur, trend: tr, bm, stages,
+    weakest: yeu[0] || duoiMoc.sort((a,b) => (b.gain || 0) - (a.gain || 0))[0] || null,
+    flagged: !!yeu.length,
+    dropping: tut[0] || null,
+    gain,
+    thin: thoImp || thoVisit,
+    /* Nguồn doanh thu lấy từ tuần gần nhất CÓ số liệu kênh, không nhất thiết
+       là tuần gần nhất — xem spChannelWeek(). */
+    chWeek: spChannelWeek(pid),
+    main: (() => { const cw = spChannelWeek(pid); return cw ? spMainSource(cw) : null; })()
+  };
+}
+
+/* Xếp mọi sản phẩm theo "sửa cái này thì được nhiều nhất".
+   Đây là câu trả lời cho "tìm sản phẩm yếu cần tối ưu": không phải sản phẩm
+   có tỉ lệ tệ nhất — mà sản phẩm có nhiều tiền đang rơi ra nhất. Một sản
+   phẩm CTR 2% với 200 lượt hiển thị không đáng một buổi chiều của bạn. */
+function spRanking(){
+  return spProducts().map(p => {
+    const d = spDiagnose(p.id);
+    return {product: p, d};
+  }).filter(x => x.d)
+    .sort((a,b) => {
+      /* có tiền để giành thì xếp theo tiền; không thì đẩy chỗ đang tụt lên */
+      const ga = a.d.gain || 0, gb = b.d.gain || 0;
+      if (gb !== ga) return gb - ga;
+      const da = a.d.dropping ? a.d.dropping.delta : 0;
+      const db_ = b.d.dropping ? b.d.dropping.delta : 0;
+      return (da || 0) - (db_ || 0);
+    });
+}
+
+/* ============================================================
+   NHẬT KÝ CẢI THIỆN — ghi hành động, 7 ngày sau đo lại
+
+   Điểm khác biệt với một cuốn sổ tay: mỗi hành động khai sẵn nó nhắm vào
+   khúc phễu nào. Nên lúc đo, app không nói "doanh thu tăng 12%" (câu đó
+   không cho bạn biết gì) mà nói "bạn đổi ảnh bìa để kéo CTR; CTR đi từ
+   6,55% lên 8,10%" — rồi mới nói doanh thu.
+   ============================================================ */
+const impacts       = () => alive(db.impacts);
+const impactsOf     = pid => impacts().filter(x => x.productId === pid)
+                                      .sort((a,b) => b.date.localeCompare(a.date));
+const openImpacts   = () => impacts().filter(x => !x.done && x.reviewAt);
+const openImpactsOf = pid => impactsOf(pid).filter(x => !x.done && x.reviewAt)
+                                           .sort((a,b) => a.reviewAt.localeCompare(b.reviewAt));
+const impactOf      = id => impacts().find(x => x.id === id) || null;
+
+/* Ghép tuần TRƯỚC và tuần SAU một hành động.
+   Luật: tuần mốc là tuần cuối cùng kết thúc TRƯỚC ngày làm; tuần kết quả là
+   tuần đầu tiên bắt đầu TỪ ngày làm trở đi. Một tuần đang chạy dở mà hành
+   động rơi vào giữa thì bị bỏ qua cả hai bên — nửa tuần cũ nửa tuần mới
+   trộn vào nhau thì so cái gì cũng vô nghĩa. */
+function impactWeeks(im){
+  const ws = spWeeksOf(im.productId);
+  const base = ws.filter(w => w.to < im.date).pop() || null;
+  const after = ws.find(w => w.from >= im.date) || null;
+  return {base, after, straddling: ws.find(w => w.from < im.date && w.to >= im.date) || null};
+}
+/* Kết quả thật của một hành động. null nghĩa là chưa đủ tuần để nói gì. */
+function impactResult(im){
+  const {base, after, straddling} = impactWeeks(im);
+  if (!base || !after) return {base, after, straddling, ready:false};
+  const b = spMetrics(base), a = spMetrics(after);
+  const st0 = im.metric ? SP_STAGE[im.metric] : null;
+  const key = st0 ? (st0.key === 'imp' ? 'impV' : st0.key) : '';
+  const dMetric = im.metric ? chgPct(a[key], b[key]) : null;
+  const dGmv = chgPct(a.gmv, b.gmv);
+  const s = im.metric ? SP_STAGE[im.metric] : null;
+
+  /* Chấm theo chỉ số ĐƯỢC NHẮM, không theo doanh thu. Doanh thu tuần có sale
+     sàn thì tăng dù bạn chẳng làm gì — lấy nó chấm thì hành động nào cũng
+     hoá ra thành công. */
+  const moc = dMetric != null ? dMetric : dGmv;
+  const suggest = moc == null ? '' : moc >= 10 ? 'better' : moc <= -10 ? 'worse' : 'same';
+
+  const cau = [];
+  if (s && dMetric != null){
+    const v = x => s.unit === 'n' ? num(x) : pctText(x, 2);
+    cau.push(s.label + ': ' + v(b[key]) + ' → ' + v(a[key]) +
+             ' (' + (dMetric >= 0 ? '+' : '') + Math.round(dMetric) + '%)');
+  }
+  if (dGmv != null)
+    cau.push('doanh thu ' + moneyShort(b.gmv) + ' → ' + moneyShort(a.gmv) +
+             ' (' + (dGmv >= 0 ? '+' : '') + Math.round(dGmv) + '%)');
+  /* Hai con số đá nhau thì phải nói ra, đừng gộp thành một kết luận đẹp */
+  let luuY = '';
+  if (dMetric != null && dGmv != null){
+    if (dMetric >= 10 && dGmv <= -10)
+      luuY = 'Chỉ số nhắm tới tốt lên nhưng doanh thu lại giảm — khúc sau đang chặn, xem tiếp phễu.';
+    else if (dMetric <= -10 && dGmv >= 10)
+      luuY = 'Doanh thu tăng nhưng không phải nhờ việc này — có thể do sale sàn hoặc kênh khác.';
+    else if (Math.abs(dMetric) < 10 && Math.abs(dGmv) < 10)
+      luuY = 'Gần như không đổi. Thay đổi quá nhẹ, hoặc chưa đủ lượng để thấy.';
+  }
+  return {base, after, straddling, ready:true, b, a, dMetric, dGmv, suggest,
+          text: cau.join(' · '), note: luuY, stage: s};
+}
+
+/* ============================================================
+   XÂY DỰNG SẢN PHẨM MỚI
+   ============================================================ */
+const ideas   = () => alive(db.ideas);
+const ideaOf  = id => ideas().find(x => x.id === id) || null;
+const liveIdeas = () => ideas().filter(i => IDEA_LIVE.includes(i.stage));
+
+/* Điểm 0-100 từ bốn trục bạn tự chấm. Trục chưa chấm thì KHÔNG tính là 0 —
+   trọng số của nó chia lại cho các trục còn lại, cùng cách chấm điểm KOC.
+   Chưa chấm trục nào thì trả về null: "chưa chấm" phải khác "chấm 0 điểm". */
+function ideaScore(i){
+  const v = IDEA_AXES.map(a => +i.score[a.id] || 0).filter(x => x > 0);
+  if (!v.length) return null;
+  return Math.round(v.reduce((s,x) => s + x, 0) / v.length / 5 * 100);
+}
+/* Lời gộp mỗi đơn theo con số bạn tự khai. Chưa có giá vốn thì không đoán. */
+function ideaMargin(i){
+  if (!i.price || !i.cost) return null;
+  return {vnd: i.price - i.cost, pct: (i.price - i.cost) / i.price * 100};
+}
+const ideaChecked = i => IDEA_CHECKS.filter(c => i.checks && i.checks[c.id]).length;
+/* Ý tưởng đã tới hạn việc kế tiếp */
+const dueIdeas = () => liveIdeas().filter(i => i.nextAt && dayDiff(i.nextAt) <= 0)
+                                  .sort((a,b) => a.nextAt.localeCompare(b.nextAt));
+
+/* ============================================================
    SO SÁNH HAI KÊNH — câu hỏi đắt nhất của cả app:
    cùng một sản phẩm, tiền nên đổ vào booking KOC hay vào Shopee Ads?
 
@@ -1386,6 +2032,40 @@ function alerts(){
       sort: 300 + d});
   });
 
+  /* 7. đến hạn nạp lại số liệu Shopee để đo một thay đổi */
+  openImpacts().forEach(im => {
+    const d = dayDiff(im.reviewAt);
+    if (d > 0) return;
+    const p = productOf(im.productId);
+    if (!p || p.archived) return;
+    out.push({level: d < -3 ? 'bad' : 'warn', kind:'impact', productId:im.productId, impactId:im.id,
+      title: p.name + ': tới hạn nạp số liệu để đo ' + IMP_TYPES[im.type].label.toLowerCase(),
+      sub: 'làm ngày ' + fmtDate(im.date) + (d < 0 ? ' · quá hạn ' + (-d) + ' ngày' : ''),
+      sort: 480 + (-d)});
+  });
+
+  /* 8. một khúc phễu tụt mạnh so với tuần trước.
+     Chỉ báo khúc TỆ NHẤT của mỗi sản phẩm — báo cả năm khúc thì hôm nào
+     cũng đầy màn hình và bạn sẽ thôi đọc, tức là mất luôn cả cái đáng đọc. */
+  spProducts().forEach(p => {
+    const d = spDiagnose(p.id);
+    if (!d || !d.dropping || d.thin) return;
+    const x = d.dropping;
+    out.push({level:'warn', kind:'spdrop', productId:p.id,
+      title: p.name + ': ' + x.stage.label.toLowerCase() + ' tụt ' + Math.round(-x.delta) + '%',
+      sub: 'tuần ' + fmtShort(d.week.from) + '–' + fmtShort(d.week.to) + ' · sửa bằng: ' + x.stage.fix,
+      sort: 200 + (-x.delta)});
+  });
+
+  /* 9. sản phẩm mới tới hạn việc kế tiếp */
+  dueIdeas().forEach(i => {
+    const d = -dayDiff(i.nextAt);
+    out.push({level: d > 7 ? 'warn' : 'info', kind:'idea', ideaId:i.id,
+      title: 'Sản phẩm mới "' + i.name + '" tới việc kế tiếp' + (d > 0 ? ' (trễ ' + d + ' ngày)' : ''),
+      sub: IDEA_STAGE[i.stage].label + (i.nextNote ? ' · ' + i.nextNote : ''),
+      sort: 150 + d});
+  });
+
   const rank = {bad:0, warn:1, info:2};
   return out.sort((a,b) => (rank[a.level] - rank[b.level]) || (b.sort - a.sort));
 }
@@ -1485,9 +2165,17 @@ function searchAll(q, limit){
   });
   products().forEach(p => {
     if (hit(p.name, p.sku, p.brand, p.url, p.note))
-      out.push({kind:'product', id:p.id, title:p.name, sub:'Sản phẩm quảng cáo'});
+      out.push({kind:'product', id:p.id, title:p.name,
+                sub: spWeeksOf(p.id).length ? 'Sản phẩm · ' + spWeeksOf(p.id).length + ' tuần số liệu Shopee'
+                                            : 'Sản phẩm quảng cáo'});
+  });
+  ideas().forEach(i => {
+    if (hit(i.name, i.brand, i.category, i.source, i.supplier, i.note, i.link))
+      out.push({kind:'idea', id:i.id, title:i.name,
+                sub:'Sản phẩm mới · ' + IDEA_STAGE[i.stage].label});
   });
 
   return limit ? out.slice(0, limit) : out;
 }
-const KIND_LABEL = {kol:'KOL/KOC', booking:'Booking', clip:'Clip', product:'Sản phẩm'};
+const KIND_LABEL = {kol:'KOL/KOC', booking:'Booking', clip:'Clip', product:'Sản phẩm',
+                    idea:'Sản phẩm mới'};

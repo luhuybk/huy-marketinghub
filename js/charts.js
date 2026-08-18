@@ -42,7 +42,11 @@ const Chart = (() => {
     const bars  = o.bars || [];
     const lines = o.lines || [];
     const H     = o.height || 230;
-    const padL = 56, padR = lines.length ? 52 : 14, padT = 14, padB = 34;
+    /* Không có cột thì đường chiếm luôn trục TRÁI. Để nguyên trục trái cho cột
+       khi chẳng có cột nào sẽ in ra một thang 0 · 0,25 · 0,5 chẳng của ai. */
+    const chiDuong = !bars.length && lines.length > 0;
+    const coTrucPhai = bars.some(x => x.axis === 'r') || (lines.length && !chiDuong);
+    const padL = 56, padR = coTrucPhai ? 62 : 14, padT = 14, padB = 34;
     const plotW = W - padL - padR, plotH = H - padT - padB;
 
     if (!rows.length)
@@ -51,7 +55,15 @@ const Chart = (() => {
     const fmtB = o.fmtBar  || num;
     const fmtL = o.fmtLine || (v => v == null ? '' : v.toFixed(1));
 
-    const maxBar = niceMax(Math.max(0, ...rows.flatMap(r => bars.map(b => +r[b.key] || 0))));
+    /* Mỗi cột có thể ngồi trên thang riêng (b.axis = 'r').
+       Vì sao cần: lượt hiển thị tính bằng nghìn, doanh thu tính bằng triệu —
+       chênh nhau hai nghìn lần. Ép chung một thang thì cột nhỏ dẹp xuống thành
+       một vệt sát đáy, nhìn như tuần nào cũng bằng 0. */
+    const barsL = bars.filter(x => x.axis !== 'r');
+    const barsR = bars.filter(x => x.axis === 'r');
+    const maxOf = list => niceMax(Math.max(0, ...rows.flatMap(r => list.map(x => +r[x.key] || 0))));
+    const maxBar  = maxOf(barsL.length ? barsL : bars);
+    const maxBarR = barsR.length ? maxOf(barsR) : 0;
     const lineVals = rows.flatMap(r => lines.map(l => r[l.key])).filter(v => v != null && isFinite(v));
     const maxLine = niceMax(Math.max(0, ...lineVals));
 
@@ -59,6 +71,7 @@ const Chart = (() => {
     const inner = Math.min(bw * 0.66, 46);      // phần thân cột trong nhóm
     const each  = bars.length ? inner / bars.length : inner;
     const yB    = v => padT + plotH - (Math.max(0, +v || 0) / maxBar) * plotH;
+    const yBR   = v => padT + plotH - (Math.max(0, +v || 0) / (maxBarR || 1)) * plotH;
     const yL    = v => padT + plotH - (Math.max(0, +v || 0) / maxLine) * plotH;
     const cx    = i => padL + bw * i + bw / 2;
 
@@ -68,8 +81,12 @@ const Chart = (() => {
     for (let i = 0; i <= 4; i++){
       const y = padT + plotH - (plotH / 4) * i;
       s += `<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" class="c-grid"/>`;
-      s += `<text x="${padL-8}" y="${y+4}" class="c-ax c-ax-r">${esc2(fmtB(maxBar/4*i))}</text>`;
-      if (lines.length)
+      s += `<text x="${padL-8}" y="${y+4}" class="c-ax c-ax-r">${
+        esc2(chiDuong ? fmtL(maxLine/4*i) : fmtB(maxBar/4*i))}</text>`;
+      /* Trục phải: ưu tiên cột-thang-phải; không có thì mới tới đường. */
+      if (barsR.length)
+        s += `<text x="${W-padR+8}" y="${y+4}" class="c-ax">${esc2((o.fmtBarR || fmtB)(maxBarR/4*i))}</text>`;
+      else if (lines.length && !chiDuong)
         s += `<text x="${W-padR+8}" y="${y+4}" class="c-ax">${esc2(fmtL(maxLine/4*i))}</text>`;
     }
 
@@ -78,10 +95,11 @@ const Chart = (() => {
       bars.forEach((b, j) => {
         const v = +r[b.key] || 0;
         const x = cx(i) - inner/2 + each*j;
-        const y = yB(v);
+        const y = b.axis === 'r' ? yBR(v) : yB(v);
         const h = Math.max(v > 0 ? 2 : 0, padT + plotH - y);
+        const f = b.axis === 'r' ? (o.fmtBarR || fmtB) : fmtB;
         s += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(each-2).toFixed(1)}" height="${h.toFixed(1)}"
-                    rx="2.5" fill="${b.color}" opacity=".88"><title>${esc2(r.label)} · ${esc2(b.label)}: ${esc2(fmtB(v))}</title></rect>`;
+                    rx="2.5" fill="${b.color}" opacity=".88"><title>${esc2(r.label)} · ${esc2(b.label)}: ${esc2(f(v))}</title></rect>`;
       });
     });
 
@@ -97,6 +115,11 @@ const Chart = (() => {
         s += `<circle cx="${cx(p.i).toFixed(1)}" cy="${yL(p.v).toFixed(1)}" r="3.6"
                       fill="var(--bg2)" stroke="${l.color}" stroke-width="2.2">
                 <title>${esc2(rows[p.i].label)} · ${esc2(l.label)}: ${esc2(fmtL(p.v))}</title></circle>`;
+        /* Cả hai trục đã bị cột chiếm thì đường không còn thang nào để đọc —
+           ghi thẳng con số lên điểm, đằng nào đó cũng là số bạn muốn đọc chính xác. */
+        if (l.showValue)
+          s += `<text x="${cx(p.i).toFixed(1)}" y="${(yL(p.v)-9).toFixed(1)}"
+                      class="c-ax c-ax-c" fill="${l.color}">${esc2(fmtL(p.v))}</text>`;
       });
     });
 

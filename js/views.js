@@ -15,7 +15,8 @@ const ui = {
   clipQ:'', clipSort:'date', clipKol:'',
   resTab:'brands', resQ:'',
   cmpFrom:'', cmpTo:'',
-  todayAhead:0
+  todayAhead:0,
+  ideaQ:'', ideaShowDead:false
 };
 
 /* Cấu hình Telegram nằm ở máy chủ, không phải trong db — mã bot không bao
@@ -821,6 +822,8 @@ function viewProduct(id){
       <div class="dim">${p.brand ? esc(p.brand) : ''}${p.sku ? ' · SKU ' + esc(p.sku) : ''}${p.price ? ' · giá ' + money(p.price) : ''}</div>
     </div>${trackChip(t)}</div>
     <div class="btns" style="margin-top:12px">
+      <button class="btn sm" data-act="sp" data-id="${p.id}">${
+        spWeeksOf(p.id).length ? 'Sức khoẻ trên Shopee ›' : 'Nạp số liệu Shopee ›'}</button>
       <button class="btn sm" data-act="editproduct" data-id="${p.id}">Sửa sản phẩm</button>
       ${p.url ? `<a class="btn sm" href="${esc(p.url)}" target="_blank" rel="noopener">Mở link quảng cáo ↗</a>` : ''}
     </div>
@@ -1001,6 +1004,596 @@ function viewProduct(id){
   h += `<div class="btns" style="margin-top:20px">
     ${isOwner() ? `<button class="btn dngr sm" data-act="delproduct" data-id="${p.id}">Xoá sản phẩm</button>` : ''}</div>`;
   return h;
+}
+
+/* ============================================================
+   CẢI THIỆN SẢN PHẨM
+
+   Câu hỏi của trang này: trong kho sản phẩm của tôi, ngồi xuống sửa cái nào
+   thì được nhiều tiền nhất — và sửa khúc nào của nó.
+
+   Không xếp theo "tỉ lệ tệ nhất". Một sản phẩm CTR 2% với 200 lượt hiển thị
+   thì sửa xong cũng chẳng thêm được đồng nào. Xếp theo TIỀN đang rơi ra.
+   ============================================================ */
+
+/* Vạch phễu: thanh dài bằng tỉ lệ so với trung vị, có mốc trung vị vẽ sẵn.
+   Thanh ngắn hơn mốc = đang yếu hơn phần còn lại của kho. Đọc bằng mắt,
+   không phải đọc số rồi tự chia trong đầu. */
+const FN_MAX = 1.5;                       // thanh đầy = gấp 1,5 lần trung vị
+function funnelRow(x, pid){
+  const s = x.stage;
+  const val = s.unit === 'n' ? num(x.value) : pctText(x.value, 2);
+  const cls = x.weak ? 'weak' : x.dropped ? 'drop' : '';
+  let mid = '';
+  if (x.ratio != null){
+    const w = clamp(x.ratio / FN_MAX * 100, 2, 100);
+    mid = `<div class="fn-bar"><i style="width:${w.toFixed(1)}%"></i>
+        <s style="left:${(100/FN_MAX).toFixed(1)}%" title="trung vị các sản phẩm khác"></s></div>
+      <div class="fn-c">trung vị của bạn ${s.unit === 'n' ? num(x.med) : pctText(x.med, 2)} ·
+        bằng <b class="${x.weak ? 'bad' : ''}">${Math.round(x.ratio * 100)}%</b>${
+        x.gain ? ` · lên mức đó thì <b class="ok">+${moneyShort(x.gain)}</b>/tuần` : ''}</div>`;
+  } else if (!x.usable){
+    mid = `<div class="fn-c dim">số còn quá ít để tính tỉ lệ đáng tin</div>`;
+  } else {
+    mid = `<div class="fn-c dim">chưa có mốc so sánh — cần ít nhất 3 sản phẩm đã nạp số liệu</div>`;
+  }
+  return `<div class="fn-row ${cls}">
+    <div class="fn-l"><b>${esc(s.label)}</b>
+      <div class="dim">${esc(s.what)}</div></div>
+    <div class="fn-m"><div class="fn-v">${val}${
+      x.delta != null ? ' ' + deltaChip(x.delta, true) : ''}</div>${mid}</div>
+    <div class="fn-r">
+      <div class="fn-fix">sửa bằng: ${esc(s.fix)}</div>
+      <button class="btn sm" data-act="newimpact" data-id="${pid}" data-m="${s.id}">+ Ghi hành động</button>
+    </div>
+  </div>`;
+}
+
+/* Thanh trạng thái bạn tự đặt. Bấm thẳng vào đây đổi được, không phải mở
+   biểu mẫu sản phẩm — trạng thái là thứ đổi luôn xoành xoạch, bắt đi ba bước
+   để đổi một chữ thì sẽ chẳng ai đổi, rồi cả cột trở nên vô nghĩa. */
+function statusBar(p){
+  const cur = SP_STATUS[p.spStatus] || SP_STATUS[''];
+  return `<div class="stbar">
+    ${SP_STATUS_IDS.map(id => {
+      const st = SP_STATUS[id];
+      const on = p.spStatus === id;
+      return `<button class="stb ${on ? 'on ' + (st.chip || '') : ''}"
+        data-act="spstatus" data-id="${p.id}" data-s="${id}"
+        title="${esc(st.label)}">${st.icon}<span>${esc(st.label)}</span></button>`;
+    }).join('')}
+  </div>`;
+}
+
+/* Đếm ngược tới lần đo kế tiếp. Một ngày hẹn nằm trong biểu mẫu thì bạn phải
+   tự trừ ngày trong đầu mỗi lần nhìn; "còn 3 ngày" thì không. */
+function countdownBar(pid){
+  const im = nextImpact(pid);
+  if (!im) return `<div class="cdown none">Chưa hẹn đo gì —
+    <button class="lnk" data-act="newimpact" data-id="${pid}">ghi một hành động</button></div>`;
+  const dd = dayDiff(im.reviewAt);
+  const cls = dd < 0 ? 'bad' : dd === 0 ? 'due' : dd <= 2 ? 'soon' : '';
+  const t = IMP_TYPES[im.type];
+  return `<div class="cdown ${cls}" data-act="spgo" data-id="${pid}">
+    <span class="cd-n">${dd > 0 ? dd : dd === 0 ? '!' : -dd}</span>
+    <span class="cd-u">${dd > 0 ? 'ngày nữa' : dd === 0 ? 'hôm nay' : 'ngày trễ'}</span>
+    <span class="cd-t">${t.icon} ${esc(im.title || t.label)}
+      <b>· đo ngày ${esc(fmtDate(im.reviewAt))}</b></span>
+  </div>`;
+}
+
+function viewImprove(){
+  const list = spRanking();
+  let h = `<div class="toolbar">
+    <div class="grow"></div>
+    <button class="btn pri" data-act="spimport">📥 Nạp số liệu tuần</button>
+    <button class="btn" data-act="newproduct">+ Sản phẩm</button>
+  </div>`;
+
+  if (!list.length)
+    return h + `<div class="empty"><b>Chưa nạp số liệu Shopee nào</b>
+      Lấy file ở Kênh Người Bán › <b>Phân tích bán hàng › Hiệu suất sản phẩm</b>,
+      chọn khoảng <b>một tuần</b>, bấm Xuất dữ liệu. Rồi kéo thẳng file .xlsx vào đây —
+      app tự đọc, tự khớp vào sản phẩm, không phải gõ lại con số nào.
+      <div style="margin-top:14px" class="btns center">
+        <button class="btn pri" data-act="spimport">📥 Nạp file đầu tiên</button>
+      </div></div>`;
+
+  /* ---- tới hạn nạp lại số liệu để đo ---- */
+  const due = [];
+  list.forEach(({product}) => openImpactsOf(product.id).forEach(im => {
+    const d = dayDiff(im.reviewAt);
+    if (d <= 0) due.push({p: product, im, d});
+  }));
+  due.sort((a,b) => a.im.reviewAt.localeCompare(b.im.reviewAt));
+  if (due.length){
+    h += `<div class="mod">` + moduleHead('⚡', 'Tới hạn nạp số liệu để đo',
+      due.length + ' thay đổi đã chờ đủ ngày — nạp tuần mới là biết ăn hay không',
+      `<button class="btn sm pri" data-act="spimport">📥 Nạp số liệu</button>`);
+    h += `<div class="alerts">` + due.map(({p, im, d}) => `
+      <div class="al al-${d < -3 ? 'bad' : 'warn'}" data-act="spgo" data-id="${p.id}">
+        <span class="al-dot"></span>
+        <div class="grow"><div class="al-t">${esc(p.name)} — ${esc(im.title || IMP_TYPES[im.type].label)}</div>
+          <div class="al-s">${esc(IMP_TYPES[im.type].label)} ngày ${esc(fmtDate(im.date))}
+            · hẹn đo sau ${im.reviewDays} ngày${d < 0 ? ' · quá hạn ' + (-d) + ' ngày' : ''}</div></div>
+        <span class="chip acc">Xem →</span>
+      </div>`).join('') + `</div></div>`;
+  }
+
+  /* ---- mốc so sánh chưa đủ thì nói ngay, đừng để người dùng tin vào con số rỗng ---- */
+  const bm = spBenchmark('');
+  if (bm.n < 3)
+    h += `<div class="explain">Đang có <b>${bm.n} sản phẩm</b> đã nạp số liệu. App so sản phẩm
+      với trung vị của chính kho bạn, nên phải có <b>từ 3 sản phẩm</b> trở lên thì phần
+      "yếu hơn phần còn lại" mới có nghĩa. Trong lúc đó phần
+      <b>"tụt so với tuần trước"</b> vẫn dùng được ngay — chỉ cần 2 tuần số liệu.</div>`;
+
+  /* ---- danh sách xếp theo tiền đang rơi ---- */
+  const tongGain = list.reduce((s,x) => s + (x.d.gain || 0), 0);
+  h += `<div class="mod">` + moduleHead('🎯', 'Sửa cái này trước',
+    list.length + ' sản phẩm đang theo dõi' +
+    (tongGain ? ` · ước lượng <b class="ok">${moneyShort(tongGain)}/tuần</b> đang rơi ra` : ''));
+
+  h += `<div class="splist">` + list.map(({product: p, d}) => {
+    const w = d.week;
+    const weak = d.weakest, drop = d.dropping;
+    const ws = spWeeksOf(p.id);
+    const spark = Chart.spark(ws.map(x => spMetrics(x).gmv), 'var(--ok)', 84, 24);
+    const open = openImpactsOf(p.id).length;
+    return `<div class="sprow">
+      <div class="sp-hd" data-act="spgo" data-id="${p.id}">
+        <b class="grow ell">${esc(p.name)}</b>
+        ${d.gain ? `<span class="chip ${d.flagged ? 'warn' : ''}">+${moneyShort(d.gain)}/tuần</span>`
+                 : `<span class="chip">đang ổn</span>`}
+      </div>
+      ${statusBar(p)}
+      <div class="sp-sub" data-act="spgo" data-id="${p.id}">tuần ${esc(fmtShort(w.from))}–${esc(fmtShort(w.to))} ·
+        ${moneyShort(d.cur.gmv)} · CVR ${pctText(d.cur.cvr)} ·
+        ${num(d.cur.impV)} lượt hiển thị${open ? ` · <b class="acc">${open} việc đang chờ đo</b>` : ''}</div>
+      <div class="sp-body" data-act="spgo" data-id="${p.id}">
+        <div class="sp-diag">
+          ${weak ? `<div class="sp-line"><span class="sp-ic">▼</span>
+              <span>${d.flagged ? 'Yếu nhất' : 'Thấp nhất'}: <b>${esc(weak.stage.label.toLowerCase())}</b> —
+              ${weak.stage.unit === 'n' ? num(weak.value) : pctText(weak.value, 2)}
+              so với trung vị ${weak.stage.unit === 'n' ? num(weak.med) : pctText(weak.med, 2)}</span></div>` : ''}
+          ${drop ? `<div class="sp-line"><span class="sp-ic bad">↓</span>
+              <span>Tụt so với tuần trước: <b>${esc(drop.stage.label.toLowerCase())}</b>
+              ${Math.round(-drop.delta)}%</span></div>` : ''}
+          ${!weak && !drop ? `<div class="sp-line dim"><span class="sp-ic">✓</span>
+              <span>${d.thin ? 'Số liệu còn mỏng, chưa kết luận được gì.'
+                             : 'Không thấy khúc nào yếu rõ rệt so với các sản phẩm khác.'}</span></div>` : ''}
+          ${d.main ? `<div class="sp-line"><span class="sp-ic">💰</span>
+              <span>Tiền vào chủ yếu qua <b>${esc(d.main.label)}</b>${
+                d.main.share != null ? ' · ' + pctText(d.main.share, 0) : ''}</span></div>` : ''}
+        </div>
+        <div class="sp-sp">${spark}<div class="dim">${ws.length} tuần</div></div>
+      </div>
+      ${countdownBar(p.id)}
+    </div>`;
+  }).join('') + `</div></div>`;
+
+  return h;
+}
+
+/* ============================================================
+   MỘT SẢN PHẨM TRÊN SHOPEE — phễu, nguồn tiền, nhật ký cải thiện
+
+   Cố ý là trang RIÊNG, không nhập vào trang Shopee Ads. Hai trang trả lời
+   hai câu khác nhau: Ads hỏi "một đồng quảng cáo đổi mấy đồng", trang này
+   hỏi "cái listing của tôi rò ở khúc nào". Trộn vào một trang thì cả hai
+   đều thành mớ số liệu dài mà không trang nào trả lời xong câu của nó.
+   ============================================================ */
+function viewSp(id){
+  const p = productOf(id);
+  if (!p) return emptyBox('Không tìm thấy sản phẩm này', 'Có thể đã bị xoá.');
+  const ws = spWeeksOf(p.id);
+  const d = spDiagnose(p.id);
+
+  let h = `<div class="card">
+    <div class="row"><div class="grow">
+      <h2>${esc(p.name)}</h2>
+      <div class="dim">${p.brand ? esc(p.brand) : ''}${p.sku ? ' · SKU ' + esc(p.sku) : ''}${
+        p.price ? ' · giá ' + money(p.price) : ''}</div>
+    </div></div>
+    <div class="btns" style="margin-top:12px">
+      <button class="btn pri sm" data-act="spimport" data-id="${p.id}">📥 Nạp số liệu tuần</button>
+      <button class="btn sm" data-act="newimpact" data-id="${p.id}">+ Ghi hành động</button>
+      <button class="btn sm" data-act="product" data-id="${p.id}">Shopee Ads ›</button>
+      <button class="btn sm" data-act="editproduct" data-id="${p.id}">Sửa sản phẩm</button>
+      ${p.url ? `<a class="btn sm" href="${esc(p.url)}" target="_blank" rel="noopener">Mở trên Shopee ↗</a>` : ''}
+    </div>
+    ${statusBar(p)}
+    ${p.shopeeSku ? `<div class="dim" style="margin-top:8px">🔒 Đã khoá với sản phẩm Shopee
+      <b>mã ${esc(p.shopeeSku)}</b> — file nạp vào phải khớp mã này thì app mới nhận.</div>` : ''}
+  </div>
+  ${countdownBar(p.id)}`;
+
+  if (!ws.length){
+    h += `<div class="empty"><b>Chưa nạp tuần số liệu nào</b>
+      Xuất file Hiệu suất sản phẩm của một tuần rồi kéo vào đây. Nạp được 2 tuần thì
+      app bắt đầu so được tuần này với tuần trước.
+      <div style="margin-top:14px" class="btns center">
+        <button class="btn pri" data-act="spimport" data-id="${p.id}">📥 Nạp số liệu</button></div></div>`;
+    return h;
+  }
+
+  const w = d.week, cur = d.cur, tr = d.trend;
+  h += `<div class="tiles">
+    ${tile('Lượt hiển thị', num(cur.impV),
+      tr && tr.d ? (deltaChip(tr.d.impV, true) || 'so tuần trước') : 'tuần đầu tiên')}
+    ${tile('CTR', pctText(cur.ctr), tr && tr.d ? (deltaChip(tr.d.ctr, true) || '&nbsp;') : '&nbsp;')}
+    ${tile('CVR', pctText(cur.cvr), tr && tr.d ? (deltaChip(tr.d.cvr, true) || '&nbsp;') : '&nbsp;')}
+    ${tile('Doanh thu', moneyShort(cur.gmv),
+      tr && tr.d ? (deltaChip(tr.d.gmv, true) || '&nbsp;') : '&nbsp;')}
+  </div>
+  <div class="dim" style="margin-top:6px">Tuần ${esc(fmtDate(w.from))} – ${esc(fmtDate(w.to))}${
+    ws.length > 1 ? ' · đã nạp ' + ws.length + ' tuần' : ''}${
+    d.thin ? ' · <b class="warn">số liệu tuần này còn mỏng, tỉ lệ chưa đáng tin</b>' : ''}
+    <br>CVR tính trên <b>người mua có đơn đã xác nhận</b> chia <b>lượt truy cập sản phẩm</b> —
+    không tính theo đơn đã đặt, vì đơn đặt rồi huỷ không phải doanh thu.</div>`;
+
+  /* ============ đang chờ đo ============ */
+  const open = openImpactsOf(p.id);
+  if (open.length){
+    const nDue = open.filter(x => dayDiff(x.reviewAt) <= 0).length;
+    h += `<div class="mod">` + moduleHead('⚡', 'Thay đổi đang chờ đo',
+      open.length + ' việc' + (nDue ? ` · <b class="warn">${nDue} đã tới hạn</b>` : ''),
+      `<button class="btn sm" data-act="newimpact" data-id="${p.id}">+ Ghi hành động</button>`);
+    h += `<div class="pendlist">` + open.map(impactCard).join('') + `</div></div>`;
+  }
+
+  /* ============ phễu ============ */
+  h += `<div class="mod">` + moduleHead('🔻', 'Phễu tuần này',
+    d.weakest ? `Khúc rò nhiều nhất: <b class="${d.flagged ? 'warn' : ''}">${
+                  esc(d.weakest.stage.label.toLowerCase())}</b>` +
+                (d.weakest.gain ? ` — kéo lên mức trung vị thì thêm khoảng <b class="ok">${
+                  moneyShort(d.weakest.gain)}</b>/tuần` : '') +
+                (d.flagged ? '' : ' <span class="dim">(chênh nhẹ, chưa đáng gọi là yếu)</span>')
+              : 'Không có khúc nào dưới mức trung vị của các sản phẩm khác');
+  h += `<div class="fn">` + d.stages.map(x => funnelRow(x, p.id)).join('') + `</div>`;
+  h += `<div class="dim" style="margin-top:8px">Năm khúc nhân với nhau ra doanh thu, nên sửa một khúc
+    là cả chuỗi phía sau được nhân theo. Con số "+…/tuần" là ước lượng thô: giả định các khúc
+    còn lại không đổi. Nó dùng để xếp thứ tự nên sửa cái nào trước, không phải để hứa doanh thu.
+    ${d.bm.enough ? `<br>Mốc trung vị lấy từ <b>${d.bm.n} sản phẩm khác</b>, trong đó
+      ${d.bm.sameWeek} sản phẩm có đúng tuần này để so; số còn lại lấy tuần gần nhất của chúng.` : ''}
+    <br>Mọi con số lấy đúng cột trong bảng Shopee và tính đúng mẫu số họ dùng, để bạn mở
+    bảng của sàn ra đối chiếu được.</div></div>`;
+
+  /* ============ nguồn doanh thu ============ */
+  const cw = d.chWeek;
+  const cm = cw ? spChannelMix(cw) : {total:0, list:[]};
+  const sm = cw ? spSourceMix(cw) : {total:0, list:[]};
+  h += `<div class="mod">` + moduleHead('💰', 'Doanh thu đến từ đâu',
+    !cw ? 'Chưa có tuần nào kèm số liệu kênh'
+        : (d.main ? `Chủ yếu qua <b>${esc(d.main.label)}</b>${
+              d.main.share != null ? ' · ' + pctText(d.main.share, 0) : ''}` : '') +
+          (cw.from !== w.from
+            ? ` · <span class="warn">số của tuần ${esc(fmtShort(cw.from))}–${esc(fmtShort(cw.to))}</span>`
+            : ''));
+
+  if (!cm.total){
+    h += `<div class="card dim">Chưa có tuần nào kèm số liệu chia theo kênh. Shopee chỉ tách được
+      khi bạn xuất file cho <b>một sản phẩm</b> — xuất cả shop thì sàn gộp chung, không tách
+      theo sản phẩm được, nên app không gắn để tránh gắn sai.</div></div>`;
+  } else {
+    h += `<div class="chmix">` + cm.list.map(c => `
+      <div class="chrow ${c.gmv ? '' : 'zero'}">
+        <div class="chl">${esc(c.label)}<div class="dim">${esc(c.hint)}</div></div>
+        <div class="chb"><i style="width:${(c.share || 0).toFixed(1)}%;background:${c.color}"></i></div>
+        <div class="chv"><b>${c.gmv ? moneyShort(c.gmv) : '—'}</b>
+          <div class="dim">${c.share != null && c.gmv ? pctText(c.share, 1) : ''}</div></div>
+      </div>`).join('') + `</div>`;
+
+    if (sm.list.length){
+      h += sectionTitle('Bên trong "Thẻ sản phẩm" — khách tự tìm thấy bằng cách nào', '', true);
+      h += `<div class="tblwrap"><table class="tbl sm"><thead><tr><th>Nguồn</th>
+        <th class="r">Doanh thu</th><th class="r">Tỉ lệ</th><th>Sửa cái này thì ăn vào đây</th>
+        </tr></thead><tbody>` + sm.list.map(s => `<tr>
+          <td><b>${esc(s.label)}</b></td>
+          <td class="r">${moneyShort(s.gmv)}</td>
+          <td class="r">${pctText(s.share, 1)}</td>
+          <td class="dim">${esc(s.hint)}</td></tr>`).join('') + `</tbody></table></div>`;
+    }
+
+    /* Phụ thuộc một kênh là rủi ro thật, không phải nhận xét cho vui */
+    const top = cm.list[0];
+    if (top && top.share != null && top.share >= 60)
+      h += `<div class="explain warn">⚠︎ <b>${pctText(top.share, 0)}</b> doanh thu tuần này vào từ
+        một kênh duy nhất (${esc(top.label)}). Kênh đó tụt là cả sản phẩm tụt theo, và bạn sẽ
+        không có kênh nào đỡ. ${top.id === 'card'
+          ? 'Cân nhắc đẩy thêm KOC/affiliate hoặc video để có chân thứ hai.'
+          : 'Cân nhắc làm chắc phần tự nhiên trên sàn (tiêu đề, từ khoá, đánh giá) để bớt phụ thuộc.'}</div>`;
+    if (cw.chFrom && cw.chFrom !== cw.from)
+      h += `<div class="dim" style="margin-top:8px">Phần kênh này Shopee xuất theo khoảng
+        ${esc(fmtDate(cw.chFrom))} – ${esc(fmtDate(cw.chTo))}, lệch với khoảng của phễu.
+        Đó là cách sàn xuất, app giữ nguyên cả hai mốc chứ không tự sửa.</div>`;
+    h += `</div>`;
+  }
+
+  /* ============ số liệu từng tuần ============ */
+  h += `<div class="mod">` + moduleHead('▦', 'Số liệu từng tuần',
+    ws.length + ' tuần · từ ' + esc(fmtDate(ws[0].from)) + ' đến ' + esc(fmtDate(ws[ws.length-1].to)),
+    `<button class="btn sm" data-act="spimport" data-id="${p.id}">📥 Nạp thêm</button>
+     <button class="btn sm" data-act="newspweek" data-id="${p.id}">+ Nhập tay</button>`);
+
+  const impsAll = impactsOf(p.id);
+  /* Tuần nào có làm một thay đổi — vẽ vạch ⌄ lên cả hai biểu đồ.
+     Đây là thứ biến biểu đồ từ "số lên xuống" thành "số lên xuống VÌ mình đã
+     làm gì": nhìn chỗ đường bẻ hướng ngay sau một vạch là thấy ngay. */
+  const coThayDoi = x => impsAll.filter(a => a.date >= x.from && a.date <= x.to);
+
+  if (ws.length > 1){
+    const rows = ws.map(x => {
+      const m = spMetrics(x);
+      return {label: fmtShort(x.from), imp:m.impV, gmv:m.gmv, cvr:m.cvr,
+              mark: coThayDoi(x).length > 0};
+    });
+    /* Ba đại lượng, ba độ lớn khác hẳn nhau: lượt hiển thị hàng chục nghìn,
+       doanh thu hàng chục triệu, CVR vài phần trăm. Nên hai cột đứng trên hai
+       thang riêng (trái = lượt hiển thị, phải = doanh thu), còn CVR ghi thẳng
+       số lên từng điểm — đằng nào CVR cũng là con số bạn muốn đọc chính xác
+       chứ không phải ước lượng bằng mắt theo chiều cao. */
+    h += `<div class="card pad0">` + Chart.combo({
+      rows,
+      bars: [{key:'imp', label:'Lượt hiển thị', color:'var(--tx3)'},
+             {key:'gmv', label:'Doanh thu',     color:'var(--ok)', axis:'r'}],
+      lines:[{key:'cvr', label:'CVR', color:'var(--acc)', showValue:true}],
+      fmtBar: num, fmtBarR: moneyShort,
+      fmtLine: v => v.toFixed(2).replace('.',',') + '%', marks: true
+    }) + `</div>
+    <div class="dim" style="margin-top:6px">Trục trái: lượt hiển thị · trục phải: doanh thu ·
+      số trên đường: CVR.</div>`;
+
+    /* Biểu đồ thứ hai: bốn khúc tỉ lệ, cùng một trục phần trăm.
+       Tách khỏi biểu đồ trên vì trộn chung thì lượt hiển thị hàng nghìn sẽ dìm
+       bốn đường phần trăm thành một vệt sát đáy, không đọc được gì. */
+    const rows2 = ws.map(x => {
+      const m = spMetrics(x);
+      const r = {label: fmtShort(x.from), mark: coThayDoi(x).length > 0};
+      SP_STAGES.filter(st => st.unit === '%').forEach(st => { r[st.id] = m[st.key]; });
+      return r;
+    });
+    const mau = {ctr:'var(--warn)', cartCr:'var(--acc)', cartToOrder:'var(--acc2)',
+                 confirmR:'var(--ok)'};
+    h += `<div class="card pad0" style="margin-top:12px">` + Chart.combo({
+      rows: rows2, height: 210, bars: [],
+      lines: SP_STAGES.filter(st => st.unit === '%')
+                      .map(st => ({key:st.id, label:st.label, color:mau[st.id]})),
+      fmtLine: v => v.toFixed(1).replace('.',',') + '%', marks: true
+    }) + `</div>`;
+
+    const nMark = rows.filter(r => r.mark).length;
+    h += `<div class="dim" style="margin:6px 0 0">Vạch ⌄ là tuần bạn có làm một thay đổi${
+      nMark ? ' (' + nMark + ' tuần)' : ' — chưa có tuần nào'}. Chỗ đường bẻ hướng ngay sau
+      một vạch chính là bằng chứng thay đổi đó có ăn.</div>`;
+  }
+
+  /* Bảng xếp theo thứ tự thời gian, tuần cũ trước — đọc xuôi từ trên xuống
+     là thấy được đường đi, giống hệt trục ngang của biểu đồ ngay phía trên.
+     Xếp ngược thì mắt phải đọc bảng một chiều và biểu đồ một chiều khác. */
+  h += `<div class="tblwrap" style="margin-top:12px"><table class="tbl"><thead><tr>
+    <th>Tuần</th><th class="r">Hiển thị</th><th class="r">CTR</th><th class="r">Vào trang</th>
+    <th class="r">Thêm giỏ</th><th class="r">Đặt hàng</th><th class="r">Xác nhận</th>
+    <th class="r">CVR</th><th class="r">Doanh thu</th></tr></thead><tbody>` +
+    ws.map(x => {
+      const m = spMetrics(x);
+      const ch = coThayDoi(x);
+      return `<tr data-act="editspweek" data-id="${x.id}">
+        <td><b>${esc(fmtShort(x.from))}–${esc(fmtShort(x.to))}</b>
+          ${ch.length ? `<div class="dim">⌄ ${ch.map(a => esc(IMP_TYPES[a.type].label)).join(' · ')}</div>` : ''}
+          ${x.by && x.by !== 'owner' ? `<div class="dim">${esc(BY[x.by] || x.by)}</div>` : ''}</td>
+        <td class="r">${num(m.impV)}</td><td class="r">${pctText(m.ctr)}</td>
+        <td class="r">${num(m.visits || m.uclicks)}</td><td class="r">${pctText(m.cartCr)}</td>
+        <td class="r">${pctText(m.cartToOrder)}</td><td class="r">${pctText(m.confirmR)}</td>
+        <td class="r"><b>${pctText(m.cvr)}</b></td>
+        <td class="r"><b>${moneyShort(m.gmv)}</b></td></tr>`;
+    }).join('') + `</tbody>` + (() => {
+      const t = spSum(ws);
+      return `<tfoot><tr><th>Cộng ${ws.length} tuần</th><th class="r">${num(t.impV)}</th>
+        <th class="r">${pctText(t.ctr)}</th><th class="r">${num(t.visits || t.uclicks)}</th>
+        <th class="r">${pctText(t.cartCr)}</th><th class="r">${pctText(t.cartToOrder)}</th>
+        <th class="r">${pctText(t.confirmR)}</th><th class="r">${pctText(t.cvr)}</th>
+        <th class="r">${moneyShort(t.gmv)}</th></tr></tfoot>`;
+    })() + `</table></div></div>`;
+
+  /* ============ nhật ký cải thiện ============ */
+  const imps = impactsOf(p.id);
+  h += `<div class="mod">` + moduleHead('🕘', 'Nhật ký cải thiện',
+    imps.length ? imps.length + ' thay đổi đã ghi, mới nhất trước' : 'Chưa ghi thay đổi nào',
+    `<button class="btn sm" data-act="newimpact" data-id="${p.id}">+ Ghi hành động</button>`);
+
+  if (!imps.length){
+    h += `<div class="card dim">Mỗi lần bạn đổi ảnh bìa, đổi CTKM, sửa tiêu đề… thì ghi một dòng
+      ở đây kèm khúc phễu bạn muốn kéo lên. 7 ngày sau nạp số liệu tuần mới, app tự lấy tuần
+      trước và tuần sau ra so đúng con số đó — chứ không chỉ nói "doanh thu tăng", vì doanh thu
+      tuần có sale sàn thì tăng dù bạn chẳng làm gì.</div>`;
+  } else {
+    h += `<div class="timeline">` + imps.map(im => {
+      const r = impactResult(im);
+      const t = IMP_TYPES[im.type];
+      const s = im.metric ? SP_STAGE[im.metric] : null;
+      return `<div class="tl tl-act ${im.done ? 'done' : ''}" data-act="editimpact" data-id="${im.id}">
+        <div class="tl-dot" title="${esc(t.label)}">${t.icon}</div>
+        <div class="tl-body">
+          <div class="tl-t">${esc(im.title || t.label)}
+            ${im.verdict ? `<span class="chip" style="color:${VERDICTS[im.verdict].color}">${
+              VERDICTS[im.verdict].icon} ${esc(VERDICTS[im.verdict].label)}</span>` : ''}
+            ${!im.done && im.reviewAt && dayDiff(im.reviewAt) <= 0 ? '<span class="chip warn">tới hạn đo</span>' : ''}</div>
+          <div class="tl-s">${esc(fmtDate(im.date))} · ${esc(t.label)}${
+            s ? ' · nhắm vào ' + esc(s.label.toLowerCase()) : ''}${
+            im.reviewAt && !im.done ? ' · hẹn đo ' + esc(fmtDate(im.reviewAt)) : ''}</div>
+          ${im.detail ? `<div class="tl-d">${nl(im.detail)}</div>` : ''}
+          ${r.ready
+            ? `<div class="tl-d ${r.suggest === 'better' ? 'ok' : r.suggest === 'worse' ? 'bad' : 'dim'}">${
+                 esc(fmtShort(r.base.from) + '–' + fmtShort(r.base.to) + ' → ' +
+                     fmtShort(r.after.from) + '–' + fmtShort(r.after.to) + ': ' + r.text)}</div>${
+               r.note ? `<div class="tl-d dim">${esc(r.note)}</div>` : ''}`
+            : `<div class="tl-d dim">${r.base ? 'Chưa có tuần nào bắt đầu sau ngày làm — nạp số liệu tuần mới là đo được.'
+                                             : 'Chưa có tuần nào trước ngày làm để lấy làm mốc.'}</div>`}
+          ${im.verdictNote ? `<div class="tl-d dim">Bạn ghi: ${nl(im.verdictNote)}</div>` : ''}
+        </div>
+      </div>`;
+    }).join('') + `</div>`;
+  }
+  h += `</div>`;
+  return h;
+}
+
+/* Một thay đổi đang chờ đo. Nút bấm khác trang Shopee Ads ở một điểm: ở đây
+   "đo" nghĩa là nạp số liệu tuần mới, không phải gõ tay mấy con số. */
+function impactCard(im){
+  const d = dayDiff(im.reviewAt);
+  const key = d < -3 ? 'overdue' : d <= 0 ? 'due' : 'waiting';
+  const t = IMP_TYPES[im.type];
+  const s = im.metric ? SP_STAGE[im.metric] : null;
+  const r = impactResult(im);
+  return `<div class="pending ${key}">
+    <div class="pd-hd"><span class="pd-ic">${t.icon}</span>
+      <div class="grow"><b>${esc(im.title || t.label)}</b>
+        <div class="dim">${esc(t.label)} · làm ngày ${esc(fmtDate(im.date))}${
+          s ? ' · nhắm vào ' + esc(s.label.toLowerCase()) : ''}</div></div>
+      <span class="chip ${key === 'overdue' ? 'bad' : key === 'due' ? 'warn' : ''}">${
+        d > 0 ? 'còn ' + d + ' ngày' : d === 0 ? 'tới hạn hôm nay' : 'quá hạn ' + (-d) + ' ngày'}</span>
+    </div>
+    ${im.detail ? `<div class="pd-detail">${nl(im.detail)}</div>` : ''}
+    ${r.ready ? `<div class="pd-detail ${r.suggest === 'better' ? 'ok' : r.suggest === 'worse' ? 'bad' : ''}">
+        Đã có số để đo: ${esc(r.text)}</div>` : ''}
+    <div class="btns" style="margin-top:10px">
+      ${r.ready
+        ? `<button class="btn pri sm" data-act="judgeimpact" data-id="${im.id}">Chốt đánh giá</button>`
+        : `<button class="btn pri sm" data-act="spimport" data-id="${im.productId}">📥 Nạp số liệu tuần mới</button>`}
+      <button class="btn sm" data-act="editimpact" data-id="${im.id}">Sửa</button>
+      <div class="grow"></div>
+      <button class="btn sm" data-act="skipimpact" data-id="${im.id}">Bỏ qua</button>
+    </div>
+  </div>`;
+}
+
+/* ============================================================
+   XÂY DỰNG SẢN PHẨM MỚI
+
+   Một bảng theo chặng, không phải một danh sách phẳng. Lý do: ý tưởng không
+   chết vì dở, nó chết vì nằm im ở một chặng ba tháng mà không ai nhớ. Thấy
+   được "chặng chờ mẫu đang có 4 cái" thì mới xử lý được.
+   ============================================================ */
+function viewNewProd(){
+  const q = norm(ui.ideaQ);
+  const all = ideas().filter(i => !q || norm([i.name, i.brand, i.category, i.source,
+                                              i.supplier, i.note].join(' ')).includes(q));
+  let h = `<div class="toolbar">
+    <input class="inp sm" data-inp="ideaQ" value="${esc(ui.ideaQ)}"
+           placeholder="Tìm ý tưởng…" style="max-width:240px">
+    <div class="grow"></div>
+    <button class="btn pri" data-act="newidea">+ Ý tưởng mới</button>
+  </div>`;
+
+  if (!ideas().length)
+    return h + `<div class="empty"><b>Chưa có ý tưởng nào</b>
+      Chỗ này để một ý tưởng đi từ "nghe nói bán được" tới "đã lên sàn có đơn" mà không
+      rơi mất giữa đường. Mỗi ý tưởng có bốn trục bạn tự chấm, danh sách việc phải xong
+      trước khi đăng bán, và một ngày hẹn cho việc kế tiếp — để nó không nằm im ba tháng.
+      <div style="margin-top:14px" class="btns center">
+        <button class="btn pri" data-act="newidea">+ Thêm ý tưởng đầu tiên</button></div></div>`;
+
+  /* ---- tới hạn việc kế tiếp ---- */
+  const due = dueIdeas().filter(i => all.includes(i));
+  if (due.length){
+    h += `<div class="mod">` + moduleHead('🎯', 'Tới hạn việc kế tiếp',
+      due.length + ' ý tưởng đang đợi bạn làm một việc cụ thể');
+    h += `<div class="alerts">` + due.map(i => {
+      const d = -dayDiff(i.nextAt);
+      return `<div class="al al-${d > 7 ? 'warn' : 'info'}" data-act="editidea" data-id="${i.id}">
+        <span class="al-dot"></span>
+        <div class="grow"><div class="al-t">${esc(i.name)} — ${esc(i.nextNote || 'chưa ghi việc gì')}</div>
+          <div class="al-s">${esc(IDEA_STAGE[i.stage].label)} · hẹn ${esc(fmtDate(i.nextAt))}${
+            d > 0 ? ' · trễ ' + d + ' ngày' : ''}</div></div>
+        <span class="chip acc">Mở →</span>
+      </div>`;
+    }).join('') + `</div></div>`;
+  }
+
+  /* ---- từng chặng ---- */
+  IDEA_STAGES.filter(s => s.live).forEach(s => {
+    const g = all.filter(i => i.stage === s.id);
+    if (!g.length) return;
+    const cost = g.reduce((t,i) => t + (i.cost || 0), 0);
+    h += `<div class="mod">` + moduleHead(s.icon, s.label,
+      g.length + ' ý tưởng' + (cost ? ' · vốn dự kiến ' + moneyShort(cost) : ''));
+    h += `<div class="ideag">` + g.map(ideaCard).join('') + `</div></div>`;
+  });
+
+  /* ---- đã xong / đã dừng: gộp lại cho gọn, mở ra khi cần ---- */
+  const dead = all.filter(i => !IDEA_LIVE.includes(i.stage));
+  if (dead.length){
+    h += `<div class="mod">` + moduleHead('🗄', 'Đã chạy ổn · đã dừng',
+      dead.length + ' ý tưởng đã đóng',
+      `<button class="btn sm ${ui.ideaShowDead ? 'pri' : ''}" data-act="ideadead">${
+        ui.ideaShowDead ? 'Thu lại' : 'Xem'}</button>`);
+    if (ui.ideaShowDead)
+      h += `<div class="card list">` + dead.map(i => `
+        <div class="li" data-act="editidea" data-id="${i.id}">
+          <span class="pf" style="background:color-mix(in srgb,${IDEA_STAGE[i.stage].color} 20%,transparent);
+            color:${IDEA_STAGE[i.stage].color}">${IDEA_STAGE[i.stage].icon}</span>
+          <div class="grow"><div class="li-t">${esc(i.name)}</div>
+            <div class="li-s">${esc(IDEA_STAGE[i.stage].label)}${
+              i.killReason ? ' · ' + esc(i.killReason) : ''}</div></div>
+          ${i.productId ? `<button class="btn sm" data-act="spgo" data-id="${i.productId}">Xem SP ›</button>` : ''}
+        </div>`).join('') + `</div>`;
+    h += `</div>`;
+  }
+  return h;
+}
+
+function ideaCard(i){
+  const s = IDEA_STAGE[i.stage];
+  const sc = ideaScore(i);
+  const mg = ideaMargin(i);
+  const nChk = ideaChecked(i);
+  const dueD = i.nextAt ? dayDiff(i.nextAt) : null;
+  const chua = IDEA_AXES.filter(a => !i.score[a.id]).length;
+  return `<div class="icard" data-act="editidea" data-id="${i.id}">
+    <div class="ic-hd">
+      <b class="grow ell">${esc(i.name)}</b>
+      ${sc == null ? `<span class="chip">chưa chấm</span>`
+        : `<span class="chip ${sc >= 70 ? 'ok' : sc < 45 ? 'bad' : 'warn'}"
+             title="${chua ? chua + ' trục chưa chấm nên chưa tính' : 'đã chấm đủ 4 trục'}">${sc} điểm${
+             chua ? ' *' : ''}</span>`}
+    </div>
+    <div class="ic-sub">${esc(i.category || i.brand || 'chưa ghi ngành hàng')}${
+      i.source ? ' · ' + esc(i.source) : ''}</div>
+
+    <div class="ic-money">
+      <div><span class="dim">Giá bán</span><b>${i.price ? moneyShort(i.price) : '—'}</b></div>
+      <div><span class="dim">Giá vốn</span><b>${i.cost ? moneyShort(i.cost) : '—'}</b></div>
+      <div><span class="dim">Lời/đơn</span><b class="${mg && mg.pct >= 40 ? 'ok' : mg && mg.pct < 20 ? 'bad' : ''}">${
+        mg ? moneyShort(mg.vnd) + ' · ' + pctText(mg.pct, 0) : '—'}</b></div>
+      ${i.compPrice ? `<div><span class="dim">Đối thủ</span><b>${moneyShort(i.compPrice)}</b></div>` : ''}
+    </div>
+
+    <div class="scoreb">${IDEA_AXES.map(a => {
+      const v = +i.score[a.id] || 0;
+      return `<div class="sb" title="${esc(a.label)}: ${v ? v + '/5' : 'chưa chấm'}">
+        <i style="height:${v ? v/5*100 : 0}%"></i></div>`;
+    }).join('')}</div>
+
+    <div class="ic-ft">
+      <span class="chip" style="background:color-mix(in srgb,${s.color} 18%,transparent);color:${s.color}">${
+        s.icon} ${esc(s.label)}</span>
+      <span class="chip ${nChk === IDEA_CHECKS.length ? 'ok' : ''}">${nChk}/${IDEA_CHECKS.length} việc</span>
+      ${dueD != null ? `<span class="chip ${dueD < 0 ? 'bad' : dueD === 0 ? 'warn' : ''}">⏰ ${
+        esc(dueText(i.nextAt))}</span>` : ''}
+      ${i.productId ? `<span class="chip ok">đã nối vào sản phẩm</span>` : ''}
+    </div>
+    ${i.nextNote ? `<div class="ic-next">▸ ${esc(i.nextNote)}</div>` : ''}
+    <div class="btns" style="margin-top:10px">
+      <button class="btn sm" data-act="editidea" data-id="${i.id}">Sửa</button>
+      <div class="grow"></div>
+      ${i.productId
+        ? `<button class="btn sm pri" data-act="spgo" data-id="${i.productId}">Xem số liệu ›</button>`
+        : `<button class="btn sm ${i.stage === 'listing' ? 'pri' : ''}"
+             data-act="idealive" data-id="${i.id}">🚀 Lên sàn</button>`}
+    </div>
+  </div>`;
 }
 
 /* ============================================================
