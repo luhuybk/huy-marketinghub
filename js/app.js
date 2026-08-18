@@ -1569,8 +1569,14 @@ function spWeekForm(w, presetProduct){
       {t:'sec', l:'Trong kênh Thẻ sản phẩm'},
       ...SP_SOURCES.filter(x => x.id !== 'other')
                    .map(x => ({k:'src.' + x.id, l:x.label, t:'money', half:true})),
+      {t:'sec', l:'Tuần này có gì bất thường không'},
+      {k:'odd', l:'Đánh dấu tuần', t:'select',
+       opts: Object.keys(SP_ODD).map(k2 => [k2, (SP_ODD[k2].icon ? SP_ODD[k2].icon + ' ' : '') +
+                                                SP_ODD[k2].label]),
+       hint:'Tuần đã đánh dấu bị bỏ khỏi mốc trung vị và khỏi kết luận "tụt so với tuần trước" — ' +
+            'số vẫn giữ nguyên, chỉ không được dùng để so'},
       {k:'note', l:'Ghi chú', t:'textarea', rows:2,
-       ph:'tuần này sàn có sale · hết hàng giữa tuần · vừa đổi giá…'}
+       ph:'sale 8.8 · hết hàng từ thứ Năm · đổi giá giữa tuần…'}
     ],
     onSave(v){
       if (!v.productId){ toast('Chọn sản phẩm'); return false; }
@@ -2201,6 +2207,7 @@ const ACTIONS = {
     else if (t.ref.kind === 'bookings'){ const b = bookingOf(t.ref.id); if (b) go('kol', b.kolId); }
     else if (t.ref.kind === 'actions'){ const a = db.actions.find(x => x.id === t.ref.id); if (a) go('product', a.productId); }
     else if (t.ref.kind === 'impacts'){ const im = impactOf(t.ref.id); if (im) go('sp', im.productId); }
+    else if (t.ref.kind === 'products'){ go('sp', t.ref.id); setTimeout(() => spImportModal(t.ref.id), 150); }
     else if (t.ref.kind === 'ideas'){ go('newprod'); setTimeout(() => ideaForm(ideaOf(t.ref.id)), 120); }
   },
 

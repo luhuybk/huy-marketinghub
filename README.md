@@ -447,6 +447,51 @@ Cả hai đều có **vạch ⌄** ở tuần bạn làm thay đổi, và bảng
 thay đổi đó là gì. Bảng xếp **tuần cũ trước**, cùng chiều với trục ngang của
 biểu đồ — xếp ngược thì mắt phải đọc bảng một chiều và biểu đồ một chiều khác.
 
+### Tuần bất thường
+
+Tuần sàn có sale lớn, tuần hết hàng giữa chừng, tuần bạn đẩy KOC ồ ạt — số
+liệu có thật, nhưng **không đại diện** cho cái listing của bạn. Để nguyên thì
+nó làm hai việc tai hại cùng lúc:
+
+- **Kéo lệch mốc trung vị** mà mọi sản phẩm khác đang bị đem ra so. Đã đo trên
+  dữ liệu thật: bỏ đánh dấu một tuần sale làm trung vị CTR nhảy từ 7% lên 14% —
+  gấp đôi cái thước, và thế là cả kho sản phẩm bỗng dưng "yếu".
+- **Biến tuần sau thành “tụt 40%”** dù chẳng có gì hỏng.
+
+Đánh dấu bằng ô *“Tuần này có gì bất thường không”* trong biểu mẫu tuần: 🔥 sàn
+có sale · 📦 hết hàng giữa tuần · ⏸ tắt quảng cáo · 📣 đẩy KOC/Live mạnh ·
+✂ tuần thiếu ngày · ⚠ khác. Số liệu **giữ nguyên**, chỉ không được dùng để so.
+
+App **không tự đoán**: sale sàn và một cái ảnh bìa mới đều làm doanh thu vọt
+lên, nhìn từ số liệu giống hệt nhau. Chỉ bạn mới biết.
+
+Ba chỗ bị ảnh hưởng: tuần đã đánh dấu bị bỏ khỏi mốc trung vị của các sản phẩm
+khác; app không kết luận *“tụt so với tuần trước”* khi một trong hai tuần bất
+thường; và kết quả đo của một hành động rơi vào tuần đó bị gắn cảnh báo —
+*“chênh lệch dưới đây phần lớn là của chuyện đó, không phải của thay đổi này”*.
+Đánh dấu vẫn giữ nguyên khi bạn nạp đè số liệu tuần đó.
+
+### Nhắc nạp số liệu tuần
+
+Cả vòng lặp đứng trên một giả định: bạn nạp số liệu đều đặn. Mà không có gì
+nhắc thì việc đó sẽ trôi — và nó trôi **lặng lẽ**, vì màn hình vẫn đầy số liệu
+cũ trông rất bình thường. Đây là thứ duy nhất trong app nhắc bạn làm một việc
+mà app không tự làm được.
+
+Hạn = ngày cuối tuần gần nhất + `spStale` (mặc định **10 ngày**, tức tuần kế
+tiếp đã kết thúc được ba hôm; đổi trong Cài đặt). Nạp xong thì hạn tự đẩy đi,
+không phải bấm gì. Sản phẩm đang **tạm dừng** hoặc **cân nhắc bỏ** thì không
+nhắc — bạn đã quyết không theo dõi nó nữa.
+
+Việc này **không có nút “Xong”**: cách duy nhất khép nó lại là thật sự nạp số
+liệu. Chỉ có nút dời hạn, ghi vào `spSnoozeUntil`.
+
+Danh sách nhắc **chặn ở 3 sản phẩm gấp nhất**. Lý do: mỗi việc tới hạn là một
+tin Telegram riêng, mà mọi sản phẩm thường được nạp từ cùng một tệp nên chúng
+tới hạn cùng một ngày — không chặn thì sáng thứ Hai bạn nhận mười lăm tin nhắn
+để nói đúng một việc, và mười lăm tin nhắn cùng lúc thì bạn sẽ tắt luôn cái
+luồng đó. Số còn lại ghi gộp vào dòng cuối; danh sách đầy đủ vẫn nằm trong app.
+
 ### Trạng thái theo dõi, do bạn đặt
 
 👀 Đang theo dõi · 🔧 Đang tối ưu · ✓ Ổn định · 🚀 Đang đẩy mạnh · ⏸ Tạm dừng ·

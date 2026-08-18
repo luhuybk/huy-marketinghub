@@ -1125,6 +1125,24 @@ function viewImprove(){
       </div>`).join('') + `</div></div>`;
   }
 
+  /* ---- đến hẹn nạp số liệu ----
+     Đặt trên cùng vì nó là điều kiện để mọi thứ bên dưới có nghĩa: số liệu cũ
+     ba tuần thì "cần sửa cái này trước" đang nói về một sản phẩm của tháng trước. */
+  const canNap = spDueImport().filter(x => x.days <= 0);
+  if (canNap.length){
+    h += `<div class="mod">` + moduleHead('📥', 'Đến hẹn nạp số liệu',
+      canNap.length + ' sản phẩm có số liệu đã cũ',
+      `<button class="btn sm pri" data-act="spimport">📥 Nạp ngay</button>`);
+    h += `<div class="alerts">` + canNap.map(x => `
+      <div class="al al-${x.days < -7 ? 'warn' : 'info'}" data-act="spgo" data-id="${x.product.id}">
+        <span class="al-dot"></span>
+        <div class="grow"><div class="al-t">${esc(x.product.name)} — chưa nạp ${x.since} ngày</div>
+          <div class="al-s">tuần cuối đã nạp ${esc(fmtShort(x.lastWeek.from))}–${esc(fmtShort(x.lastWeek.to))}${
+            x.days < 0 ? ' · quá hạn ' + (-x.days) + ' ngày' : ''}</div></div>
+        <span class="chip acc">Xem →</span>
+      </div>`).join('') + `</div></div>`;
+  }
+
   /* ---- mốc so sánh chưa đủ thì nói ngay, đừng để người dùng tin vào con số rỗng ---- */
   const bm = spBenchmark('');
   if (bm.n < 3)
@@ -1238,6 +1256,17 @@ function viewSp(id){
     <br>CVR tính trên <b>người mua có đơn đã xác nhận</b> chia <b>lượt truy cập sản phẩm</b> —
     không tính theo đơn đã đặt, vì đơn đặt rồi huỷ không phải doanh thu.</div>`;
 
+  /* Tuần đang xem là tuần bất thường thì mọi con số bên dưới không đại diện
+     cho cái listing — nói trước, vì nó vô hiệu hoá cả trang. */
+  if (d.odd)
+    h += `<div class="explain warn">${esc(spOddLabel(d.odd))} — tuần này bạn đã đánh dấu là bất
+      thường. Số liệu bên dưới có thật nhưng không đại diện cho sản phẩm, và app đã bỏ nó ra
+      khỏi mốc trung vị của các sản phẩm khác.${d.week.note ? ' Ghi chú: ' + esc(d.week.note) : ''}</div>`;
+  else if (d.oddPrev)
+    h += `<div class="explain">Tuần trước (${esc(fmtShort(d.oddPrev.from))}–${esc(fmtShort(d.oddPrev.to))})
+      được đánh dấu <b>${esc(spOddLabel(d.oddPrev))}</b>, nên app không kết luận "tụt so với tuần
+      trước" ở đây — tụt sau một tuần bất thường không phải là một phát hiện.</div>`;
+
   /* Thiếu tuần thì nói ngay, trước mọi con số. Mọi phép so bên dưới đều ngầm
      coi hai tuần cạnh nhau trong danh sách là liền kề. */
   if (d.gaps && d.gaps.length){
@@ -1271,7 +1300,8 @@ function viewSp(id){
     là cả chuỗi phía sau được nhân theo. Con số "+…/tuần" là ước lượng thô: giả định các khúc
     còn lại không đổi. Nó dùng để xếp thứ tự nên sửa cái nào trước, không phải để hứa doanh thu.
     ${d.bm.enough ? `<br>Mốc trung vị lấy từ <b>${d.bm.n} sản phẩm khác</b>, trong đó
-      ${d.bm.sameWeek} sản phẩm có đúng tuần này để so; số còn lại lấy tuần gần nhất của chúng.` : ''}
+      ${d.bm.sameWeek} sản phẩm có đúng tuần này để so; số còn lại lấy tuần gần nhất của chúng.${
+      d.bm.boQua ? ' Đã bỏ ' + d.bm.boQua + ' sản phẩm vì mọi tuần của chúng đều được đánh dấu bất thường.' : ''}` : ''}
     <br>Mọi con số lấy đúng cột trong bảng Shopee và tính đúng mẫu số họ dùng, để bạn mở
     bảng của sàn ra đối chiếu được.</div></div>`;
 
@@ -1396,7 +1426,9 @@ function viewSp(id){
       const ch = coThayDoi(x);
       return `<tr data-act="editspweek" data-id="${x.id}">
         <td><b>${esc(fmtShort(x.from))}–${esc(fmtShort(x.to))}</b>
+          ${spOdd(x) ? `<div><span class="chip warn">${esc(spOddLabel(x))}</span></div>` : ''}
           ${ch.length ? `<div class="dim">⌄ ${ch.map(a => esc(IMP_TYPES[a.type].label)).join(' · ')}</div>` : ''}
+          ${x.note ? `<div class="dim">${esc(x.note)}</div>` : ''}
           ${x.by && x.by !== 'owner' ? `<div class="dim">${esc(BY[x.by] || x.by)}</div>` : ''}</td>
         <td class="r">${num(m.impV)}</td><td class="r">${pctText(m.ctr)}</td>
         <td class="r">${pctText(m.cartCr)}</td>
@@ -1472,9 +1504,9 @@ function impactCard(im){
         d > 0 ? 'còn ' + d + ' ngày' : d === 0 ? 'tới hạn hôm nay' : 'quá hạn ' + (-d) + ' ngày'}</span>
     </div>
     ${im.detail ? `<div class="pd-detail">${nl(im.detail)}</div>` : ''}
-    ${r.ready ? `<div class="pd-detail ${r.gapped ? 'warn' : r.suggest === 'better' ? 'ok'
+    ${r.ready ? `<div class="pd-detail ${(r.gapped || r.oddWeek) ? 'warn' : r.suggest === 'better' ? 'ok'
         : r.suggest === 'worse' ? 'bad' : ''}">
-        Đã có số để đo: ${esc(r.text)}${r.gapped ? '<br>⚠︎ ' + esc(r.note) : ''}</div>` : ''}
+        Đã có số để đo: ${esc(r.text)}${(r.gapped || r.oddWeek) ? '<br>⚠︎ ' + esc(r.note) : ''}</div>` : ''}
     <div class="btns" style="margin-top:10px">
       ${r.ready
         ? `<button class="btn pri sm" data-act="judgeimpact" data-id="${im.id}">Chốt đánh giá</button>`
@@ -1853,7 +1885,11 @@ function viewSettings(){
       <input class="inp num" type="number" min="1" data-a="staleClip" value="${a.staleClip}"></div>
     <div class="kv"><span>ROAS tụt bao nhiêu % so tuần trước thì báo đỏ</span>
       <input class="inp num" type="number" min="1" data-a="roasDrop" value="${a.roasDrop}"></div>
-  </div>`;
+    <div class="kv"><span>Bao nhiêu ngày sau tuần cuối thì nhắc nạp số liệu Shopee</span>
+      <input class="inp num" type="number" min="1" data-a="spStale" value="${a.spStale}"></div>
+  </div>
+  <div class="dim" style="margin-top:6px">Mặc định 10 ngày: tuần kế tiếp đã kết thúc được ba hôm.
+    Sản phẩm đang <b>tạm dừng</b> hoặc <b>cân nhắc bỏ</b> thì không nhắc.</div>`;
 
   /* ---- nhắc qua Telegram ---- */
   const g = tgCfg;

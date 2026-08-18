@@ -196,6 +196,27 @@ const SP_SOURCES = [
   {id:'other',  label:'Khác',          hint:''}
 ];
 
+/* ---- Tuần bất thường ----
+   Tuần sàn có sale lớn, tuần hết hàng giữa chừng, tuần bạn đẩy KOC ồ ạt —
+   số liệu của nó có thật, nhưng nó KHÔNG đại diện cho cái listing của bạn.
+   Để nguyên thì nó làm hai việc tai hại cùng lúc: kéo lệch mốc trung vị mà
+   mọi sản phẩm khác đang bị đem ra so, và biến tuần sau thành "tụt 40%" dù
+   chẳng có gì hỏng.
+
+   Không tự đoán bằng số liệu — sale sàn và một cái ảnh bìa mới đều làm doanh
+   thu vọt lên, nhìn từ số liệu giống hệt nhau. Chỉ bạn mới biết. */
+const SP_ODD = {
+  '':      {label:'Tuần bình thường',        icon:''},
+  sale:    {label:'Sàn có sale lớn',          icon:'🔥'},
+  oos:     {label:'Hết hàng giữa tuần',       icon:'📦'},
+  paused:  {label:'Tắt quảng cáo / dừng bán', icon:'⏸'},
+  push:    {label:'Đẩy KOC · Live mạnh',      icon:'📣'},
+  partial: {label:'Tuần thiếu ngày',          icon:'✂'},
+  other:   {label:'Bất thường khác',          icon:'⚠'}
+};
+const spOdd = w => !!(w && w.odd && SP_ODD[w.odd]);
+const spOddLabel = w => spOdd(w) ? SP_ODD[w.odd].icon + ' ' + SP_ODD[w.odd].label : '';
+
 /* ---- Trạng thái theo dõi, do BẠN đặt ----
    Khác `trackState()` bên Shopee Ads (thứ đó suy ra từ hành động đang chờ).
    Ở đây là ý định của bạn với sản phẩm: đang soi kỹ, đang tối ưu, hay đã yên
@@ -293,7 +314,7 @@ const WEIGHT_LABEL = {
 
 /* Sau khi gửi sản phẩm mà không hẹn ngày cụ thể thì bao nhiêu ngày
    coi là quá lâu. Đổi được trong Cài đặt. */
-const DEFAULT_ALERTS = {shipDays:10, staleDeal:7, staleClip:7, roasDrop:20};
+const DEFAULT_ALERTS = {shipDays:10, staleDeal:7, staleClip:7, roasDrop:20, spStale:10};
 
 /* ============================================================
    MẪU TIN NHẮN
@@ -689,7 +710,7 @@ function ensure(){
     if (typeof p.name !== 'string') p.name = String(p.name || 'Không tên');
     /* shopeeName/shopeeSku: chốt lại từ lần nạp số liệu đầu tiên, rồi mọi lần
        nạp sau phải khớp cả hai mới cho vào — xem spMatch(). */
-    ['sku','brand','url','note','spStatus','shopeeName','shopeeSku']
+    ['sku','brand','url','note','spStatus','shopeeName','shopeeSku','spSnoozeUntil']
       .forEach(f => { if (p[f] === undefined) p[f] = ''; });
     if (!SP_STATUS[p.spStatus]) p.spStatus = '';
     p.price = parseMoney(p.price);
@@ -743,7 +764,8 @@ function ensure(){
     w.src = Object.assign({search:0, rec:0, shop:0, cart:0, promo:0, other:0}, w.src || {});
     Object.keys(w.ch).forEach(k => w.ch[k] = parseMoney(w.ch[k]));
     Object.keys(w.src).forEach(k => w.src[k] = parseMoney(w.src[k]));
-    ['productId','note','chFrom','chTo'].forEach(f => { if (w[f] === undefined) w[f] = ''; });
+    ['productId','note','chFrom','chTo','odd'].forEach(f => { if (w[f] === undefined) w[f] = ''; });
+    if (!SP_ODD[w.odd]) w.odd = '';
   });
   db.impacts.forEach(im => {
     if (!IMP_TYPES[im.type]) im.type = 'other';
@@ -1118,6 +1140,26 @@ function reminderTasks(){
              (s ? ' · nhắm vào ' + s.label.toLowerCase() : ''),
          ref:{kind:'impacts', id:im.id},
          doneLabel:'✅ Bỏ qua lần này', doneSet:{done:true}, dueField:'reviewAt'});
+  });
+
+  /* Nạp số liệu tuần mới. Không có nút "Xong": cách duy nhất khép việc này là
+     thật sự nạp số liệu, và lúc đó hạn tự đẩy đi. Nút dời hạn thì có — ghi vào
+     spSnoozeUntil, đúng ô mà spDueImport() đọc. */
+  /* Chỉ đẩy 3 sản phẩm gấp nhất vào danh sách nhắc.
+     Vì sao phải chặn: mỗi việc tới hạn là MỘT tin Telegram riêng, mà mọi sản
+     phẩm thường được nạp từ cùng một tệp nên chúng tới hạn cùng một ngày.
+     Không chặn thì sáng thứ Hai bạn nhận mười lăm tin nhắn để nói đúng một
+     việc — và mười lăm tin nhắn cùng lúc thì bạn sẽ tắt luôn cái luồng này.
+     Số còn lại ghi gộp vào dòng cuối; danh sách đầy đủ vẫn nằm trong app. */
+  const canNap = spDueImport();
+  canNap.slice(0, 3).forEach((x, i) => {
+    const conLai = (i === 2 && canNap.length > 3) ? canNap.length - 3 : 0;
+    add({id:'imp_load_' + x.product.id, feed:'prod', due:x.due, icon:'📥',
+         title:'Nạp số liệu tuần cho ' + x.product.name,
+         sub:'tuần cuối đã nạp: ' + fmtShort(x.lastWeek.from) + '–' + fmtShort(x.lastWeek.to) +
+             ' · ' + x.since + ' ngày trước' +
+             (conLai ? ' · còn ' + conLai + ' sản phẩm nữa cũng tới hạn, xem trong app' : ''),
+         ref:{kind:'products', id:x.product.id}, dueField:'spSnoozeUntil'});
   });
 
   /* Sản phẩm mới: việc kế tiếp bạn tự hẹn cho mình. Không có cái này thì một
@@ -1670,6 +1712,33 @@ function spMatch(p, row){
     : {ok:false, level:'block', text:'tên khác nhau và không có mã để đối chiếu'};
 }
 
+/* ---- Đến hẹn nạp số liệu tuần mới ----
+   Cả vòng lặp cải thiện đứng trên một giả định: bạn nạp số liệu đều đặn. Mà
+   không có gì nhắc thì việc đó sẽ trôi — và nó trôi lặng lẽ, vì màn hình vẫn
+   đầy số liệu cũ trông rất bình thường. Đây là thứ duy nhất trong app nhắc
+   bạn làm một việc mà app không tự làm được.
+
+   Hạn = ngày cuối tuần gần nhất + spStale (mặc định 10 ngày, tức là tuần kế
+   tiếp đã kết thúc được ba ngày). Nạp xong thì hạn tự đẩy đi, không cần bấm
+   gì cả. Không nhắc sản phẩm đang tạm dừng hoặc cân nhắc bỏ — bạn đã quyết
+   không theo dõi nó nữa thì nhắc chỉ là làm phiền. */
+function spDueImport(){
+  const A = db.settings.alerts;
+  const n = Math.max(1, +A.spStale || 10);
+  return products().filter(p => {
+    if (p.archived || ['paused','drop'].includes(p.spStatus)) return false;
+    return spWeeksOf(p.id).length > 0;
+  }).map(p => {
+    const ws = spWeeksOf(p.id);
+    const cuoi = ws[ws.length - 1];
+    /* Hoãn tay được: có tuần bạn thật sự không định nạp. */
+    const han = (p.spSnoozeUntil && p.spSnoozeUntil > addDays(cuoi.to, n))
+      ? p.spSnoozeUntil : addDays(cuoi.to, n);
+    return {product: p, lastWeek: cuoi, due: han, days: dayDiff(han),
+            since: -dayDiff(cuoi.to)};
+  }).sort((a,b) => a.due.localeCompare(b.due));
+}
+
 /* Việc kế tiếp của một sản phẩm — dùng để đếm ngược trên thẻ */
 function nextImpact(pid){
   return openImpactsOf(pid)[0] || null;
@@ -1699,19 +1768,22 @@ function spChannelWeek(pid){
    chênh lệch đo được sẽ phần lớn là chênh lệch của thời gian, không phải của
    sản phẩm. Bên nào không có tuần đó thì mới lùi về tuần gần nhất của nó. */
 function spBenchmark(exceptId, from){
-  let sameWeek = 0;
+  let sameWeek = 0, boQua = 0;
   const rows = spProducts().filter(p => p.id !== exceptId).map(p => {
-    const ws = spWeeksOf(p.id);
+    /* Tuần bất thường không được làm mốc cho ai cả: một tuần sale của sản
+       phẩm khác mà thành trung vị thì mọi sản phẩm còn lại đều "yếu". */
+    const ws = spWeeksOf(p.id).filter(w => !spOdd(w));
+    if (!ws.length){ boQua++; return null; }
     const hit = from ? ws.find(w => w.from === from) : null;
     if (hit) sameWeek++;
     return spMetrics(hit || ws[ws.length - 1]);
-  });
+  }).filter(Boolean);
   const med = {};
   SP_STAGES.forEach(s => {
     const key = s.key === 'imp' ? 'impV' : s.key;
     med[s.id] = median(rows.map(r => r[key]));
   });
-  return {n: rows.length, sameWeek, med, enough: rows.length >= 2};
+  return {n: rows.length, sameWeek, boQua, med, enough: rows.length >= 2};
 }
 
 /* ---- chẩn đoán một sản phẩm ----
@@ -1772,7 +1844,10 @@ function spDiagnose(pid){
      phát hiện — rồi bạn đi sửa một thứ vốn không hỏng. */
   const duoiMoc = stages.filter(x => x.ratio != null && x.ratio < 0.97);
   const yeu = duoiMoc.filter(x => x.weak).sort((a,b) => (b.gain || 0) - (a.gain || 0));
-  const tut = stages.filter(x => x.dropped && x.usable)
+  /* "Tụt so với tuần trước" mất hết ý nghĩa khi một trong hai tuần bất
+     thường — tụt 40% sau một tuần sale sàn không phải là một phát hiện. */
+  const batThuong = spOdd(w) || (tr && tr.prevWeek && spOdd(tr.prevWeek));
+  const tut = batThuong ? [] : stages.filter(x => x.dropped && x.usable)
                     .sort((a,b) => (a.delta || 0) - (b.delta || 0));
 
   /* Tổng tiền đang rơi: NHÂN các khúc lại, không cộng.
@@ -1795,6 +1870,8 @@ function spDiagnose(pid){
        xu hướng phải nói kèm điều đó, không thì nó là lời nói dối gọn gàng. */
     gap: tr ? tr.gap : null,
     gaps: spGaps(pid),
+    odd: spOdd(w) ? w : null,
+    oddPrev: tr && tr.prevWeek && spOdd(tr.prevWeek) ? tr.prevWeek : null,
     /* Nguồn doanh thu lấy từ tuần gần nhất CÓ số liệu kênh, không nhất thiết
        là tuần gần nhất — xem spChannelWeek(). */
     chWeek: spChannelWeek(pid),
@@ -1901,6 +1978,15 @@ function impactResult(im){
      tuần, không phải dữ liệu bị thiếu. Đặt ngưỡng 3 ngày thì gần như lần đo
      nào cũng bị gắn cảnh báo, và một cảnh báo lúc nào cũng bật thì không còn
      là cảnh báo nữa. */
+  /* Tuần bất thường ở một trong hai đầu thì phép so này không đo cái bạn
+     tưởng nó đang đo. Nói trước cả chuyện tuần hụt, vì nó rõ ràng hơn. */
+  if (spOdd(base) || spOdd(after))
+    luuY = 'Có tuần bất thường trong phép so' +
+      (spOdd(base) ? ' — tuần mốc: ' + spOddLabel(base) : '') +
+      (spOdd(after) ? ' — tuần đo: ' + spOddLabel(after) : '') +
+      '. Chênh lệch dưới đây phần lớn là của chuyện đó, không phải của thay đổi này.' +
+      (luuY ? ' ' + luuY : '');
+
   const xa = (hutTruoc > 7 || hutSau > 7);
   if (xa)
     luuY = 'Thiếu tuần số liệu quanh ngày làm' +
@@ -1910,6 +1996,7 @@ function impactResult(im){
       (luuY ? ' ' + luuY : '');
 
   return {base, after, straddling, hutTruoc, hutSau, gapped: xa,
+          oddWeek: spOdd(base) || spOdd(after),
           ready:true, b, a, dMetric, dGmv, suggest,
           text: cau.join(' · '), note: luuY, stage: s};
 }
@@ -2111,7 +2198,17 @@ function alerts(){
       sort: 200 + (-x.delta)});
   });
 
-  /* 9. sản phẩm mới tới hạn việc kế tiếp */
+  /* 9. đến hẹn nạp số liệu tuần mới */
+  spDueImport().forEach(x => {
+    if (x.days > 0) return;
+    out.push({level: x.days < -7 ? 'warn' : 'info', kind:'spload', productId:x.product.id,
+      title: x.product.name + ': chưa nạp số liệu ' + x.since + ' ngày',
+      sub: 'tuần cuối đã nạp ' + fmtShort(x.lastWeek.from) + '–' + fmtShort(x.lastWeek.to) +
+           ' · không nạp đều thì mọi so sánh bên dưới đều nhảy qua khoảng trống',
+      sort: 180 + (-x.days)});
+  });
+
+  /* 10. sản phẩm mới tới hạn việc kế tiếp */
   dueIdeas().forEach(i => {
     const d = -dayDiff(i.nextAt);
     out.push({level: d > 7 ? 'warn' : 'info', kind:'idea', ideaId:i.id,
