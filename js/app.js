@@ -99,7 +99,7 @@ function render(){
       case 'product':  html = viewProduct(route.id); break;
       case 'resources':html = viewResources(); break;
       case 'review':   html = viewReview(); break;
-      case 'settings': html = viewSettings(); break;
+      case 'settings': ensureSettingsCfg(); html = viewSettings(); break;
     }
   } catch(e){
     html = `<div class="card"><b class="bad">Trang này gặp lỗi khi vẽ.</b>
@@ -1108,15 +1108,33 @@ function copyText(text){
 /* ============================================================
    NHẮC QUA TELEGRAM
    ============================================================ */
+/* Hai thẻ ở Cài đặt đọc cấu hình từ máy chủ chứ không nằm trong db, nên chúng
+   chỉ có dữ liệu nếu ai đó đã gọi loadTg/loadUsers. Có bao nhiêu đường vào app
+   là bấy nhiêu chỗ phải nhớ gọi, và quên một đường thì thẻ đứng im mãi ở dòng
+   "đang đọc…" — đúng lỗi vừa gặp: đường đăng nhập qua màn khoá thiếu loadUsers.
+   Chốt chặn: mở Cài đặt mà chưa ai hỏi thì hỏi ngay tại đây. Cờ asked bật ngay
+   khi bắt đầu hỏi nên máy chủ đang lỗi cũng chỉ hỏi đúng một lần, không quay
+   vòng render → hỏi → render. */
+const cfgAsked = {tg:false, users:false};
+function ensureSettingsCfg(){
+  if (!Server.authed() || !isOwner()) return;
+  if (!cfgAsked.tg)    loadTg(true);
+  if (!cfgAsked.users) loadUsers(true);
+}
+
 async function loadTg(silent){
   if (!Server.authed() || !isOwner()) return;
+  cfgAsked.tg = true;
   try {
     tgCfg = await Server.tgGet();
+    cfgErr.tg = '';
     /* màn Cài đặt đang mở thì phải vẽ lại, nếu không nó đứng mãi ở
        dòng "đang đọc cấu hình…" */
     if (!silent || route.page === 'settings') render();
   } catch(e){
+    cfgErr.tg = e.message || 'lỗi không rõ';
     if (!silent) toast('Không đọc được cấu hình Telegram: ' + e.message);
+    if (route.page === 'settings') render();
   }
 }
 
@@ -1125,13 +1143,18 @@ async function loadTg(silent){
    ============================================================ */
 async function loadUsers(silent){
   if (!Server.authed() || !isOwner()) return;
+  cfgAsked.users = true;
   try {
     const d = await Server.users();
     usersCfg = d.users || [];
+    cfgErr.users = '';
     if (!silent || route.page === 'settings') render();
   } catch(e){
-    usersCfg = [];
+    /* KHÔNG để usersCfg = [] ở đây. Danh sách rỗng vẽ ra y hệt "chưa có tài
+       khoản nào", trong khi thật ra là máy chủ không trả lời. */
+    cfgErr.users = e.message || 'lỗi không rõ';
     if (!silent) toast('Không đọc được danh sách tài khoản: ' + e.message);
+    if (route.page === 'settings') render();
   }
 }
 
@@ -2472,7 +2495,7 @@ const ACTIONS = {
   /* tài khoản */
   newuser:     () => userForm(null),
   edituser:    id => { const u = (usersCfg||[]).find(x => x.id === id); if (u) userForm(u); },
-  reloadusers: () => { usersCfg = null; render(); loadUsers(false); },
+  reloadusers: () => { usersCfg = null; cfgErr.users = ''; render(); loadUsers(false); },
 
   /* nhắc qua Telegram */
   tgsetup: () => telegramModal(),

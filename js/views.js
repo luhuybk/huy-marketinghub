@@ -25,6 +25,9 @@ const ui = {
 let tgCfg = null;
 /* Danh sách tài khoản, đọc từ máy chủ. null = chưa đọc xong. */
 let usersCfg = null;
+/* Máy chủ từ chối hoặc mất mạng: phải nói ra. Trước đây lỗi làm danh sách
+   thành rỗng, nhìn y hệt "chưa có tài khoản nào" — chủ sẽ tưởng mất sạch. */
+let cfgErr = {tg:'', users:''};
 
 /* ---------------- mảnh dùng lại ---------------- */
 function tile(label, value, sub, cls){
@@ -2058,6 +2061,11 @@ function usersCard(){
   if (!Server.authed())
     return `<div class="card dim">Chưa nối máy chủ nên chưa có tài khoản nào —
       app đang chạy chế độ chỉ lưu trên máy này.</div>`;
+  if (cfgErr.users)
+    return `<div class="card"><b class="bad">Không đọc được danh sách tài khoản.</b>
+      <div class="dim" style="margin-top:6px">${esc(cfgErr.users)}</div>
+      <div class="btns" style="margin-top:12px">
+        <button class="btn sm" data-act="reloadusers">Thử lại</button></div></div>`;
   if (usersCfg === null)
     return `<div class="card dim">Đang đọc danh sách tài khoản…</div>`;
 
@@ -2163,7 +2171,9 @@ function viewSettings(){
     <div class="dim" style="margin-bottom:10px">Máy chủ tự nhắn cho bạn việc đã tới hạn, và dưới mỗi việc có
       sẵn nút <b>xong</b> / <b>hoãn</b> / <b>dời hạn</b> — bấm ngay trong Telegram, dữ liệu trong app đổi theo.
       App đóng hay mở đều nhắc được, vì việc gửi do máy chủ làm chứ không phải trình duyệt.</div>` +
-    (!g ? `<div class="dim">Đang đọc cấu hình từ máy chủ…</div>` : `
+    (cfgErr.tg ? `<div><b class="bad">Không đọc được cấu hình Telegram.</b>
+       <div class="dim" style="margin-top:6px">${esc(cfgErr.tg)}</div></div>` :
+     !g ? `<div class="dim">Đang đọc cấu hình từ máy chủ…</div>` : `
     <div class="kv"><span>Bot</span><b>${g.hasToken ? 'đã có mã' : '<span class="dim">chưa có</span>'}</b></div>
     <div class="kv"><span>Nút bấm từ Telegram</span><b>${g.hook && g.hook.url
       ? '<span class="ok">đang nhận</span>' : '<span class="dim">chưa bật</span>'}</b></div>

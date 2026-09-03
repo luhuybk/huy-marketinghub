@@ -319,6 +319,7 @@ const Gate = (() => {
        đăng nhập qua màn khoá thì thiếu, nên đèn đồng bộ ở thanh bên đứng im. */
     Sync.onChange(() => renderSide());
     if (window.loadTg) loadTg(true);
+    if (window.loadUsers) loadUsers(true);
     render();
     const st = Sync.status();
     toast(st.state === 'error' ? 'Vào được rồi, nhưng đồng bộ lỗi: ' + st.lastError : 'Đã sẵn sàng');
