@@ -440,9 +440,15 @@ const ShopeeAds = (() => {
   };
 
   function parse(rows){
-    let range = null;
-    for (const r of rows){
-      if (key(r[0]) === 'khoang thoi gian'){ range = parseRange(r[1]); break; }
+    /* Phần đầu tệp: khoảng thời gian và gian hàng. Mã Người bán mới là thứ
+       nhận diện shop — tên gian hàng đổi lúc nào cũng được. */
+    let range = null, shopName = '', shopCode = '';
+    for (const r of rows.slice(0, 12)){
+      const k = key(r[0]);
+      if (k === 'khoang thoi gian' && !range) range = parseRange(r[1]);
+      else if (k === 'ten gian hang') shopName = String(r[1] || '').trim();
+      else if (k === 'ma nguoi ban')  shopCode = String(r[1] || '').trim();
+      else if (k === 'ten dang nhap' && !shopName) shopName = String(r[1] || '').trim();
     }
     const hi = rows.findIndex(isHeader);
     if (hi < 0)
@@ -503,7 +509,12 @@ const ShopeeAds = (() => {
       warn.push(`Khoảng của tệp dài ${days} ngày, không phải trọn một tháng. ` +
         `App vẫn xếp vào ${range.from.slice(0,7)}, nhưng so với tháng khác sẽ khập khiễng.`);
 
-    return {ym: range.from.slice(0,7), from: range.from, to: range.to, camps, warn};
+    if (!shopCode && !shopName)
+      warn.push('Tệp không ghi gian hàng nào ở phần đầu. App sẽ hỏi bạn chọn shop ' +
+                'trước khi nạp — chọn nhầm là số của hai shop trộn vào nhau.');
+
+    return {ym: range.from.slice(0,7), from: range.from, to: range.to,
+            shopName, shopCode, camps, warn};
   }
 
   function parseText(text){

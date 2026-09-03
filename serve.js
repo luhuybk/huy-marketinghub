@@ -82,7 +82,7 @@ const KH_PERMS = ['dash','pipeline','kols','clips','postfb','posttt','ads',
 const KH_KIND_PERM = {
   kols:['kols','pipeline'], statuses:['kols','pipeline'], templates:['kols','pipeline'],
   bookings:['pipeline','kols','clips'], clips:['clips','pipeline','kols'],
-  adperiods:['ads'], actions:['ads'], adcamps:['ads'], spweeks:['improve','ads'],
+  adperiods:['ads'], actions:['ads'], adcamps:['ads'], shops:['ads'], spweeks:['improve','ads'],
   impacts:['improve'], ideas:['newprod']
 };
 const khNorm = s => String(s||'').trim().toLowerCase().replace(/\s+/g,' ');

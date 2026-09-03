@@ -712,6 +712,22 @@ Mỗi tháng xuất một file ở *Kênh Người Bán › Kênh Marketing › 
 Báo cáo*, chọn trọn một tháng, rồi kéo vào **Shopee Ads › Chiến dịch tháng**.
 Đọc được cả `.csv` lẫn `.xlsx`.
 
+### Ba cấp: gian hàng → chiến dịch → tháng
+
+Bán nhiều shop thì số của hai shop không được cộng chung. App **tự nhận ra gian
+hàng từ chính tệp** — theo *Mã Người bán*, không theo tên, vì tên gian hàng đổi
+lúc nào cũng được còn mã thì không. Shop chưa có thì tạo mới, shop đã có mà đổi
+tên thì cập nhật theo. Không phải chọn tay, nên cũng không có chỗ để chọn nhầm —
+mà chọn nhầm ở đây là trộn số của hai shop vào nhau.
+
+Thanh chọn gian hàng chỉ hiện khi thật sự có từ hai shop trở lên.
+
+Bấm vào một dòng chiến dịch để xem **chính nó đi qua từng tháng**: cột chi phí và
+doanh số, đường ROAS chồng lên; rồi một biểu đồ nữa cho CTR và CVR. Hai đường đó
+tách được hai loại vấn đề khác hẳn nhau — CTR tụt mà CVR giữ thì lỗi ở ảnh bìa và
+tiêu đề, người ta lướt qua không buồn bấm; CTR giữ mà CVR tụt thì bấm vào rồi mới
+bỏ đi, lỗi nằm trong trang sản phẩm, ở giá hoặc ở đánh giá.
+
 ### Vì sao phải có phần này
 
 Một file tháng thật có hơn 150 chiến dịch. Trong đó khoảng 46 con gánh 80% chi
@@ -748,6 +764,15 @@ nào phát hiện bằng mắt.
 **3. Không lưu `productId` trong bản ghi chiến dịch.** Nối vào sản phẩm bằng mã
 Shopee, tra lại mỗi lần đọc. Nhờ vậy hôm nay thêm một sản phẩm là toàn bộ chiến
 dịch cũ của nó tự nối vào, không phải đi vá lại dữ liệu cũ.
+
+**4. Không nối được sản phẩm cũng không sao.** Trang chi tiết chiến dịch không
+đòi bạn tạo sản phẩm mới cho xem được số. Nối vào chỉ thêm hai thứ: đặt được
+*ROAS đã tối ưu* để app biết thế nào là dưới ngưỡng, và xem chung với KOC, clip,
+bài đăng của cùng sản phẩm. Còn biểu đồ và các cờ thì chạy độc lập.
+
+**5. `adcampKey` có kèm mã shop.** Danh tính của một chiến dịch xuyên tháng là
+`shop | mã sản phẩm`. Thiếu phần shop thì hai gian hàng cùng bán một mã sẽ bị coi
+là một chiến dịch, và bảng so tháng trước sẽ so nhầm shop này với shop kia.
 
 ### Cái bẫy số học trong file này
 

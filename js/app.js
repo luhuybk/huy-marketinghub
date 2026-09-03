@@ -29,11 +29,12 @@ const TITLES = {today:'Hôm nay', dash:'Tổng quan', pipeline:'Booking', kols:'
                 ads:'Shopee Ads', improve:'Cải thiện sản phẩm',
                 newprod:'Xây dựng sản phẩm mới', compare:'So sánh kênh', resources:'Tài nguyên',
                 review:'Cần bạn duyệt', settings:'Cài đặt', kol:'Hồ sơ KOC', product:'Sản phẩm',
-                sp:'Sức khoẻ trên Shopee', adcamps:'Chiến dịch quảng cáo'};
+                sp:'Sức khoẻ trên Shopee', adcamps:'Chiến dịch quảng cáo',
+                adcamp:'Chiến dịch'};
 /* Trang chỉ chủ mở được. Nhân viên gõ thẳng đường dẫn cũng bị đưa về Hôm nay. */
 const OWNER_PAGES = ['settings', 'review'];
 /* Trang con mở từ một trang chính — quyền đi theo trang cha. */
-const PAGE_PERM = {kol:'kols', product:'ads', sp:'improve', adcamps:'ads'};
+const PAGE_PERM = {kol:'kols', product:'ads', sp:'improve', adcamps:'ads', adcamp:'ads'};
 const NAV_PERM  = Object.fromEntries(NAV.filter(n => n.perm).map(n => [n.id, n.perm]));
 const mayPage = id => {
   if (OWNER_PAGES.includes(id)) return isOwner();
@@ -106,6 +107,7 @@ function render(){
       case 'resources':html = viewResources(); break;
       case 'review':   html = viewReview(); break;
       case 'adcamps':  html = viewAdcamps(); break;
+      case 'adcamp':   html = viewAdcamp(route.id); break;
       case 'settings': ensureSettingsCfg(); html = viewSettings(); break;
     }
   } catch(e){
@@ -2027,18 +2029,28 @@ function adImportModal(){
   };
 
   function show(parsed){
-    const cu = adcampsIn(parsed.ym);
-    const rows = parsed.camps.map(c => ({
+    /* Gian hàng: nhận ra từ Mã Người bán trong tệp. Có mã rồi thì không hỏi —
+       hỏi lại chỉ tạo thêm một chỗ để bấm nhầm, mà bấm nhầm ở đây là trộn số
+       của hai shop vào nhau. Tệp không ghi mã thì mới phải chọn tay. */
+    const cu = shopByCode(parsed.shopCode);
+    const shop = cu ? {id: cu.id, name: cu.name, moi: false}
+                    : {id: '', name: parsed.shopName || 'Gian hàng chưa đặt tên', moi: true};
+    /* Tên gian hàng đổi trên Shopee thì cập nhật theo, mã vẫn là mã cũ. */
+    const doiTen = cu && parsed.shopName && cu.name !== parsed.shopName ? parsed.shopName : '';
+
+    const camps = parsed.camps.map(c => Object.assign({}, c, {shopId: shop.id}));
+    const hienCo = shop.id ? adcampsIn(parsed.ym, shop.id) : [];
+    const rows = camps.map(c => ({
       c,
       p:  adcampProduct(c),
-      ex: cu.find(x => adcampKey(x) === adcampKey(c)) || null
+      ex: hienCo.find(x => adcampKey(x) === adcampKey(c)) || null
     }));
-    plan = {parsed, rows};
+    plan = {parsed, rows, shop, doiTen};
     const tong = rows.reduce((t, r) => ({cost: t.cost + r.c.cost, gmv: t.gmv + r.c.gmv}), {cost:0, gmv:0});
     const noi  = rows.filter(r => r.p).length;
     const de   = rows.length - noi;
     const ghi  = rows.filter(r => r.ex).length;
-    const xoa  = cu.filter(x => !rows.some(r => adcampKey(r.c) === adcampKey(x))).length;
+    const xoa  = hienCo.filter(x => !rows.some(r => adcampKey(r.c) === adcampKey(x))).length;
 
     /* Bày mấy dòng đốt nhiều tiền nhất chứ không bày cả trăm dòng: xem trước
        là để biết mình đang nạp đúng tháng đúng shop, không phải để duyệt
@@ -2047,6 +2059,13 @@ function adImportModal(){
 
     res.innerHTML = `
       ${parsed.warn.map(w => `<div class="explain">${esc(w)}</div>`).join('')}
+      <div class="explain ${shop.moi ? 'warn' : ''}">
+        Gian hàng: <b>${esc(shop.name)}</b>${parsed.shopCode ? ' · mã người bán ' + esc(parsed.shopCode) : ''}.
+        ${shop.moi
+          ? 'Chưa có trong app nên sẽ được tạo mới. Số của gian hàng này để riêng, không cộng chung với shop khác.'
+          : 'Đã có sẵn — số sẽ vào đúng gian hàng này.'}
+        ${doiTen ? `<br>Tên trên Shopee đã đổi thành <b>${esc(doiTen)}</b>, app sẽ cập nhật theo.` : ''}
+      </div>
       ${sectionTitle('Đọc được ' + rows.length + ' chiến dịch · ' + monthLabel(parsed.ym), '', true)}
       <div class="tiles">
         ${tile('Tổng chi', moneyShort(tong.cost), esc(fmtDate(parsed.from)) + ' – ' + esc(fmtDate(parsed.to)))}
@@ -2092,19 +2111,32 @@ function adImportModal(){
 
   btnGo.addEventListener('click', () => {
     if (!plan) return;
+    let shopId = plan.shop.id;
+    if (!shopId){
+      const sh = stamp({name: plan.shop.name, code: plan.parsed.shopCode || '', note:'', archived:false});
+      db.shops.push(sh);
+      shopId = sh.id;
+    } else if (plan.doiTen){
+      const sh = db.shops.find(x => x.id === shopId);
+      if (sh){ sh.name = plan.doiTen; stamp(sh); }
+    }
+
     let them = 0, de = 0;
     plan.rows.forEach(r => {
       const rec = r.ex ? db.adcamps.find(x => x.id === r.ex.id) : null;
-      if (rec){ Object.assign(rec, r.c); stamp(rec); de++; }
-      else { db.adcamps.push(stamp(Object.assign({}, r.c))); them++; }
+      if (rec){ Object.assign(rec, r.c, {shopId}); stamp(rec); de++; }
+      else { db.adcamps.push(stamp(Object.assign({}, r.c, {shopId}))); them++; }
     });
     ensure(); save();
-    ui.adYm = plan.parsed.ym; ui.adIssue = ''; ui.adOnlyBad = false; ui.adQ = '';
+    ui.adShop = shopId; ui.adYm = plan.parsed.ym;
+    ui.adIssue = ''; ui.adOnlyBad = false; ui.adQ = '';
     closeModal();
     go('adcamps', '');
-    const rp = adcampReport(plan.parsed.ym);
-    toast(`Đã nạp ${monthLabel(plan.parsed.ym)}: ${them} chiến dịch mới` +
-          (de ? `, ${de} ghi đè` : '') +
+    const rp = adcampReport(plan.parsed.ym, shopId);
+    const dem = them && de ? `${them} chiến dịch mới, ${de} cập nhật`
+              : them       ? `${them} chiến dịch mới`
+                           : `đã cập nhật ${de} chiến dịch`;
+    toast(`${shopName(shopId)} · ${monthLabel(plan.parsed.ym)}: ${dem}` +
           (rp.bad.length ? ` · ${rp.bad.length} con cần xem lại` : ' · không con nào bị gắn cờ'));
   });
 }
@@ -2572,18 +2604,9 @@ const ACTIONS = {
   admonth:     id => { ui.adYm = id; ui.adIssue = ''; ui.adOnlyBad = false; render(); },
   adissue:     id => { ui.adIssue = id || ''; ui.adOnlyBad = false; render(); },
   adonlybad:   () => { ui.adOnlyBad = !ui.adOnlyBad; ui.adIssue = ''; render(); },
-  /* Bấm vào một dòng chiến dịch: nếu nó đã nối vào sản phẩm thì mở trang sản
-     phẩm — chỗ duy nhất làm được gì đó với nó (đặt ngưỡng, ghi hành động).
-     Chưa nối thì nói thẳng là chưa nối, kèm mã để đi tạo sản phẩm. */
-  adcamp:      id => {
-    const c = db.adcamps.find(x => x.id === id && !x.deleted);
-    if (!c) return;
-    const p = adcampProduct(c);
-    if (p) return go('product', p.id);
-    toast(c.sku
-      ? 'Chiến dịch này chưa nối vào sản phẩm nào. Tạo sản phẩm với mã Shopee ' + c.sku + ' để nối.'
-      : 'Chiến dịch tự đặt tên, không có mã sản phẩm nên không nối vào đâu được.');
-  },
+  adshop:      id => { ui.adShop = id || ''; ui.adYm = ''; ui.adIssue = '';
+                       ui.adOnlyBad = false; render(); },
+  adcamp:      id => go('adcamp', id),
   newspweek:   id => spWeekForm(null, id),
   editspweek:  id => spWeekForm(db.spweeks.find(x => x.id === id)),
   newimpact:  (id, el) => impactForm(null, id, el.dataset.m || ''),
