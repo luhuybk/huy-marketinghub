@@ -29,11 +29,11 @@ const TITLES = {today:'Hôm nay', dash:'Tổng quan', pipeline:'Booking', kols:'
                 ads:'Shopee Ads', improve:'Cải thiện sản phẩm',
                 newprod:'Xây dựng sản phẩm mới', compare:'So sánh kênh', resources:'Tài nguyên',
                 review:'Cần bạn duyệt', settings:'Cài đặt', kol:'Hồ sơ KOC', product:'Sản phẩm',
-                sp:'Sức khoẻ trên Shopee'};
+                sp:'Sức khoẻ trên Shopee', adcamps:'Chiến dịch quảng cáo'};
 /* Trang chỉ chủ mở được. Nhân viên gõ thẳng đường dẫn cũng bị đưa về Hôm nay. */
 const OWNER_PAGES = ['settings', 'review'];
 /* Trang con mở từ một trang chính — quyền đi theo trang cha. */
-const PAGE_PERM = {kol:'kols', product:'ads', sp:'improve'};
+const PAGE_PERM = {kol:'kols', product:'ads', sp:'improve', adcamps:'ads'};
 const NAV_PERM  = Object.fromEntries(NAV.filter(n => n.perm).map(n => [n.id, n.perm]));
 const mayPage = id => {
   if (OWNER_PAGES.includes(id)) return isOwner();
@@ -70,7 +70,13 @@ function parseHash(){
   return {page: page2, id: id || ''};
 }
 function go(page, id){
-  location.hash = '#' + page + (id ? '/' + id : '');
+  const h = '#' + page + (id ? '/' + id : '');
+  /* Đi tới đúng trang đang đứng thì trình duyệt KHÔNG bắn hashchange, nên
+     không có gì vẽ lại. Trước đây chỉ là chuyện vô hại vì mọi lời gọi go()
+     đều đổi trang; từ lúc có nút nạp file ngay trên trang chiến dịch thì nạp
+     xong màn hình vẫn nằm ở "chưa nạp tháng nào" trong khi dữ liệu đã vào. */
+  if (location.hash === h){ route = parseHash(); render(); window.scrollTo(0,0); return; }
+  location.hash = h;
 }
 window.addEventListener('hashchange', () => { route = parseHash(); render(); window.scrollTo(0,0); });
 
@@ -99,6 +105,7 @@ function render(){
       case 'product':  html = viewProduct(route.id); break;
       case 'resources':html = viewResources(); break;
       case 'review':   html = viewReview(); break;
+      case 'adcamps':  html = viewAdcamps(); break;
       case 'settings': ensureSettingsCfg(); html = viewSettings(); break;
     }
   } catch(e){
@@ -1389,6 +1396,9 @@ function productForm(p){
         opts: [['','— chưa gắn —']].concat(allBrands().map(b => [b, b]))},
       {k:'sku',   l:'Mã SKU', t:'text', half:true},
       {k:'price', l:'Giá bán', t:'money', half:true},
+      {k:'roasTarget', l:'ROAS đã tối ưu', t:'text', half:true, ph:'vd 8,5',
+        hint:'Mốc bạn đã dò ra là chạy tốt. Người vào sau chỉnh giá thầu quanh mức này. ' +
+             'Để trống nếu chưa chốt.'},
       {k:'url',   l:'Link quảng cáo / link sản phẩm', t:'url', ph:'https://shopee.vn/…',
         hint:'Chỉ để bấm mở lại cho nhanh — Shopee không cho lấy số liệu tự động'},
       {k:'spStatus', l:'Trạng thái theo dõi', t:'select', half:true,
@@ -1980,6 +1990,151 @@ function judgeImpactModal(id){
 }
 
 /* ---- nạp số liệu từ file Shopee ---- */
+/* ============================================================
+   NẠP FILE QUẢNG CÁO THÁNG
+
+   Khác spImportModal ở một điểm cốt lõi: ở đây KHÔNG chặn dòng nào cả.
+   Bên số liệu tuần, nạp nhầm file của sản phẩm khác vào là hỏng cả chuỗi
+   so sánh nên phải khoá chặt. Còn đây là bản chụp nguyên vẹn một tháng —
+   bỏ bớt dòng nào cũng là tự tạo ra lỗ hổng trong chính thứ mình lập ra
+   để không bỏ sót. Chiến dịch chưa có sản phẩm trong app thì vẫn lưu, chỉ
+   là chưa nối vào đâu; hôm nào thêm sản phẩm là nó tự nối.
+   ============================================================ */
+function adImportModal(){
+  const body = `
+    <div class="explain">Lấy file ở <b>Kênh Người Bán › Kênh Marketing › Quảng cáo Shopee ›
+      Báo cáo</b>, chọn khoảng <b>trọn một tháng</b> rồi tải về. App đọc được cả .csv lẫn .xlsx.
+      Nạp lại cùng một tháng thì ghi đè, không nhân đôi.</div>
+    <div class="drop" id="dz">
+      <div class="drop-ic">📥</div>
+      <div><b>Kéo file báo cáo vào đây</b><div class="dim">hoặc bấm để chọn file</div></div>
+      <input type="file" id="dzf" accept=".csv,.xlsx" hidden>
+    </div>
+    <div id="ires"></div>`;
+
+  const el = openModal('Nạp báo cáo quảng cáo tháng', body,
+    `<div class="btns end"><div class="grow"></div>
+      <button class="btn sm" data-act="closem">Đóng</button>
+      <button class="btn pri" id="igo" disabled>Nhập</button></div>`, true);
+
+  const dz = el.querySelector('#dz'), fi = el.querySelector('#dzf');
+  const res = el.querySelector('#ires'), btnGo = el.querySelector('#igo');
+  let plan = null;
+
+  const fail = msg => {
+    plan = null; btnGo.disabled = true;
+    res.innerHTML = `<div class="explain warn">⚠︎ ${esc(msg)}</div>`;
+  };
+
+  function show(parsed){
+    const cu = adcampsIn(parsed.ym);
+    const rows = parsed.camps.map(c => ({
+      c,
+      p:  adcampProduct(c),
+      ex: cu.find(x => adcampKey(x) === adcampKey(c)) || null
+    }));
+    plan = {parsed, rows};
+    const tong = rows.reduce((t, r) => ({cost: t.cost + r.c.cost, gmv: t.gmv + r.c.gmv}), {cost:0, gmv:0});
+    const noi  = rows.filter(r => r.p).length;
+    const de   = rows.length - noi;
+    const ghi  = rows.filter(r => r.ex).length;
+    const xoa  = cu.filter(x => !rows.some(r => adcampKey(r.c) === adcampKey(x))).length;
+
+    /* Bày mấy dòng đốt nhiều tiền nhất chứ không bày cả trăm dòng: xem trước
+       là để biết mình đang nạp đúng tháng đúng shop, không phải để duyệt
+       từng dòng. */
+    const top = rows.slice().sort((a,b) => b.c.cost - a.c.cost).slice(0, 8);
+
+    res.innerHTML = `
+      ${parsed.warn.map(w => `<div class="explain">${esc(w)}</div>`).join('')}
+      ${sectionTitle('Đọc được ' + rows.length + ' chiến dịch · ' + monthLabel(parsed.ym), '', true)}
+      <div class="tiles">
+        ${tile('Tổng chi', moneyShort(tong.cost), esc(fmtDate(parsed.from)) + ' – ' + esc(fmtDate(parsed.to)))}
+        ${tile('Doanh số', moneyShort(tong.gmv), 'ROAS chung ' + xText(tong.cost ? tong.gmv / tong.cost : null))}
+        ${tile('Nối vào sản phẩm', noi + '/' + rows.length, de ? de + ' chiến dịch chưa có sản phẩm' : 'nối hết')}
+        ${tile(ghi ? 'Ghi đè' : 'Thêm mới', String(ghi || rows.length), ghi ? 'tháng này đã nạp trước đó' : 'tháng mới')}
+      </div>
+      ${xoa ? `<div class="explain warn">⚠︎ ${xoa} chiến dịch đang có trong ${esc(monthLabel(parsed.ym))}
+        nhưng KHÔNG có trong file này. App giữ nguyên chúng chứ không xoá — nếu bạn xuất file
+        thiếu thì dữ liệu cũ vẫn còn, còn nếu Shopee đã bỏ chiến dịch đó thật thì bạn tự xoá.</div>` : ''}
+      ${de ? `<div class="explain">${de} chiến dịch chưa nối được vào sản phẩm nào trong app.
+        Vẫn nạp bình thường và vẫn được soi — chỉ là chưa hiện trên trang sản phẩm. Thêm sản phẩm
+        với đúng mã Shopee lúc nào thì chúng tự nối vào lúc đó, kể cả dữ liệu cũ.</div>` : ''}
+      <div class="tblwrap"><table class="tbl sm"><thead><tr><th>Chiến dịch tốn nhiều nhất</th>
+        <th class="r">Chi phí</th><th class="r">Doanh số</th><th class="r">ROAS</th></tr></thead><tbody>` +
+      top.map(r => {
+        const m = adMetrics(r.c);
+        return `<tr><td class="ell" style="max-width:260px" title="${esc(r.c.name)}">${esc(r.c.name)}
+          <div class="dim">${r.p ? '→ ' + esc(r.p.name) : r.c.sku ? 'mã ' + esc(r.c.sku) + ' · chưa có sản phẩm'
+                                                                  : 'chiến dịch tự đặt tên'}</div></td>
+          <td class="r">${moneyShort(m.cost)}</td><td class="r">${moneyShort(m.gmv)}</td>
+          <td class="r"><b class="${m.roas == null ? '' : m.roas >= 3 ? 'ok' : m.roas < 1.5 ? 'bad' : ''}">${xText(m.roas)}</b></td></tr>`;
+      }).join('') + `</tbody></table></div>
+      ${rows.length > top.length ? `<div class="dim" style="margin-top:6px">…và ${rows.length - top.length}
+        chiến dịch nữa, xem đủ sau khi nhập.</div>` : ''}`;
+    btnGo.disabled = false;
+  }
+
+  async function readFile(f){
+    if (!f) return;
+    res.innerHTML = `<div class="dim" style="padding:12px">Đang đọc ${esc(f.name)}…</div>`;
+    try { show(await ShopeeAds.parseFile(f)); }
+    catch(err){ fail(err.message); }
+  }
+
+  dz.addEventListener('click', () => fi.click());
+  fi.addEventListener('change', () => readFile(fi.files[0]));
+  ['dragenter','dragover'].forEach(ev => dz.addEventListener(ev, e => {
+    e.preventDefault(); dz.classList.add('on'); }));
+  ['dragleave','drop'].forEach(ev => dz.addEventListener(ev, e => {
+    e.preventDefault(); dz.classList.remove('on'); }));
+  dz.addEventListener('drop', e => readFile(e.dataTransfer.files[0]));
+
+  btnGo.addEventListener('click', () => {
+    if (!plan) return;
+    let them = 0, de = 0;
+    plan.rows.forEach(r => {
+      const rec = r.ex ? db.adcamps.find(x => x.id === r.ex.id) : null;
+      if (rec){ Object.assign(rec, r.c); stamp(rec); de++; }
+      else { db.adcamps.push(stamp(Object.assign({}, r.c))); them++; }
+    });
+    ensure(); save();
+    ui.adYm = plan.parsed.ym; ui.adIssue = ''; ui.adOnlyBad = false; ui.adQ = '';
+    closeModal();
+    go('adcamps', '');
+    const rp = adcampReport(plan.parsed.ym);
+    toast(`Đã nạp ${monthLabel(plan.parsed.ym)}: ${them} chiến dịch mới` +
+          (de ? `, ${de} ghi đè` : '') +
+          (rp.bad.length ? ` · ${rp.bad.length} con cần xem lại` : ' · không con nào bị gắn cờ'));
+  });
+}
+
+/* Ngưỡng ROAS của một sản phẩm. Một ô duy nhất — mở form sửa sản phẩm đầy
+   đủ chỉ để gõ một con số thì lần nào cũng phải cuộn đi tìm. */
+function roasTargetForm(id){
+  const p = productOf(id);
+  if (!p) return;
+  formModal({
+    title: 'ROAS đã tối ưu — ' + p.name,
+    values: {roasTarget: p.roasTarget || ''},
+    saveLabel: 'Lưu ngưỡng',
+    extra: `<div class="explain">Đây là mốc bạn đã dò ra là chạy ổn cho riêng sản phẩm này.
+      Người vào sau chỉnh giá thầu <b>quanh mức đó</b> thay vì dò lại từ đầu, và app dùng chính
+      nó để gắn cờ những chiến dịch đang chạy dưới ngưỡng.</div>`,
+    fields: [
+      {k:'roasTarget', l:'ROAS đã tối ưu', t:'text', ph:'vd 8,5',
+       hint:'Để trống hoặc 0 nếu chưa chốt được mức nào'}
+    ],
+    onSave(v){
+      const rec = db.products.find(x => x.id === p.id);
+      if (!rec) return;
+      rec.roasTarget = parseX(v.roasTarget);
+      stamp(rec); ensure(); save();
+      toast(rec.roasTarget ? 'Ngưỡng ROAS: ' + xText(rec.roasTarget) : 'Đã bỏ ngưỡng ROAS');
+    }
+  });
+}
+
 function spImportModal(presetProduct){
   /* Kể cả sản phẩm đã ngưng theo dõi: bỏ nó ra khỏi danh sách đối chiếu thì
      nạp lại số liệu của nó sẽ đẻ ra một bản ghi trùng tên thay vì báo lỗi. */
@@ -2412,6 +2567,23 @@ const ACTIONS = {
   },
   spgo:        id => go('sp', id),
   spimport:    id => spImportModal(id),
+  adimport:    () => adImportModal(),
+  roastarget:  id => roasTargetForm(id),
+  admonth:     id => { ui.adYm = id; ui.adIssue = ''; ui.adOnlyBad = false; render(); },
+  adissue:     id => { ui.adIssue = id || ''; ui.adOnlyBad = false; render(); },
+  adonlybad:   () => { ui.adOnlyBad = !ui.adOnlyBad; ui.adIssue = ''; render(); },
+  /* Bấm vào một dòng chiến dịch: nếu nó đã nối vào sản phẩm thì mở trang sản
+     phẩm — chỗ duy nhất làm được gì đó với nó (đặt ngưỡng, ghi hành động).
+     Chưa nối thì nói thẳng là chưa nối, kèm mã để đi tạo sản phẩm. */
+  adcamp:      id => {
+    const c = db.adcamps.find(x => x.id === id && !x.deleted);
+    if (!c) return;
+    const p = adcampProduct(c);
+    if (p) return go('product', p.id);
+    toast(c.sku
+      ? 'Chiến dịch này chưa nối vào sản phẩm nào. Tạo sản phẩm với mã Shopee ' + c.sku + ' để nối.'
+      : 'Chiến dịch tự đặt tên, không có mã sản phẩm nên không nối vào đâu được.');
+  },
   newspweek:   id => spWeekForm(null, id),
   editspweek:  id => spWeekForm(db.spweeks.find(x => x.id === id)),
   newimpact:  (id, el) => impactForm(null, id, el.dataset.m || ''),
@@ -2643,6 +2815,13 @@ document.addEventListener('change', e => {
   if (pt){
     db.settings.postTargets = db.settings.postTargets || {};
     db.settings.postTargets[pt.dataset.pt] = Math.max(0, +pt.value || 0);
+    save(); render(); return;
+  }
+
+  const ar = e.target.closest('[data-ar]');
+  if (ar){
+    db.settings.adRules = Object.assign({}, DEFAULT_AD_RULES, db.settings.adRules);
+    db.settings.adRules[ar.dataset.ar] = Math.max(0, +ar.value || 0);
     save(); render(); return;
   }
 

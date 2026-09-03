@@ -125,6 +125,7 @@ const KH_KIND_PERM = [
   'clips'     => ['clips','pipeline','kols'],
   'adperiods' => ['ads'],
   'actions'   => ['ads'],
+  'adcamps'   => ['ads'],
   'spweeks'   => ['improve','ads'],
   'impacts'   => ['improve'],
   'ideas'     => ['newprod'],

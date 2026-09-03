@@ -317,6 +317,39 @@ const WEIGHT_LABEL = {
 const DEFAULT_ALERTS = {shipDays:10, staleDeal:7, staleClip:7, roasDrop:20, spStale:10, reupDays:2};
 
 /* ============================================================
+   CHIẾN DỊCH QUẢNG CÁO SHOPEE — bốn dấu hiệu cần soi
+
+   Vì sao phải có bộ này: file tháng có hơn 150 chiến dịch, trong đó 46 con
+   nuốt 80% chi phí và phần còn lại là đuôi dài mỗi con vài chục nghìn. Đọc
+   bằng mắt từ trên xuống thì con đang hỏng nằm lẫn giữa hàng trăm dòng bình
+   thường, và thứ dễ bỏ sót nhất lại là con KHÔNG lỗ: camp đứng im không đốt
+   được tiền trông y hệt camp ngoan.
+   ============================================================ */
+const AD_ISSUES = {
+  waste: {icon:'🔥', label:'Đốt tiền không ra doanh số', cls:'bad',
+          hint:'có chi phí nhưng doanh số bằng 0 — kể cả khi Shopee vẫn đếm có sản phẩm bán ra, ' +
+               'thường là đơn bị huỷ hoặc chưa được tính về chiến dịch'},
+  under: {icon:'📉', label:'Dưới ngưỡng ROAS',      cls:'warn',
+          hint:'thấp hơn mức ROAS bạn đã chốt cho sản phẩm này'},
+  quiet: {icon:'😴', label:'Gần như đứng im',       cls:'warn',
+          hint:'chi phí tụt sâu so với tháng trước — thường là giá thầu đặt quá thấp'},
+  drop:  {icon:'⚠︎', label:'ROAS tụt mạnh',         cls:'warn',
+          hint:'so với chính nó tháng trước'}
+};
+const AD_ISSUE_IDS = Object.keys(AD_ISSUES);
+
+/* Ngưỡng của bốn dấu hiệu trên. Để trong Cài đặt vì mỗi shop một mức chi
+   khác nhau — ngưỡng cứng của mình sẽ hoặc kêu suốt ngày, hoặc câm.
+   wasteCost: chi từ mức này trở lên mà doanh số vẫn bằng 0 thì mới kêu. Dưới mức
+   đó là tiền lẻ của camp mới mở, kêu lên chỉ tổ nhiễu.
+   underTol : cho phép thấp hơn ngưỡng ROAS bao nhiêu % mới coi là lệch.
+   quietDrop: chi phí tụt bao nhiêu % so tháng trước thì coi là đứng im.
+   roasDrop : ROAS tụt bao nhiêu % so tháng trước thì báo.
+   minCost  : camp chi dưới mức này thì bỏ qua mọi dấu hiệu — quá nhỏ để
+              kết luận được điều gì. */
+const DEFAULT_AD_RULES = {wasteCost:50000, underTol:10, quietDrop:70, roasDrop:30, minCost:20000};
+
+/* ============================================================
    MẪU TIN NHẮN
    Cùng vài nội dung gõ đi gõ lại cho hàng chục người: chào hỏi, gửi
    brief, nhắc hạn, xin số liệu. Mẫu có chỗ trống, app điền sẵn tên và
@@ -414,6 +447,15 @@ function parseCount(v){
   }
   const n = parseFloat(s.replace(/[.,]/g,''));
   return isNaN(n) ? 0 : Math.round(n);
+}
+/* Số thập phân nhỏ (ROAS, hệ số): "8,5" và "8.5" đều hiểu. Khác parseMoney
+   ở chỗ KHÔNG bỏ dấu chấm đi — với ROAS thì "8.5" là tám phẩy năm, không
+   phải tám mươi lăm. */
+function parseX(v){
+  if (v == null) return 0;
+  if (typeof v === 'number') return isFinite(v) && v > 0 ? Math.round(v*100)/100 : 0;
+  const n = parseFloat(String(v).replace(/[^\d.,]/g,'').replace(',','.'));
+  return isFinite(n) && n > 0 ? Math.round(n*100)/100 : 0;
 }
 const money = n => Math.round(n||0).toLocaleString('vi-VN') + '₫';
 function moneyShort(n){
@@ -610,18 +652,19 @@ const DEFAULT_POST_TARGETS = {fb:0, tt:0};
 /* ---------------- kho dữ liệu ---------------- */
 const KEY = 'kolhub.v1';
 const COLLECTIONS = ['kols','bookings','clips','products','adperiods','actions','brands','statuses',
-                     'templates','spweeks','impacts','ideas','posts'];
+                     'templates','spweeks','impacts','ideas','posts','adcamps'];
 
 function blank(){
   return {
     kols:[], bookings:[], clips:[], products:[], adperiods:[], actions:[], brands:[], statuses:[],
-    templates:[], spweeks:[], impacts:[], ideas:[], posts:[],
+    templates:[], spweeks:[], impacts:[], ideas:[], posts:[], adcamps:[],
     settings:{
       theme:'dark',
       myName:'',
       weights: Object.assign({}, DEFAULT_WEIGHTS),
       alerts:  Object.assign({}, DEFAULT_ALERTS),
-      postTargets: Object.assign({}, DEFAULT_POST_TARGETS)
+      postTargets: Object.assign({}, DEFAULT_POST_TARGETS),
+      adRules:     Object.assign({}, DEFAULT_AD_RULES)
     },
     meta:{ lastPull:null, lastPush:null, srvPull:'', srvPush:'' }
   };
@@ -676,6 +719,8 @@ function mergeInto(base, raw){
   out.settings.alerts  = Object.assign({}, DEFAULT_ALERTS,  raw.settings && raw.settings.alerts  || {});
   out.settings.postTargets = Object.assign({}, DEFAULT_POST_TARGETS,
                                            raw.settings && raw.settings.postTargets || {});
+  out.settings.adRules = Object.assign({}, DEFAULT_AD_RULES,
+                                       raw.settings && raw.settings.adRules || {});
   out.meta     = Object.assign({}, base.meta, raw.meta || {});
   COLLECTIONS.forEach(k => { if (!Array.isArray(out[k])) out[k] = []; });
   return out;
@@ -800,6 +845,9 @@ function ensure(){
       .forEach(f => { if (p[f] === undefined) p[f] = ''; });
     if (!SP_STATUS[p.spStatus]) p.spStatus = '';
     p.price = parseMoney(p.price);
+    /* ROAS đã tối ưu: mốc bạn tự chốt sau khi đã dò ra, để người sau chỉnh
+       giá thầu quanh đó thay vì dò lại từ đầu. 0 = chưa chốt. */
+    p.roasTarget = parseX(p.roasTarget);
     if (p.archived === undefined) p.archived = false;
   });
   db.adperiods.forEach(w => {
@@ -810,6 +858,19 @@ function ensure(){
     ['cost','gmv'].forEach(f => w[f] = parseMoney(w[f]));
     ['productId','campaign','note','actionId','label','verdict','verdictNote']
       .forEach(f => { if (w[f] === undefined) w[f] = ''; });
+  });
+  db.adcamps.forEach(c => {
+    /* KHÔNG lưu productId ở đây. Chiến dịch nối vào sản phẩm qua mã Shopee,
+       tra lại mỗi lần đọc — nhờ vậy thêm một sản phẩm hôm nay là toàn bộ
+       chiến dịch cũ của nó tự nối vào, không phải đi vá lại dữ liệu cũ. */
+    if (!/^\d{4}-\d{2}$/.test(c.ym || '')) c.ym = String(c.from || today()).slice(0,7);
+    if (!c.from) c.from = monthStart(c.ym);
+    if (!c.to || c.to < c.from) c.to = monthEnd(c.ym);
+    ['name','sku','status','bid','note'].forEach(f => {
+      if (typeof c[f] !== 'string') c[f] = String(c[f] == null ? '' : c[f]);
+    });
+    ['impressions','clicks','orders'].forEach(f => c[f] = parseCount(c[f]));
+    ['cost','gmv'].forEach(f => c[f] = parseMoney(c[f]));
   });
   db.actions.forEach(a => {
     if (!ACTION_TYPES[a.type]) a.type = 'other';
@@ -1079,6 +1140,7 @@ const REVIEW_KINDS = {
   bookings:  'Booking',
   kols:      'Hồ sơ KOC',
   actions:   'Hành động quảng cáo',
+  adcamps:   'Chiến dịch quảng cáo',
   products:  'Sản phẩm',
   ideas:     'Sản phẩm mới',
   brands:    'Thương hiệu',
@@ -1127,6 +1189,13 @@ function reviewLabel(kind, rec){
     }
     case 'products':
       return {title: rec.name, sub: 'sản phẩm', go: ['product', rec.id]};
+    case 'adcamps': {
+      const m = adMetrics(rec);
+      return {title: rec.name || 'chiến dịch không tên',
+              sub: monthLabel(rec.ym) + ' · chi ' + moneyShort(m.cost)
+                   + ' · GMV ' + moneyShort(m.gmv) + ' · ROAS ' + xText(m.roas),
+              go: ['adcamps', '']};
+    }
     case 'spweeks': {
       const p = productOf(rec.productId);
       const m = spMetrics(rec);
@@ -1603,6 +1672,97 @@ const periodsOf = productId => adperiods().filter(w => w.productId === productId
                                           .sort((a,b) => a.from.localeCompare(b.from));
 const periodDays = w => Math.max(1, Math.round(
   (new Date(w.to + 'T00:00:00') - new Date(w.from + 'T00:00:00')) / 86400000) + 1);
+
+/* ============================================================
+   CHIẾN DỊCH QUẢNG CÁO THEO THÁNG (adcamps)
+
+   Đây là bản lưu ĐẦY ĐỦ file Shopee xuất ra: mỗi bản ghi là một chiến dịch
+   trong một tháng, giữ cả những con không nối được vào sản phẩm nào. Cố ý
+   để riêng, không cộng vào adperiods — adperiods là số bạn tự ghi cho từng
+   đợt thử nghiệm, trộn hai nguồn vào một chỗ thì mọi biểu đồ sẽ cộng trùng
+   mà nhìn vẫn rất bình thường.
+   ============================================================ */
+const adcamps      = () => alive(db.adcamps);
+const adcampMonths = () => Array.from(new Set(adcamps().map(c => c.ym))).sort().reverse();
+const adcampsIn    = ym => adcamps().filter(c => c.ym === ym)
+                                    .sort((a,b) => (b.cost||0) - (a.cost||0));
+/* Danh tính của một chiến dịch xuyên tháng. Mã sản phẩm là thứ Shopee không
+   đổi; chiến dịch tự đặt tên (không có mã) thì đành theo tên. */
+const adcampKey = c => c.sku ? 's:' + norm(c.sku) : 'n:' + norm(c.name);
+const adcampRunning = c => !norm(c.status).includes('da dung');
+
+/* Nối vào sản phẩm bằng mã Shopee, tra lại mỗi lần đọc chứ không lưu sẵn.
+   Nhờ vậy hôm nay thêm một sản phẩm là chiến dịch cũ của nó tự nối vào. */
+function adcampProduct(c){
+  const sku = norm(c.sku);
+  if (sku){
+    const p = products().find(x => norm(x.shopeeSku || x.sku) === sku);
+    if (p) return p;
+  }
+  const nm = norm(c.name);
+  return products().find(x => x.shopeeName && norm(x.shopeeName) === nm) || null;
+}
+function adcampPrev(c){
+  const prev = shiftMonth(c.ym, -1), k = adcampKey(c);
+  return adcamps().find(x => x.ym === prev && adcampKey(x) === k) || null;
+}
+
+/* Bốn dấu hiệu cần soi. Trả về mảng mã, có thể nhiều cái cùng lúc. */
+function adcampIssues(c){
+  const R = db.settings.adRules || DEFAULT_AD_RULES;
+  const m = adMetrics(c), out = [];
+  const chay = adcampRunning(c);
+  const prev = adcampPrev(c), pm = prev ? adMetrics(prev) : null;
+  const duLon = m.cost >= (+R.minCost || 0);
+
+  /* Đốt tiền không ra doanh số: xét cả camp đã dừng — tiền đã mất rồi, và biết
+     con nào từng đốt vô ích thì lần sau không mở lại kiểu đó. */
+  if (m.cost >= (+R.wasteCost || 0) && !m.gmv) out.push('waste');
+  if (!chay) return out;
+
+  const p = adcampProduct(c);
+  if (p && p.roasTarget && duLon && m.roas != null &&
+      m.roas < p.roasTarget * (1 - (+R.underTol || 0) / 100)) out.push('under');
+
+  /* Đứng im: so với chính nó tháng trước. Không có tháng trước thì không
+     kết luận được — camp mới mở tháng này chi ít là chuyện bình thường. */
+  if (pm && pm.cost >= (+R.minCost || 0) &&
+      m.cost <= pm.cost * (1 - (+R.quietDrop || 0) / 100)) out.push('quiet');
+
+  if (pm && pm.roas && duLon && m.roas != null &&
+      m.roas <= pm.roas * (1 - (+R.roasDrop || 0) / 100)) out.push('drop');
+  return out;
+}
+
+/* Toàn cảnh một tháng. Tính một lần rồi truyền xuống, vì adcampPrev() quét
+   cả bộ nên gọi lại cho từng dòng trong lúc vẽ là quét bình phương. */
+function adcampReport(ym){
+  const list = adcampsIn(ym);
+  const rows = list.map(c => {
+    const prev = adcampPrev(c);
+    return {c, m: adMetrics(c), prev, pm: prev ? adMetrics(prev) : null,
+            p: adcampProduct(c), issues: adcampIssues(c)};
+  });
+  const sum = adSum(list);
+  const bad = rows.filter(r => r.issues.length);
+  const waste = rows.filter(r => r.issues.includes('waste'))
+                    .reduce((t, r) => t + r.m.cost, 0);
+  /* Bao nhiêu chiến dịch gánh 80% chi phí — con số này quyết định bạn nên
+     ngồi soi mấy dòng đầu hay phải xem cả bảng. */
+  let cum = 0, core = 0;
+  rows.forEach(r => { if (cum < sum.cost * 0.8){ cum += r.m.cost; core++; } });
+  const byIssue = {};
+  AD_ISSUE_IDS.forEach(k => byIssue[k] = rows.filter(r => r.issues.includes(k)));
+  return {ym, rows, sum, bad, byIssue, waste, core, prevYm: shiftMonth(ym, -1)};
+}
+
+/* Tháng gần nhất ĐÃ KẾT THÚC mà chưa có dữ liệu. Chờ qua ngày mùng 3 mới
+   hỏi: Shopee cần thời gian chốt số, hỏi ngày mùng 1 là hỏi vào chỗ trống. */
+function adcampMissingMonth(){
+  const truoc = shiftMonth(thisMonth(), -1);
+  if (+today().slice(8,10) < 3) return '';
+  return adcamps().some(c => c.ym === truoc) ? '' : truoc;
+}
 function periodLabel(w){
   if (w.label) return w.label;
   const d = periodDays(w);
@@ -2435,6 +2595,30 @@ function alerts(){
            + ' · để lâu thì tháng sau đếm mới biết thiếu, lúc đó không làm bù được',
       sort: 170 + cu});
   });
+
+  /* 12. chiến dịch quảng cáo cần xem lại, và tháng còn thiếu file.
+     Gộp một dòng cho cả tháng chứ không mỗi camp một dòng: hơn 150 chiến
+     dịch mà mỗi con một cảnh báo thì trang Hôm nay chỉ còn là danh sách ads. */
+  if (may('ads')){
+    const thieu = adcampMissingMonth();
+    if (thieu)
+      out.push({level:'warn', kind:'adload', page:'adcamps',
+        title: 'Chưa nạp file quảng cáo ' + monthLabel(thieu),
+        sub: 'tháng đã khép sổ mà chưa có số — không nạp thì không biết con nào đang hỏng',
+        sort: 190});
+
+    const ym = adcampMonths()[0];
+    if (ym){
+      const rp = adcampReport(ym);
+      if (rp.bad.length)
+        out.push({level: rp.waste ? 'warn' : 'info', kind:'adcamp', page:'adcamps',
+          title: rp.bad.length + ' chiến dịch cần xem lại — ' + monthLabel(ym),
+          sub: AD_ISSUE_IDS.filter(k => rp.byIssue[k].length)
+                 .map(k => rp.byIssue[k].length + ' ' + AD_ISSUES[k].label.toLowerCase()).join(' · ')
+               + (rp.waste ? ' · ' + moneyShort(rp.waste) + ' đã đốt mà không ra doanh số' : ''),
+          sort: 160 + Math.min(rp.bad.length, 20)});
+    }
+  }
 
   const rank = {bad:0, warn:1, info:2};
   return out.sort((a,b) => (rank[a.level] - rank[b.level]) || (b.sort - a.sort));

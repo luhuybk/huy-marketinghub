@@ -703,6 +703,75 @@ không hiểu vì sao.
 
 ---
 
+## Chiến dịch quảng cáo theo tháng
+
+Vòng lặp ở trên là để **đào sâu** một sản phẩm. Phần này ngược lại: để **không
+bỏ sót** con nào.
+
+Mỗi tháng xuất một file ở *Kênh Người Bán › Kênh Marketing › Quảng cáo Shopee ›
+Báo cáo*, chọn trọn một tháng, rồi kéo vào **Shopee Ads › Chiến dịch tháng**.
+Đọc được cả `.csv` lẫn `.xlsx`.
+
+### Vì sao phải có phần này
+
+Một file tháng thật có hơn 150 chiến dịch. Trong đó khoảng 46 con gánh 80% chi
+phí, phần còn lại là đuôi dài mỗi con vài chục nghìn. Đọc bằng mắt từ trên
+xuống thì con đang hỏng nằm lẫn giữa hàng trăm dòng bình thường — và thứ dễ bỏ
+sót nhất lại **không phải** con lỗ: một camp đứng im không tiêu được tiền trông
+y hệt một camp ngoan.
+
+Bốn dấu hiệu app tự gắn cờ:
+
+| Cờ | Bắt cái gì | Cần gì để bắt được |
+|---|---|---|
+| 🔥 Đốt tiền không ra doanh số | có chi phí, doanh số bằng 0 | chỉ cần một tháng |
+| 📉 Dưới ngưỡng ROAS | thấp hơn mức bạn đã chốt cho sản phẩm | sản phẩm có đặt *ROAS đã tối ưu* |
+| 😴 Gần như đứng im | chi phí tụt sâu so tháng trước | ít nhất hai tháng |
+| ⚠︎ ROAS tụt mạnh | so với chính nó tháng trước | ít nhất hai tháng |
+
+Ngưỡng của cả bốn nằm trong **Cài đặt › Chiến dịch quảng cáo**. Quan trọng nhất
+là ngưỡng cuối — *chi dưới mức này thì bỏ qua mọi dấu hiệu*. Không có mức sàn
+thì hàng trăm camp đuôi dài chiếm hết danh sách cần xem lại và mấy con thật sự
+đang đốt tiền sẽ chìm mất.
+
+### Ba quyết định đáng nhớ
+
+**1. Nạp hết, không lọc.** Kể cả chiến dịch chưa có sản phẩm nào trong app. Bỏ
+bớt dòng nào cũng là tự tạo lỗ hổng trong chính thứ lập ra để không bỏ sót — mà
+mấy con đốt tiền vô ích thường nằm đúng ở phần đuôi bị bỏ.
+
+**2. Không cộng vào `adperiods`.** `adperiods` là số bạn tự ghi cho từng đợt thử
+nghiệm, `adcamps` là bản chụp nguyên vẹn một tháng. Trộn hai nguồn vào một chỗ
+thì mọi biểu đồ cộng trùng mà nhìn vẫn rất bình thường — loại lỗi không có cách
+nào phát hiện bằng mắt.
+
+**3. Không lưu `productId` trong bản ghi chiến dịch.** Nối vào sản phẩm bằng mã
+Shopee, tra lại mỗi lần đọc. Nhờ vậy hôm nay thêm một sản phẩm là toàn bộ chiến
+dịch cũ của nó tự nối vào, không phải đi vá lại dữ liệu cũ.
+
+### Cái bẫy số học trong file này
+
+File quảng cáo viết số kiểu Mỹ: `8436.57` là **tám nghìn phẩy năm bảy**, dấu
+chấm là thập phân. File *Hiệu suất sản phẩm* thì ngược lại — dấu chấm ngăn
+nghìn. Đem `spNum()` của file kia sang dùng lại là mọi ROAS sai gấp trăm lần mà
+vẫn là số nguyên trông rất bình thường. Vì thế `ShopeeAds` có bộ đọc số riêng,
+và sau khi đọc xong nó **tự đối chiếu**: `Doanh số / Chi phí` phải ra đúng cột
+`ROAS` mà Shopee đã tính sẵn. Lệch quá 10% số dòng thì từ chối nạp thay vì nạp
+vào một bảng số sai.
+
+Tên sản phẩm trong file có dấu phẩy bên trong, nên cắt CSV phải hiểu dấu nháy
+kép — `split(',')` là vỡ bảng, cột số dồn sang trái mà bảng vẫn trông bình thường.
+
+### ROAS đã tối ưu
+
+Một ô số nhập tay trên mỗi sản phẩm (`products.roasTarget`): mốc bạn đã dò ra là
+chạy ổn. Nó hiện thành một thẻ riêng ngay đầu trang sản phẩm chứ không nằm lẫn
+trong form sửa — người mở trang này để chỉnh giá thầu cần thấy con số đó trước
+khi làm bất cứ việc gì, mà chôn trong form thì phải biết là có mới đi tìm.
+
+App dùng chính nó để gắn cờ 📉, và so với ROAS thực tế tháng gần nhất để nói
+thẳng nên nâng hay nên hạ giá thầu.
+
 ## Bài đăng nội bộ
 
 Phần nhân viên tự đăng, tách hẳn khỏi clip đi booking KOC. Hai luồng, hai
@@ -871,6 +940,8 @@ Ngưỡng đổi được trong Cài đặt.
 | 🔴 ROAS tụt | kỳ này thấp hơn kỳ trước từ 20% |
 | 🟡 Đến hạn đánh giá | một thay đổi quảng cáo đã tới ngày hẹn xem kết quả |
 | 🔵 Đến hẹn liên hệ lại | KOC có ngày hẹn liên hệ lại đã tới |
+| 🟡 Chưa nạp file quảng cáo | tháng trước đã khép sổ mà chưa có số, tính từ ngày mùng 3 |
+| 🟡 Chiến dịch cần xem lại | tháng gần nhất có con bị gắn cờ — gộp một dòng cho cả tháng |
 
 ---
 
@@ -1063,7 +1134,8 @@ mới là hỏng.
 index.html          khung trang
 css/style.css       toàn bộ giao diện
 js/state.js         dữ liệu, tiện ích, MỌI phép tính
-js/shopee.js        đọc .xlsx Shopee xuất ra — tự bung zip, không thư viện ngoài
+js/shopee.js        đọc file Shopee xuất ra — .xlsx hiệu suất SP (tự bung zip) và
+                    .csv báo cáo quảng cáo tháng. Không thư viện ngoài.
 js/charts.js        biểu đồ SVG viết tay, không thư viện ngoài
 js/api.js           gọi máy chủ + cổng đăng nhập
 js/sync.js          đồng bộ nhiều thiết bị
@@ -1094,12 +1166,21 @@ Ba quy ước giữ cho mã không rối khi lớn dần:
    cũ kéo về sẽ bị lặng lẽ vứt đi — mất dữ liệu mà không báo gì.
    (Đây đúng là chuyện đã xảy ra khi `adweeks` đổi thành `adperiods`.)
 
-4. **Thêm một bộ dữ liệu chỉ cần khai trong `COLLECTIONS`.** `sync.js` lặp theo
-   mảng đó, và máy chủ không có danh sách trắng nào cho `kind` — nên `spweeks`,
-   `impacts`, `ideas`, `posts` đồng bộ được mà không sửa một dòng PHP. Đổi lại: bản app
-   **cũ** kéo về bộ dữ liệu nó chưa biết sẽ bỏ qua (`absorb()` chặn kind lạ).
-   Không mất gì — máy chủ vẫn giữ — nhưng máy đó sẽ không thấy dữ liệu mới cho
-   tới khi cập nhật.
+4. **Thêm một bộ dữ liệu chỉ cần khai trong `COLLECTIONS` — nhưng phải nhớ
+   khai quyền cho nó.** `sync.js` lặp theo mảng đó, và máy chủ không có danh
+   sách trắng nào cho `kind`, nên `spweeks`, `impacts`, `ideas`, `posts`,
+   `adcamps` đồng bộ được mà không sửa một dòng PHP.
+
+   Cái bẫy nằm ở `KH_KIND_PERM` (api/lib.php **và** serve.js): bộ nào **không**
+   có tên trong bảng đó thì mặc định **ai cũng đọc được**. Mặc định này cố ý —
+   `products` và `brands` phải tới được mọi người, nếu không thẻ sản phẩm của
+   họ trống trơn. Nhưng nó cũng có nghĩa là quên khai một bộ chứa tiền bạc thì
+   nó lặng lẽ chảy về máy của mọi nhân viên, và **không có gì báo**: app vẫn
+   chạy đúng, đồng bộ vẫn xanh.
+
+   Đổi lại: bản app **cũ** kéo về bộ dữ liệu nó chưa biết sẽ bỏ qua (`absorb()`
+   chặn kind lạ). Không mất gì — máy chủ vẫn giữ — nhưng máy đó sẽ không thấy
+   dữ liệu mới cho tới khi cập nhật.
 
 5. **Quyền phải khai ở ba chỗ.** `PERMS` (js/state.js), `KH_PERMS`
    (api/lib.php), `KH_PERMS` (serve.js). Thiếu một chỗ thì giao diện và máy

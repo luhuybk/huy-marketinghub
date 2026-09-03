@@ -14,6 +14,7 @@ const ui = {
   pipeBrand:'', pipeQ:'',
   clipQ:'', clipSort:'date', clipKol:'',
   postQ:'', postFlow:'', postState:'', postMonthOnly:false,
+  adYm:'', adQ:'', adIssue:'', adOnlyBad:false,
   resTab:'brands', resQ:'',
   cmpFrom:'', cmpTo:'',
   todayAhead:0,
@@ -699,13 +700,156 @@ function trackChip(t){
     t.key === 'waiting' ? ' · còn ' + t.days + ' ngày' : ''}</span>`;
 }
 
+/* ============================================================
+   CHIẾN DỊCH QUẢNG CÁO THEO THÁNG
+   ============================================================ */
+function issueChip(k){
+  const I = AD_ISSUES[k];
+  return `<span class="chip ${I.cls}" title="${esc(I.hint)}">${I.icon} ${esc(I.label)}</span>`;
+}
+
+/* Một dòng trong bảng chiến dịch. Cột nào cũng có thể là lý do bạn mở nó ra,
+   nên bày hết số ra bảng thay vì bắt bấm vào từng con mới thấy. */
+function adcampRow(r){
+  const {c, m, pm, p} = r;
+  const tt = p && p.roasTarget ? p.roasTarget : 0;
+  const dRoas = pm && pm.roas && m.roas != null ? (m.roas - pm.roas) / pm.roas * 100 : null;
+  const dCost = pm && pm.cost ? (m.cost - pm.cost) / pm.cost * 100 : null;
+  return `<tr class="${r.issues.length ? 'rowwarn' : ''}" data-act="adcamp" data-id="${c.id}">
+    <td class="ell" style="max-width:280px" title="${esc(c.name)}">
+      <b>${esc(c.name)}</b>
+      <div class="dim">${c.sku ? 'mã ' + esc(c.sku) : 'chiến dịch tự đặt tên'}${
+        adcampRunning(c) ? '' : ' · <span class="bad">đã dừng</span>'}${
+        p ? ' · ' + esc(p.name) : ''}</div>
+      ${r.issues.length ? `<div class="chips">${r.issues.map(issueChip).join('')}</div>` : ''}</td>
+    <td class="r nw">${moneyShort(m.cost)}${dCost != null ? `<div class="dim">${deltaChip(dCost, null)}</div>` : ''}</td>
+    <td class="r nw">${moneyShort(m.gmv)}</td>
+    <td class="r nw"><b class="${m.roas == null ? '' : tt ? (m.roas >= tt ? 'ok' : 'bad')
+                                                         : (m.roas >= 3 ? 'ok' : m.roas < 1.5 ? 'bad' : '')}">${xText(m.roas)}</b>
+      ${tt ? `<div class="dim">ngưỡng ${xText(tt)}</div>` : ''}
+      ${dRoas != null ? `<div class="dim">${deltaChip(dRoas, true)}</div>` : ''}</td>
+    <td class="r nw">${num(m.orders)}<div class="dim">${num(m.clicks)} click</div></td>
+    <td class="r nw">${pctText(m.ctr, 1)}<div class="dim">CVR ${pctText(m.cvr, 1)}</div></td>
+  </tr>`;
+}
+
+function viewAdcamps(){
+  const months = adcampMonths();
+  let h = `<div class="toolbar">
+    <button class="btn" data-act="nav" data-id="ads">‹ Shopee Ads</button>
+    <div class="grow"></div>
+    <button class="btn pri" data-act="adimport">Nạp file tháng</button>
+  </div>`;
+
+  if (!months.length)
+    return h + emptyBox('Chưa nạp tháng nào',
+      'Mỗi tháng xuất một file báo cáo quảng cáo từ Shopee rồi kéo vào đây. App giữ lại ' +
+      'trọn cả trăm chiến dịch, so với tháng trước và chỉ ra con nào đang có vấn đề — ' +
+      'kể cả con không lỗ mà đứng im không tiêu được tiền.',
+      'adimport', 'Nạp file tháng');
+
+  const ym = months.includes(ui.adYm) ? ui.adYm : months[0];
+  const rp = adcampReport(ym);
+  const cu = adcampsIn(rp.prevYm).length ? adSum(adcampsIn(rp.prevYm)) : null;
+
+  h += `<div class="chips" style="margin-bottom:12px">` + months.map(m =>
+    `<button class="btn sm ${m === ym ? 'pri' : ''}" data-act="admonth" data-id="${m}">${
+      esc(monthLabel(m))}</button>`).join('') + `</div>`;
+
+  const dCost = cu && cu.cost ? (rp.sum.cost - cu.cost) / cu.cost * 100 : null;
+  const dRoas = cu && cu.roas && rp.sum.roas ? (rp.sum.roas - cu.roas) / cu.roas * 100 : null;
+  h += `<div class="tiles">
+    ${tile('Tổng chi', moneyShort(rp.sum.cost), cu ? deltaChip(dCost, null) + ' so ' + monthLabel(rp.prevYm) : rp.rows.length + ' chiến dịch')}
+    ${tile('Doanh số', moneyShort(rp.sum.gmv), num(rp.sum.orders) + ' sản phẩm bán ra')}
+    ${tile('ROAS chung', xText(rp.sum.roas), cu ? deltaChip(dRoas, true) + ' so tháng trước' : '',
+           rp.sum.roas >= 3 ? 'ok' : rp.sum.roas < 1.5 ? 'bad' : '')}
+    ${tile('Cần xem lại', String(rp.bad.length), rp.waste ? moneyShort(rp.waste) + ' đốt không ra doanh số' : 'trên ' + rp.rows.length + ' chiến dịch',
+           rp.bad.length ? 'bad' : 'ok')}
+  </div>`;
+
+  h += `<div class="dim" style="margin:8px 0 14px">
+    <b>${rp.core}</b> chiến dịch gánh 80% chi phí tháng này — mở bảng ra thì soi kỹ mấy dòng đầu,
+    phần đuôi chỉ cần xem con nào bị gắn cờ.</div>`;
+
+  /* ---- các nhóm có vấn đề ---- */
+  if (rp.bad.length){
+    h += sectionTitle('Cần xem lại (' + rp.bad.length + ')');
+    h += `<div class="alerts">` + AD_ISSUE_IDS.filter(k => rp.byIssue[k].length).map(k => {
+      const I = AD_ISSUES[k], list = rp.byIssue[k];
+      const tien = list.reduce((t, r) => t + r.m.cost, 0);
+      return `<div class="al al-${I.cls === 'bad' ? 'bad' : 'warn'}"
+                   data-act="adissue" data-id="${k}">
+        <span class="al-dot"></span>
+        <div class="grow"><div class="al-t">${I.icon} ${list.length} chiến dịch — ${esc(I.label)}</div>
+          <div class="al-s">${esc(I.hint)} · đang cầm ${moneyShort(tien)} chi phí</div></div>
+        <span class="chip acc">Lọc ra →</span>
+      </div>`;
+    }).join('') + `</div>`;
+  } else {
+    h += `<div class="explain" style="margin-bottom:14px">✓ Không có chiến dịch nào bị gắn cờ trong
+      ${esc(monthLabel(ym))}. Ngưỡng bắt lỗi đặt trong <b>Cài đặt › Chiến dịch quảng cáo</b>.</div>`;
+  }
+
+  /* ---- bảng đầy đủ ---- */
+  const q = norm(ui.adQ);
+  let rows = rp.rows;
+  if (ui.adIssue) rows = rows.filter(r => r.issues.includes(ui.adIssue));
+  else if (ui.adOnlyBad) rows = rows.filter(r => r.issues.length);
+  if (q) rows = rows.filter(r => norm(r.c.name).includes(q) || norm(r.c.sku).includes(q));
+
+  h += sectionTitle('Toàn bộ chiến dịch ' + monthLabel(ym),
+    `<span class="dim">${rows.length}/${rp.rows.length} dòng</span>`);
+  h += `<div class="toolbar">
+    <input class="inp grow" placeholder="Tìm theo tên hoặc mã sản phẩm…" data-inp="adQ" value="${esc(ui.adQ)}">
+    <button class="btn sm ${!ui.adIssue && !ui.adOnlyBad ? 'pri' : ''}" data-act="adissue" data-id="">Tất cả</button>
+    <button class="btn sm ${ui.adOnlyBad && !ui.adIssue ? 'pri' : ''}" data-act="adonlybad">Chỉ con có cờ</button>
+    ${AD_ISSUE_IDS.filter(k => rp.byIssue[k].length).map(k =>
+      `<button class="btn sm ${ui.adIssue === k ? 'pri' : ''}" data-act="adissue" data-id="${k}">${
+        AD_ISSUES[k].icon} ${esc(AD_ISSUES[k].label)}</button>`).join('')}
+  </div>`;
+
+  if (!rows.length)
+    h += `<div class="card dim">Không có dòng nào khớp bộ lọc.</div>`;
+  else
+    h += `<div class="tblwrap"><table class="tbl sm ptbl"><thead><tr>
+      <th>Chiến dịch</th><th class="r">Chi phí</th><th class="r">Doanh số</th>
+      <th class="r">ROAS</th><th class="r">Đơn</th><th class="r">CTR</th>
+    </tr></thead><tbody>` + rows.map(adcampRow).join('') + `</tbody></table></div>`;
+
+  h += `<div class="dim" style="margin-top:8px">Số ở đây để riêng, không cộng vào biểu đồ ROAS
+    theo sản phẩm — biểu đồ đó là các đợt thử nghiệm bạn tự ghi. Trộn hai nguồn vào một chỗ
+    thì mọi con số sẽ cộng trùng mà nhìn vẫn rất bình thường.</div>`;
+  return h;
+}
+
 function viewAds(){
   const ps = products().filter(p => !p.archived);
+  const ym = adcampMonths()[0];
+  const rp = ym ? adcampReport(ym) : null;
   let h = `<div class="toolbar">
     <div class="grow"></div>
+    <button class="btn" data-act="nav" data-id="adcamps">Chiến dịch tháng${
+      rp && rp.bad.length ? ` <span class="chip bad">${rp.bad.length}</span>` : ''} ›</button>
     <button class="btn" data-act="nav" data-id="resources">Quản lý sản phẩm ›</button>
     <button class="btn pri" data-act="newproduct">+ Sản phẩm</button>
   </div>`;
+
+  /* Dải nhắc về file tháng: đứng ngay trên cùng vì bỏ sót một tháng là bỏ
+     sót luôn mọi kết luận của tháng đó, không có cách nào bù lại sau. */
+  const thieu = adcampMissingMonth();
+  if (thieu)
+    h += `<div class="al al-warn" data-act="adimport" style="margin-bottom:12px">
+      <span class="al-dot"></span>
+      <div class="grow"><div class="al-t">Chưa nạp file quảng cáo ${esc(monthLabel(thieu))}</div>
+        <div class="al-s">Tháng đã khép sổ. Xuất báo cáo từ Shopee rồi kéo vào đây.</div></div>
+      <span class="chip acc">Nạp file →</span></div>`;
+  else if (rp && rp.bad.length)
+    h += `<div class="al al-warn" data-act="nav" data-id="adcamps" style="margin-bottom:12px">
+      <span class="al-dot"></span>
+      <div class="grow"><div class="al-t">${rp.bad.length} chiến dịch cần xem lại — ${esc(monthLabel(rp.ym))}</div>
+        <div class="al-s">${esc(AD_ISSUE_IDS.filter(k => rp.byIssue[k].length)
+          .map(k => rp.byIssue[k].length + ' ' + AD_ISSUES[k].label.toLowerCase()).join(' · '))}</div></div>
+      <span class="chip acc">Mở ra →</span></div>`;
 
   if (!ps.length)
     return h + emptyBox('Chưa có sản phẩm nào',
@@ -769,7 +913,8 @@ function viewAds(){
         ${ws.length ? ' · ' + ws.length + ' kỳ đã đo' : ''}</div>
       <div class="pc-body">
         <div class="pc-m"><span>ROAS</span><b class="${tr && tr.cur.roas >= 3 ? 'ok' : tr && tr.cur.roas < 1.5 ? 'bad' : ''}">${tr ? xText(tr.cur.roas) : '—'}</b>
-          ${tr && tr.d ? deltaChip(tr.d.roas, true) : ''}</div>
+          ${tr && tr.d ? deltaChip(tr.d.roas, true) : ''}
+          ${p.roasTarget ? `<span class="chip">ngưỡng ${xText(p.roasTarget)}</span>` : ''}</div>
         <div class="pc-sp">${spark}</div>
       </div>
       <div class="pc-ft">${(() => {
@@ -859,6 +1004,53 @@ function productRelated(p){
   return h;
 }
 
+/* ROAS đã tối ưu — mốc bạn tự chốt cho sản phẩm này.
+
+   Vì sao nó đứng riêng một thẻ ngay đầu trang chứ không nằm lẫn trong form
+   sửa sản phẩm: người mở trang này để chỉnh giá thầu cần thấy con số đó
+   trước khi làm bất cứ việc gì. Chôn nó trong form thì phải biết là có mà
+   đi tìm — mà người mới vào thì không biết là có. */
+function roasTargetCard(p){
+  const tt = +p.roasTarget || 0;
+  const camps = adcamps().filter(c => {
+    const q = adcampProduct(c);
+    return q && q.id === p.id;
+  }).sort((a,b) => b.ym.localeCompare(a.ym) || (b.cost||0) - (a.cost||0));
+  const ym = camps.length ? camps[0].ym : '';
+  const nay = ym ? adSum(camps.filter(c => c.ym === ym)) : null;
+
+  if (!tt && !nay)
+    return `<div class="card dim" style="margin-top:12px">
+      <b>Chưa chốt ROAS đã tối ưu.</b> Đặt một con số ở đây thì người vào sau biết nên
+      chỉnh giá thầu quanh mức nào, thay vì dò lại từ đầu.
+      <div class="btns" style="margin-top:10px">
+        <button class="btn sm" data-act="roastarget" data-id="${p.id}">Đặt ngưỡng ROAS</button></div></div>`;
+
+  const lech = tt && nay && nay.roas != null ? (nay.roas - tt) / tt * 100 : null;
+  return `<div class="card" style="margin-top:12px">
+    <div class="row">
+      <div class="grow">
+        <div class="dim">ROAS đã tối ưu — mốc để chỉnh giá thầu quanh đó</div>
+        <div class="bignum">${tt ? xText(tt) : '<span class="dim">chưa đặt</span>'}</div>
+      </div>
+      ${nay ? `<div style="text-align:right">
+        <div class="dim">Thực tế ${esc(monthLabel(ym))}</div>
+        <div class="bignum ${lech == null ? '' : lech >= 0 ? 'ok' : 'bad'}">${xText(nay.roas)}</div>
+        <div class="dim">${camps.filter(c => c.ym === ym).length} chiến dịch · chi ${moneyShort(nay.cost)}</div>
+      </div>` : ''}
+    </div>
+    ${lech != null ? `<div class="explain ${lech >= 0 ? '' : 'warn'}" style="margin-top:10px">${
+      lech >= 0
+        ? `Đang chạy <b>trên</b> ngưỡng ${Math.abs(lech).toFixed(0)}%. Có thể hạ giá thầu xuống một nhịp để lấy thêm lượt hiển thị.`
+        : `Đang chạy <b>dưới</b> ngưỡng ${Math.abs(lech).toFixed(0)}%. Nâng ROAS mục tiêu trên Shopee lên gần ${xText(tt)} rồi đo lại sau vài ngày.`
+      }</div>` : ''}
+    <div class="btns" style="margin-top:10px">
+      <button class="btn sm" data-act="roastarget" data-id="${p.id}">${tt ? 'Sửa ngưỡng' : 'Đặt ngưỡng'}</button>
+      ${camps.length ? `<button class="btn sm" data-act="nav" data-id="adcamps">Xem chiến dịch tháng ›</button>` : ''}
+    </div>
+  </div>`;
+}
+
 function viewProduct(id){
   const p = productOf(id);
   if (!p) return emptyBox('Không tìm thấy sản phẩm này', 'Có thể đã bị xoá.');
@@ -882,6 +1074,8 @@ function viewProduct(id){
     ${p.note ? `<div class="note" style="margin-top:10px">${nl(p.note)}</div>` : ''}
     ${byLine(p)}
   </div>`;
+
+  h += roasTargetCard(p);
 
   if (!ws.length && !acts.length){
     h += emptyBox('Chưa theo dõi gì cho sản phẩm này',
@@ -2157,6 +2351,25 @@ function viewSettings(){
   <div class="dim" style="margin-top:6px">Để <b>0</b> nếu không đặt chỉ tiêu — lúc đó app chỉ đếm
     chứ không nhắc thiếu. Có chỉ tiêu thì còn 5 ngày cuối tháng mà chưa đủ, Telegram sẽ nhắc một lần,
     kèm số bài cần ra mỗi ngày để kịp.</div>`;
+
+  /* ---- ngưỡng bắt lỗi chiến dịch quảng cáo ---- */
+  const R = db.settings.adRules || DEFAULT_AD_RULES;
+  h += sectionTitle('Chiến dịch quảng cáo — khi nào thì gắn cờ');
+  h += `<div class="card">
+    <div class="kv"><span>${AD_ISSUES.waste.icon} Chi từ mức này trở lên mà doanh số vẫn bằng 0 thì kêu</span>
+      <input class="inp num" type="number" min="0" step="1000" data-ar="wasteCost" value="${R.wasteCost}"></div>
+    <div class="kv"><span>${AD_ISSUES.under.icon} Cho phép thấp hơn ngưỡng ROAS bao nhiêu % mới coi là lệch</span>
+      <input class="inp num" type="number" min="0" max="90" data-ar="underTol" value="${R.underTol}"> %</div>
+    <div class="kv"><span>${AD_ISSUES.quiet.icon} Chi phí tụt bao nhiêu % so tháng trước thì coi là đứng im</span>
+      <input class="inp num" type="number" min="10" max="99" data-ar="quietDrop" value="${R.quietDrop}"> %</div>
+    <div class="kv"><span>${AD_ISSUES.drop.icon} ROAS tụt bao nhiêu % so tháng trước thì báo</span>
+      <input class="inp num" type="number" min="5" max="90" data-ar="roasDrop" value="${R.roasDrop}"> %</div>
+    <div class="kv"><span>Chi dưới mức này thì bỏ qua mọi dấu hiệu</span>
+      <input class="inp num" type="number" min="0" step="1000" data-ar="minCost" value="${R.minCost}"></div>
+  </div>
+  <div class="dim" style="margin-top:6px">Ngưỡng cuối là cái quan trọng nhất: file tháng có hàng
+    trăm chiến dịch đuôi dài mỗi con vài chục nghìn. Không có mức sàn thì chúng chiếm hết danh sách
+    cần xem lại, và mấy con thật sự đang đốt tiền sẽ chìm mất.</div>`;
 
   /* ---- tài khoản ---- */
   h += sectionTitle('Người dùng', usersCfg

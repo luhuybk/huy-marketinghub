@@ -358,3 +358,171 @@ const ShopeeFile = (() => {
 
   return {parse, parseText, parseFile};
 })();
+
+
+/* ============================================================
+   ĐỌC FILE QUẢNG CÁO THÁNG — "Báo cáo Dịch vụ Hiển thị trả theo CPC"
+
+   Khác hẳn file Hiệu suất sản phẩm ở trên, nên phải là bộ đọc riêng chứ
+   không nhét thêm cột vào ShopeeFile:
+
+   1. Đây là .csv, và tên sản phẩm có dấu phẩy bên trong ("Sáp vuốt tóc nam
+      Roug Đen 90gr , Roug Trắng…"). Cắt chuỗi bằng split(',') là vỡ bảng,
+      cột số dồn hết sang trái mà vẫn ra một bảng trông rất bình thường.
+   2. Số viết theo kiểu Mỹ: "8436.57" là tám nghìn phẩy năm bảy, dấu chấm là
+      THẬP PHÂN. Đúng ngược với file Hiệu suất sản phẩm. Đem spNum() sang
+      dùng lại là mọi ROAS bị nhân lên trăm lần.
+   3. Khoảng thời gian nằm ở dòng đầu tệp ("Khoảng thời gian,01/08/2026 -
+      31/08/2026"), không nằm trong bảng.
+   ============================================================ */
+const ShopeeAds = (() => {
+
+  const key = s => norm(s).replace(/\s+/g, ' ');
+
+  /* Bộ cắt CSV có hiểu dấu nháy kép, kể cả nháy lồng ("" bên trong ô). */
+  function csvRows(text){
+    const rows = [];
+    let row = [], cell = '', q = false;
+    const t = String(text || '').replace(/^﻿/, '');
+    for (let i = 0; i < t.length; i++){
+      const c = t[i];
+      if (q){
+        if (c === '"'){
+          if (t[i+1] === '"'){ cell += '"'; i++; }
+          else q = false;
+        } else cell += c;
+        continue;
+      }
+      if (c === '"'){ q = true; continue; }
+      if (c === ','){ row.push(cell); cell = ''; continue; }
+      if (c === '\r') continue;
+      if (c === '\n'){ row.push(cell); rows.push(row); row = []; cell = ''; continue; }
+      cell += c;
+    }
+    if (cell !== '' || row.length){ row.push(cell); rows.push(row); }
+    return rows;
+  }
+
+  /* Dấu chấm là thập phân, dấu phẩy (nếu có) là ngăn nghìn. "-" là ô trống. */
+  function adNum(v){
+    if (v == null) return 0;
+    if (typeof v === 'number') return isFinite(v) ? v : 0;
+    const s = String(v).replace(/[₫đ%\s]|vnd|vnđ/gi, '').replace(/,/g, '').trim();
+    if (!s || s === '-') return 0;
+    const n = parseFloat(s);
+    return isFinite(n) ? n : 0;
+  }
+
+  const COLS = {
+    'ten dich vu hien thi': 'name',
+    'trang thai':           'status',
+    'ma san pham':          'sku',
+    'phuong thuc dau thau': 'bid',
+    'so luot xem':          'impressions',
+    'so luot click':        'clicks',
+    'san pham da ban':      'orders',
+    'doanh so':             'gmv',
+    'chi phi':              'cost',
+    'roas':                 'roas'
+  };
+
+  /* "01/08/2026 - 31/08/2026" → {from, to} */
+  function parseRange(s){
+    const g = String(s || '').match(/\d+/g) || [];
+    const ymd = (d, m, y) => `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    if (g.length < 6) return null;
+    return {from: ymd(g[0], g[1], g[2]), to: ymd(g[3], g[4], g[5])};
+  }
+
+  const isHeader = row => {
+    const ks = row.map(key);
+    return ks.includes('ten dich vu hien thi') && ks.includes('chi phi');
+  };
+
+  function parse(rows){
+    let range = null;
+    for (const r of rows){
+      if (key(r[0]) === 'khoang thoi gian'){ range = parseRange(r[1]); break; }
+    }
+    const hi = rows.findIndex(isHeader);
+    if (hi < 0)
+      throw new Error('Không thấy bảng chiến dịch trong tệp. Cần file xuất từ ' +
+        'Kênh Người Bán › Kênh Marketing › Quảng cáo Shopee › Báo cáo, ' +
+        'chọn khoảng đúng một tháng rồi tải về dạng .csv.');
+    if (!range)
+      throw new Error('Không thấy dòng "Khoảng thời gian" ở đầu tệp. Đừng mở tệp ra ' +
+        'sửa rồi lưu lại — app lấy mốc tháng từ chính dòng đó.');
+
+    const map = {};
+    rows[hi].forEach((h, i) => { const f = COLS[key(h)]; if (f && map[f] === undefined) map[f] = i; });
+    ['name','cost','gmv'].forEach(f => {
+      if (map[f] === undefined) throw new Error('Tệp thiếu cột bắt buộc — không thấy cột ' +
+        (f === 'name' ? '"Tên Dịch vụ Hiển thị"' : f === 'cost' ? '"Chi phí"' : '"Doanh số"') + '.');
+    });
+
+    const camps = [], warn = [];
+    let lech = 0;
+    for (let i = hi + 1; i < rows.length; i++){
+      const row = rows[i];
+      if (!row || !row.some(c => String(c || '').trim())) continue;
+      const g = f => map[f] === undefined ? '' : (row[map[f]] || '');
+      const name = String(g('name')).trim();
+      if (!name || key(name) === 'ten dich vu hien thi') continue;
+      const sku = String(g('sku')).trim();
+      const c = {
+        ym: range.from.slice(0,7), from: range.from, to: range.to,
+        name, sku: (sku === '-' ? '' : sku),
+        status: String(g('status')).trim(), bid: String(g('bid')).trim(),
+        impressions: Math.round(adNum(g('impressions'))),
+        clicks:      Math.round(adNum(g('clicks'))),
+        orders:      Math.round(adNum(g('orders'))),
+        cost:        Math.round(adNum(g('cost'))),
+        gmv:         Math.round(adNum(g('gmv')))
+      };
+      /* Tự kiểm cách đọc số: ROAS Shopee đã tính sẵn ở một cột riêng, nên
+         nếu doanh số / chi phí của mình không ra đúng con số đó thì mình
+         đang đọc sai dấu chấm dấu phẩy — thà dừng còn hơn nạp vào một bảng
+         số sai mà nhìn vẫn rất hợp lý. */
+      if (map.roas !== undefined && c.cost > 0){
+        const ns = adNum(g('roas'));
+        if (ns > 0 && Math.abs(c.gmv / c.cost - ns) > Math.max(0.05, ns * 0.02)) lech++;
+      }
+      camps.push(c);
+    }
+    if (!camps.length) throw new Error('Bảng có tiêu đề nhưng không có dòng chiến dịch nào.');
+    if (lech > camps.length * 0.1)
+      throw new Error('Đọc số bị lệch: ' + lech + '/' + camps.length + ' dòng có ROAS tự tính ' +
+        'không khớp cột ROAS trong tệp. Có thể Shopee đã đổi cách ghi số. ' +
+        'Đừng nạp bản này — báo lại để sửa bộ đọc.');
+    if (lech) warn.push(lech + ' dòng có ROAS lệch nhẹ so với cột ROAS của Shopee — ' +
+                        'thường do Shopee làm tròn, không đáng ngại.');
+
+    const days = Math.round((new Date(range.to + 'T00:00:00') -
+                             new Date(range.from + 'T00:00:00')) / 86400000) + 1;
+    if (days < 26 || days > 31)
+      warn.push(`Khoảng của tệp dài ${days} ngày, không phải trọn một tháng. ` +
+        `App vẫn xếp vào ${range.from.slice(0,7)}, nhưng so với tháng khác sẽ khập khiễng.`);
+
+    return {ym: range.from.slice(0,7), from: range.from, to: range.to, camps, warn};
+  }
+
+  function parseText(text){
+    const rows = csvRows(text);
+    if (!rows.length) throw new Error('Tệp rỗng.');
+    return parse(rows);
+  }
+
+  async function parseFile(file){
+    const nm = String(file.name || '').toLowerCase();
+    if (nm.endsWith('.xlsx')){
+      if (!Xlsx.supported())
+        throw new Error('Trình duyệt này chưa đọc được .xlsx. Hãy tải file dạng .csv.');
+      const sheets = await Xlsx.read(await file.arrayBuffer());
+      /* Gộp mọi sheet lại rồi để parse() tự tìm dòng tiêu đề. */
+      return parse(sheets.reduce((all, sh) => all.concat(sh.rows), []));
+    }
+    return parseText(await file.text());
+  }
+
+  return {parse, parseText, parseFile, csvRows};
+})();

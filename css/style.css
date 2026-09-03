@@ -709,3 +709,10 @@ a.plnk:hover{border-color:var(--acc);background:var(--bg4)}
 .lnk{background:none;border:0;padding:0;color:var(--acc);cursor:pointer;
      font:inherit;text-decoration:underline}
 .dim.warn{color:var(--warn)}
+
+/* ---- chiến dịch quảng cáo theo tháng ---- */
+.tbl tbody tr[data-act]{cursor:pointer}
+.tbl tbody tr[data-act]:hover{background:var(--bg3)}
+.tbl .rowwarn td:first-child{box-shadow:inset 3px 0 0 var(--warn)}
+.bignum{font-size:26px;font-weight:700;line-height:1.25;letter-spacing:-.5px}
+.ptbl .chips{margin-top:5px}
