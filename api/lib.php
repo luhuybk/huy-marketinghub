@@ -75,11 +75,137 @@ function db(): PDO {
   try { $pdo->exec("ALTER TABLE sessions ADD COLUMN role TEXT NOT NULL DEFAULT 'owner'"); }
   catch (Throwable $e) { /* đã có cột rồi */ }
   $pdo->exec('CREATE TABLE IF NOT EXISTS login_fails (ip TEXT, at INTEGER)');
+  /* Phiên phải nhớ NGƯỜI, không chỉ vai trò: quyền đọc bây giờ đọc từ bảng
+     users, nên gỡ quyền hay khoá một người phải có tác dụng ngay ở lượt gọi
+     kế tiếp, không đợi họ đăng xuất. */
+  try { $pdo->exec("ALTER TABLE sessions ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); }
+  catch (Throwable $e) { /* đã có cột rồi */ }
+  /* Tài khoản người dùng. KHÔNG nằm trong bảng items: items là thứ đồng bộ
+     xuống trình duyệt, mà mã mật khẩu thì không bao giờ được đi xuống đó. */
+  $pdo->exec('CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, norm TEXT NOT NULL UNIQUE,
+      pass_hash TEXT NOT NULL, role TEXT NOT NULL, perms TEXT NOT NULL,
+      disabled INTEGER NOT NULL DEFAULT 0, created_at TEXT, updated_at TEXT,
+      last_seen TEXT)');
+  seedUsers($pdo);
   /* kv: những thứ KHÔNG đồng bộ về máy — mã bot Telegram, khoá cron,
      danh sách việc cần nhắc. Mã bot mà đồng bộ xuống trình duyệt thì
      coi như dán nó lên mọi máy từng đăng nhập. */
   $pdo->exec('CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL)');
   return $pdo;
+}
+
+/* ============================================================
+   NGƯỜI DÙNG & QUYỀN
+
+   Mỗi người một tài khoản có tên. Quyền là danh sách trang họ được vào,
+   và nó được chặn Ở ĐÂY — trong pull/push — chứ không phải chỉ ẩn mục
+   trong thanh bên. Ẩn mục chỉ làm màn hình gọn; ai mở bảng điều khiển
+   trình duyệt vẫn gọi thẳng vào api/ được, nên luật thật phải nằm ở máy
+   chủ. Đây là toàn bộ lý do phần này tồn tại.
+   ============================================================ */
+
+/* Các trang tick được cho một tài khoản. 'today' luôn có nên không nằm đây;
+   'settings' và 'review' chỉ chủ vào được nên cũng không tick được.
+   Danh sách này phải khớp PERMS trong js/state.js. */
+const KH_PERMS = ['dash','pipeline','kols','clips','postfb','posttt','ads',
+                  'improve','newprod','compare','resources'];
+
+/* Bộ dữ liệu nào cần quyền nào. Có MỘT trong số quyền liệt kê là đọc được.
+
+   `products` và `brands` cố ý không có trong danh sách — luôn cho qua. Bài
+   TikTok gắn sản phẩm, nên người chỉ được vào tab bài đăng vẫn phải kéo được
+   tên sản phẩm về, nếu không cái thẻ sản phẩm trong danh sách của họ sẽ trống
+   trơn. Hai bộ này không chứa tiền booking hay doanh thu. */
+const KH_KIND_PERM = [
+  'kols'      => ['kols','pipeline'],
+  'statuses'  => ['kols','pipeline'],
+  'templates' => ['kols','pipeline'],
+  'bookings'  => ['pipeline','kols','clips'],
+  'clips'     => ['clips','pipeline','kols'],
+  'adperiods' => ['ads'],
+  'actions'   => ['ads'],
+  'spweeks'   => ['improve','ads'],
+  'impacts'   => ['improve'],
+  'ideas'     => ['newprod'],
+];
+
+function khNorm(string $s): string {
+  $s = trim(mb_strtolower($s, 'UTF-8'));
+  return preg_replace('/\s+/u', ' ', $s) ?? $s;
+}
+/* Cùng khuôn với tools/hash-password.js, nên mã tạo ở đây và mã tạo ở máy
+   bạn kiểm bằng đúng một hàm. */
+function khMakeHash(string $pw): string {
+  $iter = 210000;
+  $salt = random_bytes(16);
+  $h = hash_pbkdf2('sha256', $pw, $salt, $iter, 32, true);
+  return 'pbkdf2_sha256$' . $iter . '$' . base64_encode($salt) . '$' . base64_encode($h);
+}
+
+function khPerms(array $u): array {
+  if (($u['role'] ?? '') === 'owner') return KH_PERMS;
+  $p = json_decode((string)($u['perms'] ?? '[]'), true);
+  return is_array($p) ? array_values(array_intersect($p, KH_PERMS)) : [];
+}
+function khMay(array $u, string $perm): bool {
+  return ($u['role'] ?? '') === 'owner' || in_array($perm, khPerms($u), true);
+}
+
+/* Người này có được đọc/ghi một dòng dữ liệu không.
+
+   `posts` xét theo LUỒNG nằm trong dữ liệu: bài Facebook cần quyền postfb,
+   bài TikTok cần posttt. Đây chính là chỗ hai bạn nhân viên không nhìn thấy
+   phần của nhau — một dòng của luồng kia không bao giờ rời khỏi máy chủ. */
+function khMayRow(array $u, string $kind, $data): bool {
+  if (($u['role'] ?? '') === 'owner') return true;
+  if ($kind === 'posts') {
+    $flow = is_array($data) ? (string)($data['flow'] ?? 'fb') : 'fb';
+    return khMay($u, $flow === 'tt' ? 'posttt' : 'postfb');
+  }
+  $need = KH_KIND_PERM[$kind] ?? null;
+  if ($need === null) return true;                 // products, brands, và bộ mới chưa khai
+  foreach ($need as $p) if (khMay($u, $p)) return true;
+  return false;
+}
+
+function khOwnerCount(): int {
+  return (int)db()->query("SELECT COUNT(*) c FROM users WHERE role = 'owner' AND disabled = 0")
+                  ->fetch()['c'];
+}
+function khUserById(string $id): ?array {
+  if ($id === '') return null;
+  $st = db()->prepare('SELECT * FROM users WHERE id = ?');
+  $st->execute([$id]);
+  return $st->fetch() ?: null;
+}
+function khUserByName(string $name): ?array {
+  $st = db()->prepare('SELECT * FROM users WHERE norm = ?');
+  $st->execute([khNorm($name)]);
+  return $st->fetch() ?: null;
+}
+
+/* Lần đầu chạy sau khi cập nhật: dựng tài khoản từ những gì config.php đang
+   có, để không ai bị khoá ngoài vào đúng ngày đưa bản mới lên.
+
+   - KH_PASSWORD       → tài khoản "Chủ", quyền đầy đủ.
+   - KH_PASSWORD_STAFF → tài khoản "Nhân viên chung", đủ quyền như trước.
+     Đây chỉ là cầu nối: tạo tài khoản riêng cho từng người xong thì xoá nó
+     đi và bỏ dòng KH_PASSWORD_STAFF trong config.php, vì mật khẩu dùng
+     chung thì không bao giờ biết được ai đã nhập cái gì. */
+function seedUsers(PDO $pdo): void {
+  $n = (int)$pdo->query('SELECT COUNT(*) c FROM users')->fetch()['c'];
+  if ($n > 0) return;
+  $now = gmdate('c');
+  $add = function(string $name, string $hash, string $role) use ($pdo, $now) {
+    $pdo->prepare('INSERT OR IGNORE INTO users
+        (id, name, norm, pass_hash, role, perms, disabled, created_at, updated_at)
+        VALUES (?,?,?,?,?,?,0,?,?)')
+        ->execute([bin2hex(random_bytes(8)), $name, khNorm($name), $hash, $role,
+                   json_encode(KH_PERMS), $now, $now]);
+  };
+  $add('Chủ', KH_PASSWORD, 'owner');
+  if (KH_PASSWORD_STAFF !== '') $add('Nhân viên chung', KH_PASSWORD_STAFF, 'staff');
 }
 
 /* ---------------- kho khoá–giá trị ---------------- */

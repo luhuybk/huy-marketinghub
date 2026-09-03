@@ -643,22 +643,101 @@ sửa một dòng nào ở máy chủ — đã kiểm cả hai: nút *Xong* trê
 
 ---
 
+## Tài khoản & quyền
+
+Mỗi người một tài khoản có tên, tạo trong **Cài đặt → Người dùng**. Đăng nhập
+bằng **tên + mật khẩu**.
+
+Lần chạy đầu sau khi cập nhật, máy chủ tự dựng tài khoản từ `config.php`:
+`KH_PASSWORD` thành tài khoản **“Chủ”**, và `KH_PASSWORD_STAFF` (nếu còn) thành
+**“Nhân viên chung”** — để không ai bị khoá ngoài đúng ngày đưa bản mới lên.
+Tạo tài khoản riêng cho từng người xong thì xoá “Nhân viên chung” đi.
+
+`KH_PASSWORD` vẫn là **cửa cứu hộ**: bỏ trống ô tên rồi gõ mật khẩu đó thì vào
+được với quyền chủ. Cần cho đúng một tình huống — bạn lỡ khoá mất tài khoản chủ
+của chính mình.
+
+### Quyền được chặn ở máy chủ, không phải ẩn mục đi
+
+Đây là điểm quan trọng nhất của phần này. Ẩn một mục trong thanh bên **không
+chặn được ai** — mở bảng điều khiển trình duyệt là gọi thẳng vào `api/` được.
+Nên luật thật nằm trong `pull` và `push`:
+
+| | Chặn ở đâu |
+|---|---|
+| Mục không tick | `khMayRow()` lọc trong `pull` — dòng đó **không rời khỏi máy chủ** |
+| Ghi đè dữ liệu không có quyền | `push` xét cả bản gửi lên **và** bản đang có trên máy chủ |
+| Xoá | chỉ tài khoản chủ (luật cũ, giữ nguyên) |
+| Cài đặt, Telegram, tài khoản | `requireOwner()` |
+
+Ba lỗ rò đã bịt, mỗi lỗ đều tự nó đủ làm cả cơ chế thành vô nghĩa:
+
+1. **Đổi `flow` để chiếm dòng của người khác.** `push` đọc bản *đang có trên
+   máy chủ* để xét quyền, không tin bản vừa gửi lên. Không làm vậy thì bạn ở
+   luồng Facebook chỉ cần gửi lên một bản ghi `flow:'fb'` mang id của bài
+   TikTok là ghi đè được nó.
+2. **Máy dùng chung.** Bạn đăng xuất, nhân viên đăng nhập vào — máy chủ lọc
+   đúng, nhưng `localStorage` vẫn giữ nguyên dữ liệu của bạn và app vẽ thẳng
+   từ đó. App lưu một *dấu nhận dạng* (tên + danh sách quyền); khác dấu là xoá
+   sạch bản sao dưới máy rồi kéo lại. Dấu này **cố ý không bị xoá lúc đăng
+   xuất** — xoá đi thì lần đăng nhập sau không còn gì để so, và cái chốt thành
+   ra không bao giờ bật. (Đúng lỗi này đã xảy ra và bị bắt lúc chạy thử.)
+3. **Gỡ quyền giữa chừng.** Máy chủ thôi gửi phần đó, nhưng phần đã gửi hôm
+   qua vẫn nằm trong máy họ. Nên mỗi câu trả lời của `pull` mang theo quyền
+   hiện tại; đổi là app dọn sạch và kéo lại ngay trong lượt đồng bộ đó, không
+   đợi tới lúc họ chịu tải lại trang.
+
+Một chỗ nữa phải sửa vì nhiều tài khoản: **danh sách nhắc Telegram chỉ tài
+khoản chủ mới được đẩy.** Danh sách trên máy chủ là một bản duy nhất, ai đẩy
+sau thì đè lên — người chỉ thấy một luồng bài đăng mà đẩy thì sáng hôm sau
+Telegram thôi nhắc toàn bộ booking.
+
+`products` và `brands` cố ý **luôn cho qua**: bài TikTok gắn sản phẩm, nên
+người chỉ được vào tab bài đăng vẫn phải kéo được tên sản phẩm về. Hai bộ này
+không chứa tiền booking hay doanh thu.
+
+Danh sách quyền phải khớp ở **ba chỗ**: `PERMS` trong `js/state.js`, `KH_PERMS`
+trong `api/lib.php`, và `KH_PERMS` trong `serve.js`. Lệch một dòng thì giao
+diện mở một mục mà máy chủ không trả dữ liệu — người dùng thấy trang trống mà
+không hiểu vì sao.
+
+---
+
 ## Bài đăng nội bộ
 
-Phần nhân viên tự đăng, tách hẳn khỏi clip đi booking KOC. Hai luồng, mỗi
-luồng một bạn phụ trách:
+Phần nhân viên tự đăng, tách hẳn khỏi clip đi booking KOC. Hai luồng, hai
+trang riêng, hai bạn phụ trách:
 
 ```
-📘 Facebook  →  đăng lại sang Google
-🎬 TikTok    →  đăng lại sang Shopee     (+ gắn sản phẩm)
+📘 Bài Facebook   →  đăng lại sang Google
+🎬 Bài TikTok     →  đăng lại sang Shopee     (+ gắn sản phẩm)
 ```
 
-### Một danh sách, không phải hai
+### Hai trang riêng, nhưng vẫn một bộ dữ liệu
 
-Hai việc chỉ khác nhau ở cái nhãn và một ô sản phẩm. Tách đôi là nhân đôi biểu
-mẫu, trang, bộ đếm tháng và phần nhắc — để phục vụ đúng một khác biệt. Nên chỉ
-có một bộ `posts` với ô `flow`; thêm luồng thứ ba sau này là thêm một dòng trong
-`POST_FLOWS`.
+Trong máy chỉ có một bộ `posts` với ô `flow` — thêm luồng thứ ba sau này là
+thêm một dòng trong `POST_FLOWS`. Nhưng **hiển thị thì tách hẳn hai trang**,
+không phải một trang có bộ lọc: hai bạn khác nhau làm hai việc này, và máy chủ
+cũng không gửi dữ liệu luồng kia về máy họ — gộp lại thì trang của họ sẽ có
+một nửa luôn trống, không hiểu vì sao.
+
+Người chỉ được vào một luồng thì biểu mẫu bỏ luôn ô “Luồng” (chỉ có một lựa
+chọn thì cái ô đó không để làm gì), và nút thêm bài mở thẳng biểu mẫu thay vì
+hỏi “luồng nào”.
+
+### Nhìn nhanh: bảng, không phải thẻ
+
+Danh sách chính là **bảng**: mỗi bài một hàng, mọi ô nhìn thấy ngay — ngày,
+tên bài, người đăng, sản phẩm, và **hai cột link bấm thẳng ra tab mới**. Kiểm
+bài nghĩa là mở bài ra xem; bắt phải vào hộp thoại sửa mới chép được link thì
+mỗi lần kiểm là thừa hai cú bấm.
+
+Khối “Chưa đăng lại” ở trên vẫn giữ dạng thẻ — đó là danh sách việc, không
+phải bảng tra cứu.
+
+(Sửa kèm một lỗi cũ: **mọi đường dẫn nằm trong một hàng bấm được đều chết**.
+Hàng nuốt cú bấm rồi `preventDefault`, nên bấm link chỉ thấy hộp thoại sửa mở
+lên. Lỗi này đang làm hỏng cả link trong danh sách Clip.)
 
 ### Reup là trạng thái phải đóng, không phải ô để trống cũng được
 
@@ -1022,12 +1101,17 @@ Ba quy ước giữ cho mã không rối khi lớn dần:
    Không mất gì — máy chủ vẫn giữ — nhưng máy đó sẽ không thấy dữ liệu mới cho
    tới khi cập nhật.
 
-5. **Cẩn thận với `by` khi thêm ô mới.** Mọi bản ghi có sẵn `by` và `stamp()`
+5. **Quyền phải khai ở ba chỗ.** `PERMS` (js/state.js), `KH_PERMS`
+   (api/lib.php), `KH_PERMS` (serve.js). Thiếu một chỗ thì giao diện và máy
+   chủ nói hai chuyện khác nhau — mà kiểu sai đó không báo lỗi, chỉ hiện ra
+   thành một trang trống.
+
+6. **Cẩn thận với `by` khi thêm ô mới.** Mọi bản ghi có sẵn `by` và `stamp()`
    ghi đè nó bằng *ai vừa sửa dòng này*. Đặt tên ô mới trùng `by` thì giá trị
    của bạn bay mất mỗi lần lưu, mà mục Cần bạn duyệt cũng mù luôn với bảng đó.
    `id`, `updatedAt`, `deleted`, `seen` cũng vậy — đó là ô của hệ thống.
 
-6. **Thêm một tệp JS phải khai ở ba chỗ**: `index.html`, mảng `JS` trong
+7. **Thêm một tệp JS phải khai ở ba chỗ**: `index.html`, mảng `JS` trong
    `build.js`, và… không cần chỗ thứ ba nữa. `checkBuild()` từng viết cứng
    “phải có 6 tệp”; giờ nó đếm thẳng từ các thẻ `<script>` trong trang. Viết
    cứng thì thêm một tệp là bộ kiểm tra báo lệch trên một bản dựng hoàn toàn

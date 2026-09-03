@@ -7,28 +7,45 @@
    ============================================================ */
 "use strict";
 
+/* `perm` là quyền cần có để thấy mục này. Không khai perm = ai cũng thấy. */
 const NAV = [
   {id:'today',    icon:'✓', label:'Hôm nay'},
-  {id:'dash',     icon:'◈', label:'Tổng quan'},
-  {id:'pipeline', icon:'▤', label:'Booking'},
-  {id:'kols',     icon:'☺', label:'KOL / KOC'},
-  {id:'clips',    icon:'▶', label:'Clip'},
-  {id:'posts',    icon:'📝',label:'Bài đăng'},
-  {id:'ads',      icon:'◎', label:'Shopee Ads'},
-  {id:'improve',  icon:'🔻',label:'Cải thiện SP'},
-  {id:'newprod',  icon:'💡',label:'Sản phẩm mới'},
-  {id:'compare',  icon:'⇄', label:'So sánh kênh'},
-  {id:'resources',icon:'▤', label:'Tài nguyên'},
+  {id:'dash',     icon:'◈', label:'Tổng quan',    perm:'dash'},
+  {id:'pipeline', icon:'▤', label:'Booking',      perm:'pipeline'},
+  {id:'kols',     icon:'☺', label:'KOL / KOC',    perm:'kols'},
+  {id:'clips',    icon:'▶', label:'Clip',         perm:'clips'},
+  {id:'postfb',   icon:'📘',label:'Bài Facebook', perm:'postfb'},
+  {id:'posttt',   icon:'🎬',label:'Bài TikTok',   perm:'posttt'},
+  {id:'ads',      icon:'◎', label:'Shopee Ads',   perm:'ads'},
+  {id:'improve',  icon:'🔻',label:'Cải thiện SP', perm:'improve'},
+  {id:'newprod',  icon:'💡',label:'Sản phẩm mới', perm:'newprod'},
+  {id:'compare',  icon:'⇄', label:'So sánh kênh', perm:'compare'},
+  {id:'resources',icon:'▤', label:'Tài nguyên',   perm:'resources'},
   {id:'review',   icon:'⚑', label:'Cần bạn duyệt', ownerOnly:true},
   {id:'settings', icon:'⚙', label:'Cài đặt', ownerOnly:true}
 ];
 const TITLES = {today:'Hôm nay', dash:'Tổng quan', pipeline:'Booking', kols:'KOL / KOC',
-                clips:'Clip', posts:'Bài đăng', ads:'Shopee Ads', improve:'Cải thiện sản phẩm',
+                clips:'Clip', postfb:'Bài Facebook', posttt:'Bài TikTok',
+                ads:'Shopee Ads', improve:'Cải thiện sản phẩm',
                 newprod:'Xây dựng sản phẩm mới', compare:'So sánh kênh', resources:'Tài nguyên',
                 review:'Cần bạn duyệt', settings:'Cài đặt', kol:'Hồ sơ KOC', product:'Sản phẩm',
                 sp:'Sức khoẻ trên Shopee'};
 /* Trang chỉ chủ mở được. Nhân viên gõ thẳng đường dẫn cũng bị đưa về Hôm nay. */
 const OWNER_PAGES = ['settings', 'review'];
+/* Trang con mở từ một trang chính — quyền đi theo trang cha. */
+const PAGE_PERM = {kol:'kols', product:'ads', sp:'improve'};
+const NAV_PERM  = Object.fromEntries(NAV.filter(n => n.perm).map(n => [n.id, n.perm]));
+const mayPage = id => {
+  if (OWNER_PAGES.includes(id)) return isOwner();
+  const p = NAV_PERM[id] || PAGE_PERM[id];
+  return !p || may(p);
+};
+/* Trang đầu tiên người này vào được — dùng khi họ gõ thẳng một đường dẫn
+   không có quyền, và khi mở app lần đầu. Luôn có 'today' để rơi về. */
+function homePage(){
+  const n = NAV.find(x => (!x.ownerOnly || isOwner()) && mayPage(x.id));
+  return n ? n.id : 'today';
+}
 
 let route = {page:'dash', id:''};
 
@@ -42,9 +59,9 @@ const isOwner = () => !window.Server || Server.isOwner();
 function parseHash(){
   const raw = (location.hash || '#dash').slice(1);
   const [page, id] = raw.split('/');
-  let page2 = TITLES[page] ? page : 'dash';
-  if (OWNER_PAGES.includes(page2) && !isOwner()){
-    page2 = 'today';
+  let page2 = TITLES[page] ? page : homePage();
+  if (!mayPage(page2)){
+    page2 = homePage();
     /* Sửa luôn đường dẫn cho khớp, nếu không thanh địa chỉ cứ đứng ở
        #settings trong khi màn hình là trang khác. replaceState không bắn
        hashchange nên không thành vòng lặp. */
@@ -72,7 +89,8 @@ function render(){
       case 'kols':     html = viewKols(); break;
       case 'kol':      html = viewKol(route.id); break;
       case 'clips':    html = viewClips(); break;
-      case 'posts':    html = viewPosts(); break;
+      case 'postfb':   html = viewPosts('fb'); break;
+      case 'posttt':   html = viewPosts('tt'); break;
       case 'ads':      html = viewAds(); break;
       case 'improve':  html = viewImprove(); break;
       case 'newprod':  html = viewNewProd(); break;
@@ -139,7 +157,8 @@ function renderSide(){
     pipeline: bookings().filter(b => LIVE_STAGES.includes(b.stage) && b.stage !== 'done').length,
     kols: kols().length,
     clips: clips().length,
-    posts: postsDueReup().length,
+    postfb: postsDueReup().filter(p => p.flow === 'fb').length,
+    posttt: postsDueReup().filter(p => p.flow === 'tt').length,
     ads: products().filter(p => ['due','overdue'].includes(trackState(p.id).key)).length,
     improve: openImpacts().filter(im => dayDiff(im.reviewAt) <= 0).length,
     newprod: dueIdeas().length,
@@ -147,7 +166,7 @@ function renderSide(){
     today: todayCount(),
     review: reviewCount()
   };
-  const hot = {dash:1, ads:1, today:1, improve:1, posts:1};
+  const hot = {dash:1, ads:1, today:1, improve:1, postfb:1, posttt:1};
   const active = route.page === 'kol' ? 'kols' : route.page === 'product' ? 'ads'
                : route.page === 'sp' ? 'improve' : route.page;
   const st = Sync.status();
@@ -162,7 +181,7 @@ function renderSide(){
           st.state === 'error' ? 'lỗi đồng bộ' : 'chỉ lưu trên máy'}</div></div>
     </div>
     <div class="side-scroll">
-      ${NAV.filter(n => !n.ownerOnly || isOwner())
+      ${NAV.filter(n => (!n.ownerOnly || isOwner()) && mayPage(n.id))
            .map(n => `<button class="navi ${active === n.id ? 'on' : ''}" data-act="nav" data-id="${n.id}">
         <span class="i">${n.icon}</span>${esc(n.label)}
         ${badge[n.id] ? `<span class="b ${hot[n.id] ? 'hot' : ''}">${badge[n.id]}</span>` : ''}
@@ -279,7 +298,9 @@ function fieldHTML(f, val){
                  placeholder="${esc(f.ph || '0')}">`;
       break;
     default:
-      inner = `<input ${common} type="${f.t === 'url' ? 'url' : f.t === 'tel' ? 'tel' : 'text'}"
+      inner = `<input ${common} type="${f.t === 'url' ? 'url' : f.t === 'tel' ? 'tel' :
+                 f.t === 'password' ? 'password' : 'text'}"
+                 ${f.t === 'password' ? 'autocomplete="new-password"' : ''}"
                  value="${esc(val||'')}" placeholder="${esc(f.ph||'')}"
                  ${f.list ? `list="dl_${id}"` : ''} ${f.req ? 'required' : ''}>` +
         (f.list ? `<datalist id="dl_${id}">${f.list.map(x => `<option value="${esc(x)}">`).join('')}</datalist>` : '');
@@ -364,10 +385,20 @@ function formModal(o){
   });
   return el;
 }
-function doFormSave(el){
+/* onSave có thể là hàm bất đồng bộ (biểu mẫu tài khoản phải chờ máy chủ trả
+   lời). Không await thì một Promise đang chờ cũng "!== false", nên hộp thoại
+   đóng ngay cả khi máy chủ từ chối — người dùng tưởng đã lưu xong. */
+async function doFormSave(el){
   const sp = el._spec;
+  const btn = el.querySelector('[data-act="formsave"]');
+  const nhan = btn ? btn.textContent : '';
+  if (btn){ btn.disabled = true; btn.textContent = 'Đang lưu…'; }
   const v = readForm(el, sp.fields);
-  if (sp.onSave(v) !== false){ el.classList.remove('on'); setTimeout(() => el.remove(), 160); render(); }
+  let ok;
+  try { ok = await sp.onSave(v); }
+  catch(e){ toast(e.message || 'Lưu không được'); ok = false; }
+  if (btn){ btn.disabled = false; btn.textContent = nhan; }
+  if (ok !== false){ el.classList.remove('on'); setTimeout(() => el.remove(), 160); render(); }
 }
 
 /* ============================================================
@@ -608,7 +639,7 @@ function askPostFlow(){
   openModal('Ghi bài đăng — luồng nào?',
     `<div class="askbox">Chọn luồng thì các ô link sẽ hiện đúng tên kênh,
       đỡ phải đọc để đoán ô nào dán cái gì.</div>
-     <div class="flowpick">` + POST_FLOW_IDS.map(f => {
+     <div class="flowpick">` + myFlows().map(f => {
        const F = POST_FLOWS[f];
        return `<button class="fpick" data-act="newpostflow" data-id="${f}">
          <span class="fp-ic">${F.icon}</span>
@@ -637,8 +668,12 @@ function postForm(p, presetFlow){
       <b>chưa đăng lại</b> — app sẽ nhắc cho tới khi có link. Dán link vào là việc tự khép,
       không cần bấm gì thêm.</div>`,
     fields: [
-      {k:'flow', l:'Luồng', t:'select', opts: POST_FLOW_IDS.map(f => [f, POST_FLOWS[f].label]),
-       hint:'Đổi luồng thì lưu lại rồi mở lại — nhãn các ô link và ô sản phẩm đổi theo luồng'},
+      /* Chỉ hiện ô đổi luồng khi người này vào được cả hai — có một luồng thì
+         cái ô đó chỉ có đúng một lựa chọn, chẳng để làm gì. */
+      myFlows().length > 1
+        ? {k:'flow', l:'Luồng', t:'select', opts: myFlows().map(f => [f, POST_FLOWS[f].label]),
+           hint:'Đổi luồng thì lưu lại rồi mở lại — nhãn các ô link và ô sản phẩm đổi theo luồng'}
+        : null,
       {k:'date', l:'Ngày đăng bài gốc', t:'date', half:true, req:true},
       {k:'poster', l:'Người đăng', half:true, list: ten,
        ph: ten[0] || 'tên bạn phụ trách', hint: ten.length ? 'gõ đúng tên cũ để đếm gộp được' : ''},
@@ -660,6 +695,11 @@ function postForm(p, presetFlow){
       {k:'note', l:'Ghi chú', t:'textarea', rows:2, ph:'bài chạy tốt · bị hạn chế hiển thị…'}
     ],
     onSave(v){
+      /* Người chỉ có một luồng thì biểu mẫu không hiện ô Luồng, nên readForm()
+         cũng không trả về nó — lấy lại từ luồng đã biết lúc mở. Thiếu dòng
+         này thì bài của bạn TikTok bị ghi thành bài Facebook, rồi chính họ
+         không đọc lại được nó nữa. */
+      if (!v.flow) v.flow = flow;
       if (!v.date){ toast('Chọn ngày đăng'); return false; }
       if (!v.url && !v.reupUrl){ toast('Dán ít nhất một link vào'); return false; }
       /* Trùng link = đếm hai lần. Mà đếm là toàn bộ lý do trang này tồn tại,
@@ -1077,6 +1117,95 @@ async function loadTg(silent){
     if (!silent || route.page === 'settings') render();
   } catch(e){
     if (!silent) toast('Không đọc được cấu hình Telegram: ' + e.message);
+  }
+}
+
+/* ============================================================
+   TÀI KHOẢN
+   ============================================================ */
+async function loadUsers(silent){
+  if (!Server.authed() || !isOwner()) return;
+  try {
+    const d = await Server.users();
+    usersCfg = d.users || [];
+    if (!silent || route.page === 'settings') render();
+  } catch(e){
+    usersCfg = [];
+    if (!silent) toast('Không đọc được danh sách tài khoản: ' + e.message);
+  }
+}
+
+function userForm(u){
+  const isNew = !u;
+  u = u || {id:'', name:'', role:'staff', perms:[], disabled:false};
+  const me = Server.name();
+  const laMinh = !isNew && u.name === me;
+
+  formModal({
+    title: isNew ? 'Thêm tài khoản' : 'Sửa tài khoản',
+    values: {name:u.name, role:u.role, disabled:!!u.disabled, password:'',
+             perms: Object.fromEntries(u.perms.map(p => [p, true]))},
+    saveLabel: isNew ? 'Tạo tài khoản' : 'Lưu',
+    extra: `<div class="explain">Mật khẩu bạn đặt ở đây rồi <b>tự nhắn cho người đó</b>.
+      App không gửi hộ, và cũng không xem lại được — máy chủ chỉ giữ mã băm, không giữ
+      mật khẩu. Quên thì đặt lại cái mới.${laMinh
+        ? ' <b>Đây là tài khoản bạn đang dùng</b>, nên không tự hạ quyền hay tự khoá được.'
+        : ''}</div>`,
+    fields: [
+      {k:'name', l:'Tên đăng nhập', req:true, ph:'vd Linh, Trang',
+       hint:'chính tên này người đó gõ vào ô đầu tiên lúc đăng nhập'},
+      {k:'password', l:isNew ? 'Mật khẩu' : 'Đặt lại mật khẩu', t:'password',
+       ph: isNew ? 'ít nhất 8 ký tự' : 'để trống nếu không đổi',
+       hint: isNew ? '' : 'đổi mật khẩu sẽ đá mọi máy đang mở bằng tài khoản này ra'},
+      {k:'role', l:'Loại tài khoản', t:'select',
+       opts: [['staff','Nhân viên — không vào Cài đặt, không xoá được gì'],
+              ['owner','Chủ — toàn quyền, kể cả Cài đặt và tài khoản']],
+       hint:'tài khoản chủ bỏ qua toàn bộ phần tick bên dưới'},
+      {k:'disabled', l:'Khoá tài khoản', t:'check', ph:'Không cho đăng nhập nữa',
+       hint:'khoá là đá luôn máy đang mở ra, không đợi tới lần đăng nhập sau'},
+      {t:'sec', l:'Được vào những mục nào'},
+      {k:'perms', t:'checks', l:'Mục',
+       opts: PERMS.map(p => ({id:p.id, label:p.label + ' — ' + p.hint})),
+       hint:'Hôm nay thì ai cũng vào được. Tổng quan và So sánh kênh chỉ hiện được số ' +
+            'của những mục bạn đã tick ở đây.'}
+    ],
+    onSave: async v => {
+      const perms = Object.keys(v.perms || {}).filter(k => v.perms[k]);
+      try {
+        await Server.userSave({id:u.id, name:v.name, password:v.password || '',
+                               role:v.role, perms, disabled:!!v.disabled});
+      } catch(e){ toast(e.message); return false; }
+      await loadUsers(true);
+      toast(isNew ? 'Đã tạo tài khoản ' + v.name : 'Đã lưu');
+    },
+    onDelete: isNew ? null : async () => {
+      if (!confirm('Xoá tài khoản "' + u.name + '"?\n\nNgười này sẽ không đăng nhập được nữa. ' +
+                   'Dữ liệu họ đã nhập vẫn giữ nguyên.')) return false;
+      try { await Server.userDel(u.id); } catch(e){ toast(e.message); return false; }
+      await loadUsers(true);
+      toast('Đã xoá tài khoản');
+    }
+  });
+
+  /* Nút chọn nhanh: thêm một bạn đăng bài mà phải tick từng mục trong mười
+     một mục thì lần nào cũng có nguy cơ tick nhầm một cái. */
+  const box = $$('#modals .modal').pop();
+  const sec = box && box.querySelector('.fsec');
+  if (sec){
+    const bar = document.createElement('div');
+    bar.className = 'presets';
+    bar.innerHTML = PERM_PRESETS.map(p =>
+      `<button type="button" class="btn sm" data-preset="${p.id}">${esc(p.label)}</button>`).join('');
+    sec.after(bar);
+    bar.addEventListener('click', e => {
+      const b = e.target.closest('[data-preset]');
+      if (!b) return;
+      e.preventDefault();
+      const set = new Set((PERM_PRESETS.find(x => x.id === b.dataset.preset) || {perms:[]}).perms);
+      box.querySelectorAll('[data-f="perms"] [data-chk]').forEach(c => {
+        c.checked = set.has(c.dataset.chk);
+      });
+    });
   }
 }
 
@@ -2217,7 +2346,14 @@ const ACTIONS = {
   delkol:     id => delKol(id),
   newbooking: id => bookingForm(null, id),
   newclip:    id => clipForm(null),
-  newpost:    () => askPostFlow(),
+  /* Mở thẳng biểu mẫu khi biết luồng (nút ở trong trang luồng đó), hoặc khi
+     người này chỉ được vào một luồng — hỏi "luồng nào" trong lúc chỉ có một
+     lựa chọn là bắt bấm thừa một nhịp. */
+  newpost:    id => {
+    const fs = myFlows();
+    const f = POST_FLOWS[id] && fs.includes(id) ? id : (fs.length === 1 ? fs[0] : '');
+    if (f) postForm(null, f); else askPostFlow();
+  },
   newpostflow:id => { closeModal(); postForm(null, id); },
   editpost:   id => { const p = postOf(id); if (p) postForm(p); },
   postmonthonly: () => { ui.postMonthOnly = !ui.postMonthOnly; render(); },
@@ -2309,7 +2445,11 @@ const ACTIONS = {
     else if (t.ref.kind === 'impacts'){ const im = impactOf(t.ref.id); if (im) go('sp', im.productId); }
     else if (t.ref.kind === 'products'){ go('sp', t.ref.id); setTimeout(() => spImportModal(t.ref.id), 150); }
     else if (t.ref.kind === 'ideas'){ go('newprod'); setTimeout(() => ideaForm(ideaOf(t.ref.id)), 120); }
-    else if (t.ref.kind === 'posts'){ go('posts'); setTimeout(() => { const p = postOf(t.ref.id); if (p) postForm(p); }, 120); }
+    else if (t.ref.kind === 'posts'){
+      const p = postOf(t.ref.id);
+      go(p ? POST_FLOWS[p.flow].page : 'postfb');
+      if (p) setTimeout(() => postForm(p), 120);
+    }
     else if (t.ref.kind === 'page'){ go(t.ref.id); }
   },
 
@@ -2329,13 +2469,24 @@ const ACTIONS = {
     save(); render(); toast('Đã xem hết ' + list.length + ' thay đổi');
   },
 
+  /* tài khoản */
+  newuser:     () => userForm(null),
+  edituser:    id => { const u = (usersCfg||[]).find(x => x.id === id); if (u) userForm(u); },
+  reloadusers: () => { usersCfg = null; render(); loadUsers(false); },
+
   /* nhắc qua Telegram */
   tgsetup: () => telegramModal(),
   tgtest:  () => telegramTest(),
 
   closem: () => closeModal(),
   formsave: (id, el) => doFormSave(el.closest('.modal')),
-  formdel:  (id, el) => { const m = el.closest('.modal'); if (m._spec.onDelete() !== false) closeModal(); },
+  formdel:  async (id, el) => {
+    const m = el.closest('.modal');
+    let ok;
+    try { ok = await m._spec.onDelete(); }
+    catch(e){ toast(e.message || 'Xoá không được'); ok = false; }
+    if (ok !== false) closeModal();
+  },
 
   month: d => { ui.month = shiftMonth(ui.month, +d); render(); },
   theme: () => {
@@ -2345,7 +2496,14 @@ const ACTIONS = {
   syncnow: () => Sync.run(false),
   export:  () => exportJSON(),
   import:  () => importJSON(),
-  logout:  async () => { await Server.logout(); location.reload(); },
+  logout:  async () => {
+    /* Dọn luôn bản sao dưới máy. Máy này có thể là máy dùng chung — người
+       đăng nhập sau mà thấy dữ liệu của người trước thì màn đăng nhập chẳng
+       để làm gì. Đăng nhập lại sẽ kéo về, chỉ tốn một lượt. */
+    try { await Server.logout(); } catch(e){}
+    wipeLocal();
+    location.reload();
+  },
   logoutall: async () => {
     if (!confirm('Đăng xuất khỏi mọi thiết bị? Bạn sẽ phải nhập lại mật khẩu ở tất cả máy.')) return;
     try { await Server.logoutAll(); } catch(e){ toast(e.message); return; }
@@ -2602,11 +2760,16 @@ function checkBuild(){
   const mode = await Server.probe();
   if (mode === 'anon'){ render(); Gate.show(); return; }
 
+  /* Người mở app không phải người của bản sao đang nằm đây, hoặc quyền của
+     họ vừa bị đổi → bỏ hết đi rồi kéo lại theo quyền mới. */
+  if (Server.takeWhoChanged()) wipeLocal();
+  route = parseHash();
   render();
   if (mode === 'authed'){
     Sync.start();
     Sync.onChange(() => renderSide());
     loadTg(true);
+    loadUsers(true);
   } else {
     /* Không có thư mục api/ (mở bằng file:// chẳng hạn) — vẫn dùng được,
        nhưng dữ liệu chỉ nằm trong trình duyệt của máy này. */

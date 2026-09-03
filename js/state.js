@@ -552,17 +552,57 @@ function percentile(value, all, dir){
    sau, không ai hỏi, tới cuối tháng đếm mới biết thiếu. Lúc đó thì
    không làm lại được nữa.
    ============================================================ */
+/* ============================================================
+   QUYỀN
+
+   Mỗi tài khoản có một danh sách trang được vào. Danh sách này phải khớp
+   KH_PERMS trong api/lib.php và serve.js — lệch một dòng thì giao diện mở
+   một mục mà máy chủ không trả dữ liệu, người dùng thấy trang trống mà
+   không hiểu vì sao.
+
+   Nói cho rõ: ẩn mục ở đây KHÔNG chặn được ai. Nó chỉ làm màn hình gọn.
+   Chặn thật nằm ở pull/push trên máy chủ (xem khMayRow).
+   ============================================================ */
+const PERMS = [
+  {id:'dash',      label:'Tổng quan',    hint:'tiền đã chi cả hai kênh, ROAS chung'},
+  {id:'pipeline',  label:'Booking',      hint:'bảng deal và tiền trả cho từng KOC'},
+  {id:'kols',      label:'KOL / KOC',    hint:'hồ sơ, điểm, lịch sử hợp tác'},
+  {id:'clips',     label:'Clip',         hint:'clip KOC đã lên và lượt xem'},
+  {id:'postfb',    label:'Bài Facebook', hint:'chỉ luồng Facebook → Google'},
+  {id:'posttt',    label:'Bài TikTok',   hint:'chỉ luồng TikTok → Shopee'},
+  {id:'ads',       label:'Shopee Ads',   hint:'chi phí và doanh thu quảng cáo'},
+  {id:'improve',   label:'Cải thiện SP', hint:'phễu và số liệu tuần trên Shopee'},
+  {id:'newprod',   label:'Sản phẩm mới', hint:'ý tưởng sản phẩm đang dựng'},
+  {id:'compare',   label:'So sánh kênh', hint:'đối chiếu KOC với Shopee Ads'},
+  {id:'resources', label:'Tài nguyên',   hint:'thương hiệu, sản phẩm, mẫu tin nhắn'}
+];
+const PERM_IDS = PERMS.map(p => p.id);
+const PERM = Object.fromEntries(PERMS.map(p => [p.id, p]));
+/* Bộ quyền dựng sẵn, để thêm một người không phải tick mười một ô */
+const PERM_PRESETS = [
+  {id:'fb',   label:'Bạn đăng Facebook', perms:['postfb']},
+  {id:'tt',   label:'Bạn đăng TikTok',   perms:['posttt']},
+  {id:'noidung', label:'Cả hai luồng bài đăng', perms:['postfb','posttt']},
+  {id:'full', label:'Như nhân viên cũ (mọi thứ trừ Cài đặt)', perms:PERM_IDS.slice()},
+  {id:'none', label:'Bỏ hết, tự tick', perms:[]}
+];
+const may = p => !window.Server || Server.may(p);
+
 const POST_FLOWS = {
-  fb: {label:'Facebook → Google', short:'Facebook', icon:'📘', reupShort:'Google',
+  fb: {page:'postfb', label:'Facebook → Google', short:'Facebook', icon:'📘', reupShort:'Google',
        main:{label:'Link bài Facebook', ph:'facebook.com/…'},
        reup:{label:'Link bài Google',   ph:'dán vào sau khi đã đăng lại'},
        needProduct:false},
-  tt: {label:'TikTok → Shopee', short:'TikTok', icon:'🎬', reupShort:'Shopee',
+  tt: {page:'posttt', label:'TikTok → Shopee', short:'TikTok', icon:'🎬', reupShort:'Shopee',
        main:{label:'Link clip TikTok',  ph:'tiktok.com/@…'},
        reup:{label:'Link video Shopee', ph:'dán vào sau khi đã đăng lại'},
        needProduct:true}
 };
 const POST_FLOW_IDS = Object.keys(POST_FLOWS);
+/* Những luồng tài khoản đang mở được phép nhìn thấy. Dùng ở mọi chỗ tính
+   tổng và mọi ô chọn — nếu không thì bạn ở luồng Facebook vẫn thấy tên
+   luồng TikTok trong ô chọn, dù dữ liệu của nó chẳng bao giờ về tới máy. */
+const myFlows = () => POST_FLOW_IDS.filter(f => may(POST_FLOWS[f].page));
 /* Chỉ tiêu bài mỗi tháng cho từng luồng. 0 = không đặt chỉ tiêu, lúc đó
    app chỉ đếm chứ không nhắc thiếu. */
 const DEFAULT_POST_TARGETS = {fb:0, tt:0};
@@ -608,6 +648,18 @@ function stamp(o){
 function touch(o){ o.updatedAt = now(); return o; }
 
 function alive(arr){ return (arr||[]).filter(x => !x.deleted); }
+
+/* Xoá sạch bản sao dưới máy và bắt đồng bộ kéo lại từ đầu.
+
+   Dùng khi người đăng nhập đổi, hoặc quyền của họ đổi. Máy chủ lọc đúng ở
+   lượt kéo kế tiếp, nhưng những gì đã kéo về hôm qua thì vẫn nằm đây — và
+   app vẽ thẳng từ đây chứ không hỏi lại máy chủ. Không dọn thì "gỡ quyền"
+   với "đổi người trên cùng một máy" đều không có tác dụng gì cả. */
+function wipeLocal(){
+  try { localStorage.removeItem(KEY); } catch(e){}
+  db = blank();
+  ensure();
+}
 
 function load(){
   let raw = null;
@@ -1059,7 +1111,7 @@ function reviewLabel(kind, rec){
               sub: F.label + (rec.poster ? ' · ' + rec.poster : '') + ' · ' + fmtDate(rec.date)
                    + (p ? ' · ' + p.name : '')
                    + (rec.reupUrl ? ' · đã reup' : ' · chưa reup'),
-              go: ['posts', '']};
+              go: [F.page || 'postfb', '']};
     }
     case 'bookings':
       return {title: kolName(rec.kolId) + ' · ' + (bookingProduct(rec) || 'chưa ghi sản phẩm'),
@@ -1257,7 +1309,7 @@ function reminderTasks(){
          title:'Còn thiếu ' + m.thieu + ' bài ' + POST_FLOWS[m.flow].short + ' tháng này',
          sub:'đã có ' + m.n + '/' + m.target + ' bài · còn ' + m.daysLeft + ' ngày' +
              (m.pace > 1 ? ' · cần ' + m.pace.toFixed(1).replace('.',',') + ' bài mỗi ngày' : ''),
-         ref:{kind:'page', id:'posts'}});
+         ref:{kind:'page', id:POST_FLOWS[m.flow].page}});
   });
 
   return out.sort((x,y) => x.due.localeCompare(y.due));
@@ -1410,7 +1462,7 @@ function postMonth(ym){
   /* Ngày còn lại kể cả hôm nay. Tháng đã qua thì bằng 0 — lúc đó "còn thiếu"
      là kết luận, không phải lời nhắc. */
   const conNgay = to < today() ? 0 : Math.max(0, dayDiff(to) + 1);
-  return POST_FLOW_IDS.map(f => {
+  return myFlows().map(f => {
     const list = postsIn(from, to).filter(p => p.flow === f)
                                  .sort((a,b) => b.date.localeCompare(a.date) ||
                                                 (b.updatedAt||'').localeCompare(a.updatedAt||''));
@@ -2372,15 +2424,17 @@ function alerts(){
   /* 11. bài đăng rồi mà chưa đăng lại.
      Gộp một dòng cho cả danh sách, không phải mỗi bài một dòng: đây là một
      việc ("ngồi reup nốt"), làm một lượt, chứ không phải mười việc rời. */
-  const treo = postsDueReup();
-  if (treo.length){
-    const cu = -dayDiff(treo[0].date);
-    out.push({level: cu > 7 ? 'warn' : 'info', kind:'reup',
-      title: treo.length + ' bài đã đăng nhưng chưa đăng lại',
-      sub: 'cũ nhất là ' + (treo[0].title || POST_FLOWS[treo[0].flow].short) + ' — ' + cu + ' ngày trước'
+  const treoAll = postsDueReup();
+  myFlows().forEach(f => {
+    const treo = treoAll.filter(p => p.flow === f);
+    if (!treo.length) return;
+    const F = POST_FLOWS[f], cu = -dayDiff(treo[0].date);
+    out.push({level: cu > 7 ? 'warn' : 'info', kind:'reup', page: F.page,
+      title: treo.length + ' bài ' + F.short + ' chưa đăng lại sang ' + F.reupShort,
+      sub: 'cũ nhất là ' + (treo[0].title || 'bài ' + fmtShort(treo[0].date)) + ' — ' + cu + ' ngày trước'
            + ' · để lâu thì tháng sau đếm mới biết thiếu, lúc đó không làm bù được',
       sort: 170 + cu});
-  }
+  });
 
   const rank = {bad:0, warn:1, info:2};
   return out.sort((a,b) => (rank[a.level] - rank[b.level]) || (b.sort - a.sort));

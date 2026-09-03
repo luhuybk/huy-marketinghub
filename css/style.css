@@ -641,6 +641,10 @@ tr.rowhi{background:color-mix(in srgb,var(--acc) 10%,transparent)}
 /* ---- bài đăng nội bộ ---- */
 .li-ic{flex:none;width:30px;height:30px;border-radius:9px;background:var(--bg3);
   display:grid;place-items:center;font-size:15px}
+.presets{display:flex;gap:6px;flex-wrap:wrap;grid-column:1/-1;margin:-4px 0 6px}
+.ptbl td{vertical-align:middle}
+.ptbl .nw{white-space:nowrap}
+.ptbl .ell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px}
 .plnks{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
 .plnk{font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;text-decoration:none;
   background:var(--bg3);color:var(--acc);border:1px solid transparent}

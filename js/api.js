@@ -12,6 +12,8 @@ const Server = (() => {
   const GRACE = 'kolhub.session';       // hạn dùng tạm khi mất mạng
   const SEEN  = 'kolhub.hasserver';     // máy này từng thấy máy chủ chưa
   const ROLE  = 'kolhub.role';          // vai trò lần đăng nhập gần nhất
+  const WHO   = 'kolhub.who';           // tên + quyền lần đăng nhập gần nhất
+  const FP    = 'kolhub.who.fp';        // dấu nhận dạng người + quyền của bản sao đang giữ
   let mode = 'unknown';                 // unknown | none | anon | authed
 
   /* owner = bạn · staff = nhân viên (không có Cài đặt, không xoá được).
@@ -22,6 +24,11 @@ const Server = (() => {
      rồi mới bị gỡ đi — và trong lúc mất mạng (dùng hạn tạm) thì nó không bị
      gỡ nữa. Chưa biết thì coi như quyền thấp nhất, biết rồi mới mở thêm. */
   let userRole = '';
+  /* Tên và quyền của người đang mở. Cũng chỉ là BẢN SAO để vẽ giao diện —
+     máy chủ lọc dữ liệu theo bảng users của nó, không tin cái này.
+     Mặc định rỗng: chưa biết mình được vào đâu thì chưa mở gì cả. */
+  let userName  = '';
+  let userPerms = [];
   let checking = null;
 
   const url = () => 'api/index.php';
@@ -32,14 +39,59 @@ const Server = (() => {
   /* Không có thư mục api/ (mở bằng file://) thì chẳng có tài khoản nào cả,
      dữ liệu nằm ngay trên máy này — lúc đó bạn là chủ. */
   const isOwner   = () => mode === 'none' || userRole === 'owner';
+  const name      = () => userName;
+  /* Không có máy chủ (mở bằng file://, hoặc chưa cài api/) thì chỉ có mình
+     bạn và dữ liệu nằm ngay trên máy này — mở hết. */
+  const perms     = () => mode === 'none' || userRole === 'owner' ? null : userPerms.slice();
+  const may       = p  => mode === 'none' || userRole === 'owner' || userPerms.includes(p);
 
   function setRole(r){
     userRole = r === 'staff' ? 'staff' : 'owner';
     try { localStorage.setItem(ROLE, userRole); } catch(e){}
   }
+  /* Dấu nhận dạng "ai đang mở, và được vào những đâu". Đổi dấu này nghĩa là
+     dữ liệu đang nằm trong máy KHÔNG còn đúng với quyền hiện tại nữa. */
+  const fingerprint = () => userName + '|' + userPerms.slice().sort().join(',');
+  let whoChanged = false;
+
+  function setWho(d){
+    userName  = String((d && d.name) || '');
+    userPerms = Array.isArray(d && d.perms) ? d.perms.slice() : [];
+    let cu = '';
+    try { cu = localStorage.getItem(FP) || ''; } catch(e){}
+    /* Hai đường rò cùng bịt ở đây:
+       1. Máy dùng chung. Bạn đăng xuất, nhân viên đăng nhập vào — máy chủ lọc
+          đúng, nhưng localStorage vẫn còn nguyên dữ liệu của bạn và app vẽ
+          thẳng từ đó. Nhân viên thấy hết mà chẳng cần làm gì.
+       2. Bạn gỡ bớt quyền của một người. Máy chủ thôi gửi phần đó, nhưng
+          phần đã gửi hôm qua vẫn nằm trong máy họ.
+       Cả hai đều chỉ hết khi xoá sạch bản sao dưới máy rồi kéo lại từ đầu. */
+    if (cu && cu !== fingerprint()) whoChanged = true;
+    try { localStorage.setItem(FP, fingerprint());
+          localStorage.setItem(WHO, JSON.stringify({name:userName, perms:userPerms})); } catch(e){}
+  }
+  /* Đọc một lần rồi tự tắt cờ — người gọi có trách nhiệm dọn ngay lúc đó. */
+  function takeWhoChanged(){ const v = whoChanged; whoChanged = false; return v; }
+  /* Câu trả lời của pull cũng mang theo quyền hiện tại. Gọi lại setWho ở đây
+     nghĩa là quyền bị gỡ giữa chừng được phát hiện ngay trong lượt đồng bộ
+     kế tiếp, không phải đợi lần mở app sau. */
+  function notePerms(d){
+    if (!d || !Array.isArray(d.perms)) return;
+    if (d.role) setRole(d.role);
+    setWho(d);
+  }
   function storedRole(){
     try { return localStorage.getItem(ROLE) === 'staff' ? 'staff' : 'owner'; }
     catch(e){ return 'staff'; }        // đọc không được thì chọn bên chặt hơn
+  }
+  /* Vào bằng hạn dùng tạm (mất mạng): lấy lại tên và quyền của lần đăng nhập
+     gần nhất. Thiếu bước này thì rút mạng ra là mọi mục hiện hết — mà tuy
+     máy chủ vẫn chặn khi có mạng lại, người dùng đã kịp thấy những mục lẽ ra
+     không được thấy. */
+  function storedWho(){
+    try { const w = JSON.parse(localStorage.getItem(WHO) || '{}');
+          return {name:String(w.name||''), perms:Array.isArray(w.perms) ? w.perms : []}; }
+    catch(e){ return {name:'', perms:[]}; }
   }
 
   async function call(action, body){
@@ -69,8 +121,14 @@ const Server = (() => {
   /* ---- hạn dùng tạm: cho phép mở app khi đang mất mạng ---- */
   function setGrace(iso){ try { localStorage.setItem(GRACE, iso || ''); } catch(e){} }
   function clearGrace(){
-    try { localStorage.removeItem(GRACE); localStorage.removeItem(ROLE); } catch(e){}
-    userRole = '';
+    /* KHÔNG xoá FP ở đây. Nó là thứ duy nhất còn lại để lần đăng nhập sau so
+       ra "người này khác người trước". Xoá nó đi thì lần sau setWho() không
+       có gì để đối chiếu, cờ đổi-người không bao giờ bật, và bản sao dữ liệu
+       của người trước nằm nguyên trong máy cho người sau đọc. Trong đó chỉ
+       có một cái tên và mấy mã quyền — không có dữ liệu nào cả. */
+    try { localStorage.removeItem(GRACE); localStorage.removeItem(ROLE);
+          localStorage.removeItem(WHO); } catch(e){}
+    userRole = ''; userName = ''; userPerms = [];
   }
   function graceOk(){
     try { const v = localStorage.getItem(GRACE); return !!v && v > new Date().toISOString(); }
@@ -87,6 +145,7 @@ const Server = (() => {
       .then(d => {
         try { localStorage.setItem(SEEN, '1'); } catch(e){}
         mode = d.auth ? 'authed' : 'anon';
+        if (d.auth) setWho(d);
         /* Máy chủ bản cũ không trả role. Bản đó chỉ có MỘT mật khẩu và nó là
            của bạn, nên phiên không ghi vai trò thì coi như chủ — giống
            roleOf() bên PHP. */
@@ -110,7 +169,10 @@ const Server = (() => {
           /* Vào bằng hạn dùng tạm: không hỏi được máy chủ mình là ai, nên
              lấy lại vai trò của lần đăng nhập gần nhất. Thiếu bước này thì
              nhân viên chỉ cần rút mạng là thấy đủ mục Cài đặt. */
-          if (mode === 'authed') userRole = storedRole();
+          if (mode === 'authed'){
+            userRole = storedRole();
+            const w = storedWho(); userName = w.name; userPerms = w.perms;
+          }
         }
         return mode;
       })
@@ -118,10 +180,11 @@ const Server = (() => {
     return checking;
   }
 
-  async function login(password){
-    const d = await call('login', {password});
+  async function login(name, password){
+    const d = await call('login', {name: name || '', password});
     mode = 'authed';
     setRole(d.role || 'owner');
+    setWho(d);
     setGrace(d.expires);
     return d;
   }
@@ -159,9 +222,14 @@ const Server = (() => {
   const tgHook  = off   => call('tg_hook', {off: !!off});
   const remind  = (list, dir) => call('remind_set', {tasks:list, products:dir || []});
 
+  const users     = ()  => call('users_list');
+  const userSave  = u   => call('user_save', u);
+  const userDel   = id  => call('user_del', {id});
+
   return {probe, login, logout, logoutAll, pull, push, pushBeacon, stats,
           tgGet, tgSave, tgTest, tgHook, remind,
-          available, authed, state, role, isOwner, call};
+          users, userSave, userDel, takeWhoChanged, notePerms,
+          available, authed, state, role, isOwner, name, perms, may, call};
 })();
 window.Server = Server;
 
@@ -184,19 +252,25 @@ const Gate = (() => {
       <form class="gatebox" id="gateform">
         <div class="logo lg">KH</div>
         <h1>KOL Hub</h1>
-        <p class="dim">Nhập mật khẩu để mở dữ liệu booking của bạn.</p>
+        <p class="dim">Nhập tên và mật khẩu tài khoản của bạn.</p>
+        <input id="gatenm" type="text" autocomplete="username"
+               placeholder="Tên tài khoản" autofocus>
         <input id="gatepw" type="password" inputmode="text" autocomplete="current-password"
-               placeholder="Mật khẩu" autofocus>
+               placeholder="Mật khẩu">
         <div class="gatemsg ${note ? 'on' : ''}" id="gatemsg">${esc(note || '')}</div>
         <button type="submit" class="btn pri full" id="gatego">Mở khoá</button>
-        <div class="dim gatefoot">Dữ liệu nằm trên máy chủ của bạn. Sai mật khẩu quá 8 lần
+        <div class="dim gatefoot">Dữ liệu nằm trên máy chủ của bạn. Sai quá 8 lần
           thì phải chờ 15 phút.</div>
       </form>`;
 
     const f  = document.getElementById('gateform');
+    const nm = document.getElementById('gatenm');
     const pw = document.getElementById('gatepw');
-    f.addEventListener('submit', e => { e.preventDefault(); submit(pw.value); });
-    setTimeout(() => pw.focus(), 80);
+    /* Nhớ tên đã gõ lần trước — chỉ tên, không bao giờ mật khẩu. Nhân viên
+       gõ tên mình mỗi ngày trên cùng một máy thì không có lý do bắt gõ lại. */
+    try { nm.value = localStorage.getItem('kolhub.lastname') || ''; } catch(e){}
+    f.addEventListener('submit', e => { e.preventDefault(); submit(nm.value, pw.value); });
+    setTimeout(() => (nm.value ? pw : nm).focus(), 80);
   }
 
   function msg(text, kind){
@@ -204,14 +278,15 @@ const Gate = (() => {
     if (m){ m.textContent = text; m.className = 'gatemsg on ' + (kind || ''); }
   }
 
-  async function submit(password){
+  async function submit(name, password){
     if (busy) return;
     if (!password){ msg('Chưa nhập mật khẩu'); return; }
     busy = true;
     const btn = document.getElementById('gatego');
     if (btn){ btn.textContent = 'Đang kiểm tra…'; btn.disabled = true; }
     try {
-      await Server.login(password);
+      await Server.login(name, password);
+      try { localStorage.setItem('kolhub.lastname', String(name || '').trim()); } catch(e){}
       hide();
       await afterLogin();
     } catch(err){
@@ -233,6 +308,9 @@ const Gate = (() => {
   /* Đăng nhập xong ở một máy mới thì phải kéo dữ liệu về trước khi vẽ,
      nếu không người dùng sẽ thấy app trống rỗng rồi hoảng. */
   async function afterLogin(){
+    /* Đăng nhập bằng tài khoản khác trên cùng một máy: bỏ bản sao của người
+       trước đi trước khi vẽ bất cứ thứ gì. */
+    if (Server.takeWhoChanged()) wipeLocal();
     render();
     toast('Đang tải dữ liệu từ máy chủ…');
     try { await Sync.run(true); } catch(e){}

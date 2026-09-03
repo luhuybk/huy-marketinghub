@@ -23,6 +23,8 @@ const ui = {
 /* Cấu hình Telegram nằm ở máy chủ, không phải trong db — mã bot không bao
    giờ được đồng bộ xuống máy. Đọc về một lần rồi giữ lại đây để vẽ. */
 let tgCfg = null;
+/* Danh sách tài khoản, đọc từ máy chủ. null = chưa đọc xong. */
+let usersCfg = null;
 
 /* ---------------- mảnh dùng lại ---------------- */
 function tile(label, value, sub, cls){
@@ -208,8 +210,8 @@ function viewDash(){
     h += sectionTitle('Cần xử lý', al.length > 6 ? `<span class="dim">còn ${al.length-6} việc nữa</span>` : '');
     h += `<div class="alerts">` + show.map(a => `
       <div class="al al-${a.level}" data-act="${a.bookingId ? 'booking' : a.clipId ? 'clip' :
-             a.kind === 'reup' ? 'nav' : a.productId ? 'product' : ''}"
-           data-id="${a.bookingId || a.clipId || (a.kind === 'reup' ? 'posts' : a.productId) || ''}">
+             a.page ? 'nav' : a.productId ? 'product' : ''}"
+           data-id="${a.bookingId || a.clipId || a.page || a.productId || ''}">
         <span class="al-dot"></span>
         <div class="grow"><div class="al-t">${esc(a.title)}</div><div class="al-s">${esc(a.sub)}</div></div>
         <span class="al-go">›</span>
@@ -1692,9 +1694,10 @@ const RES_TABS = [
    ============================================================ */
 /* Link mở thẳng ra tab mới. Kiểm bài nghĩa là mở bài ra xem — bắt phải vào
    hộp thoại sửa mới chép được link thì mỗi lần kiểm là thừa hai cú bấm. */
-const postLink = (url, label) => url
+const postLink = (url, label, trong) => url
   ? `<a class="plnk" href="${esc(url)}" target="_blank" rel="noopener">↗ ${esc(label)}</a>`
-  : `<span class="plnk off">— ${esc(label)}</span>`;
+  : (trong === false ? `<span class="dim">—</span>`
+                     : `<span class="plnk off">chưa có ${esc(label)}</span>`);
 
 function postRow(p){
   const F = POST_FLOWS[p.flow] || POST_FLOWS.fb;
@@ -1718,13 +1721,49 @@ function postRow(p){
   </div>`;
 }
 
+
+/* Bảng chi tiết: mỗi bài một hàng, mọi ô nhìn thấy ngay, không phải mở ra
+   mới biết. Hai cột link là hai đường dẫn thật — bấm là mở tab mới, không
+   phải vào hộp thoại sửa rồi chép tay. */
+function postTable(list, F){
+  const sp = F.needProduct;
+  return `<div class="tblwrap"><table class="tbl ptbl">
+    <thead><tr>
+      <th style="width:86px">Ngày</th>
+      <th>Tên bài</th>
+      <th style="width:96px">Người đăng</th>
+      ${sp ? '<th style="width:150px">Sản phẩm</th>' : ''}
+      <th style="width:104px">${esc(F.short)}</th>
+      <th style="width:104px">${esc(F.reupShort)}</th>
+      <th class="r" style="width:104px">Đăng lại</th>
+    </tr></thead>
+    <tbody>` + list.map(p => {
+      const pr = p.productId ? productOf(p.productId) : null;
+      const lag = postReupLag(p);
+      return `<tr data-act="editpost" data-id="${p.id}">
+        <td class="nw">${fmtDate(p.date)}</td>
+        <td><b>${esc(p.title || '(chưa đặt tên)')}</b>${
+          p.note ? `<div class="dim ell">${esc(p.note)}</div>` : ''}</td>
+        <td>${esc(p.poster || '—')}</td>
+        ${sp ? `<td>${pr ? `<div class="ell">${esc(pr.name)}</div>
+                 <div class="dim">${esc(pr.brand || '—')}</div>` : '<span class="dim">—</span>'}</td>` : ''}
+        <td>${postLink(p.url,     'Mở', false)}</td>
+        <td>${postLink(p.reupUrl, 'Mở', false)}</td>
+        <td class="r nw">${p.reupUrl
+          ? `<span class="chip ok">✓</span> <span class="dim">${
+              lag == null ? '' : lag === 0 ? 'cùng ngày' : 'sau ' + lag + ' ngày'}</span>`
+          : `<span class="chip warn">chưa</span> <span class="dim">${agoText(p.date)}</span>`}</td>
+      </tr>`;
+    }).join('') + `</tbody></table></div>`;
+}
+
 /* Thẻ tổng kết tháng của một luồng. Con số to nhất là số bài — đó là thứ
    bạn hỏi. Chỉ tiêu và nhịp cần chỉ là chú thích quanh nó. */
 function postFlowCard(m){
   const F = POST_FLOWS[m.flow];
   const pct = m.target ? Math.min(100, Math.round(m.n / m.target * 100)) : 0;
   const du  = m.target && !m.thieu;
-  const cls = !m.target ? '' : du ? 'ok' : (m.pace > 1.5 ? 'bad' : m.pace ? 'warn' : 'bad');
+  const cls = !m.target ? '' : du ? 'ok' : (m.pace > 1.5 ? 'bad' : 'warn');
   return `<div class="pcard">
     <div class="pc-hd"><span class="pc-ic">${F.icon}</span>
       <div class="grow"><b>${esc(F.label)}</b>
@@ -1756,29 +1795,35 @@ function postFlowCard(m){
   </div>`;
 }
 
-function viewPosts(){
+/* Một trang cho mỗi luồng. Tách hẳn chứ không phải một trang có bộ lọc: hai
+   bạn nhân viên khác nhau làm hai việc này, và máy chủ cũng không gửi dữ
+   liệu luồng kia về máy họ — nên gộp lại thì trang của họ sẽ có một nửa
+   luôn trống, không hiểu vì sao. */
+function viewPosts(flow){
+  const F  = POST_FLOWS[flow] || POST_FLOWS.fb;
   const ym = ui.month;
-  const thang = postMonth(ym);
-  const treo  = postsDueReup();
+  const m  = postMonth(ym).find(x => x.flow === flow) || postMonth(ym)[0];
+  const treo = postsDueReup().filter(p => p.flow === flow);
+  const all  = postsOfFlow(flow);
 
   let h = `<div class="toolbar">
     <input class="inp grow" placeholder="Tìm bài theo tên, link, người đăng…" data-inp="postQ" value="${esc(ui.postQ)}">
-    <button class="btn pri" data-act="newpost">+ Bài đăng</button>
+    <button class="btn pri" data-act="newpost" data-id="${flow}">+ Bài ${esc(F.short)}</button>
   </div>`;
 
-  if (!posts().length)
-    return h + emptyBox('Chưa ghi bài đăng nào',
-      'Mỗi bài ghi một dòng: ngày đăng, link bài gốc, rồi link bài đăng lại. ' +
+  if (!all.length)
+    return h + emptyBox('Chưa ghi bài ' + F.short + ' nào',
+      'Mỗi bài một dòng: ngày đăng, link bài gốc, rồi link bài ' + F.reupShort + '. ' +
       'Ô đăng lại để trống thì app coi là chưa làm và sẽ nhắc.',
       'newpost', '+ Ghi bài đầu tiên');
 
   /* ---- 1. đang treo ---- */
   if (treo.length){
-    h += sectionTitle('Chưa đăng lại', `<span class="chip warn">${treo.length} bài</span>`);
-    h += `<div class="explain">Bài gốc đã lên nhưng chưa có link ở kênh thứ hai, quá
+    h += sectionTitle('Chưa đăng lại sang ' + F.reupShort, `<span class="chip warn">${treo.length} bài</span>`);
+    h += `<div class="explain">Bài gốc đã lên nhưng chưa có link ${esc(F.reupShort)}, quá
       ${db.settings.alerts.reupDays} ngày. Bấm vào bài để dán link vào là xong.</div>`;
     h += `<div class="card list">` + treo.slice(0, 8).map(postRow).join('') + `</div>`;
-    if (treo.length > 8) h += `<div class="dim" style="margin:6px 2px 0">…và ${treo.length - 8} bài nữa, xem trong danh sách bên dưới.</div>`;
+    if (treo.length > 8) h += `<div class="dim" style="margin:6px 2px 0">…và ${treo.length - 8} bài nữa ở bảng bên dưới.</div>`;
   }
 
   /* ---- 2. tổng kết tháng ---- */
@@ -1788,11 +1833,10 @@ function viewPosts(){
       <b>${esc(monthLabel(ym))}</b>
       <button class="iconbtn sm" data-act="month" data-id="1">›</button>
     </div></div>`;
-  h += `<div class="pcards">` + thang.map(postFlowCard).join('') + `</div>`;
+  h += postFlowCard(m);
 
-  /* ---- 3. danh sách ---- */
-  let list = posts();
-  if (ui.postFlow) list = list.filter(p => p.flow === ui.postFlow);
+  /* ---- 3. bảng chi tiết ---- */
+  let list = all;
   if (ui.postState === 'todo') list = list.filter(p => !p.reupUrl);
   if (ui.postState === 'done') list = list.filter(p => !!p.reupUrl);
   if (ui.postMonthOnly) list = list.filter(p => p.date.slice(0,7) === ym);
@@ -1806,10 +1850,6 @@ function viewPosts(){
 
   h += sectionTitle('Danh sách bài', `<span class="dim">${list.length} bài</span>`);
   h += `<div class="filters">
-    <select class="inp sm" data-inp="postFlow">
-      <option value="">Cả hai luồng</option>
-      ${POST_FLOW_IDS.map(f => `<option value="${f}" ${ui.postFlow===f?'selected':''}>${esc(POST_FLOWS[f].label)}</option>`).join('')}
-    </select>
     <select class="inp sm" data-inp="postState">
       <option value=""     ${ui.postState===''    ?'selected':''}>Mọi tình trạng</option>
       <option value="todo" ${ui.postState==='todo'?'selected':''}>Chưa reup</option>
@@ -1820,9 +1860,9 @@ function viewPosts(){
   </div>`;
 
   if (!list.length) return h + emptyBox('Không có bài nào khớp', 'Thử bỏ bớt điều kiện lọc.');
-  h += `<div class="card list">` + list.slice(0, 200).map(postRow).join('') + `</div>`;
-  if (list.length > 200)
-    h += `<div class="dim" style="margin:6px 2px 0">Đang hiện 200 bài mới nhất. Dùng ô tìm kiếm để lọc bớt.</div>`;
+  h += postTable(list.slice(0, 300), F);
+  if (list.length > 300)
+    h += `<div class="dim" style="margin:6px 2px 0">Đang hiện 300 bài mới nhất. Dùng ô tìm kiếm để lọc bớt.</div>`;
   return h;
 }
 
@@ -2012,6 +2052,42 @@ function viewCompare(){
 /* ============================================================
    CÀI ĐẶT
    ============================================================ */
+/* Thẻ tài khoản. Quyền hiện thành chữ chứ không phải mã: "Bài TikTok" đọc
+   là hiểu, 'posttt' thì phải tra. */
+function usersCard(){
+  if (!Server.authed())
+    return `<div class="card dim">Chưa nối máy chủ nên chưa có tài khoản nào —
+      app đang chạy chế độ chỉ lưu trên máy này.</div>`;
+  if (usersCfg === null)
+    return `<div class="card dim">Đang đọc danh sách tài khoản…</div>`;
+
+  let h = `<div class="explain">Mỗi người một tài khoản riêng. Quyền ở đây được chặn
+    <b>ở máy chủ</b>, không phải chỉ ẩn mục đi: dữ liệu của mục không tick sẽ không
+    bao giờ được gửi về máy người đó. Hai luồng bài đăng vì thế cũng không nhìn thấy
+    nhau.</div>`;
+
+  h += `<div class="card list">` + usersCfg.map(u => {
+    const ps = u.role === 'owner' ? ['Toàn quyền'] : u.perms.map(p => (PERM[p]||{}).label || p);
+    return `<div class="li" data-act="edituser" data-id="${u.id}">
+      <span class="li-ic">${u.role === 'owner' ? '👑' : '👤'}</span>
+      <div class="grow">
+        <div class="li-t">${esc(u.name)}
+          ${u.disabled ? '<span class="chip bad">đã khoá</span>' : ''}
+          ${u.role === 'owner' ? '<span class="chip acc">chủ</span>' : ''}</div>
+        <div class="li-s">${ps.length ? esc(ps.join(' · ')) : '<i>chưa tick mục nào — đăng nhập vào chỉ thấy Hôm nay</i>'}</div>
+      </div>
+      <div class="li-r"><div class="dim">${
+        u.last_seen ? 'vào ' + agoText(u.last_seen.slice(0,10)) : 'chưa từng vào'}</div>
+        <div class="dim">${u.sessions ? u.sessions + ' máy đang mở' : ''}</div></div>
+    </div>`;
+  }).join('') + `</div>`;
+
+  h += `<div class="btns" style="margin-top:10px">
+    <button class="btn pri sm" data-act="newuser">+ Thêm tài khoản</button>
+    <button class="btn sm" data-act="reloadusers">Tải lại</button></div>`;
+  return h;
+}
+
 function viewSettings(){
   const st = Sync.status();
   const w  = db.settings.weights;
@@ -2073,6 +2149,11 @@ function viewSettings(){
   <div class="dim" style="margin-top:6px">Để <b>0</b> nếu không đặt chỉ tiêu — lúc đó app chỉ đếm
     chứ không nhắc thiếu. Có chỉ tiêu thì còn 5 ngày cuối tháng mà chưa đủ, Telegram sẽ nhắc một lần,
     kèm số bài cần ra mỗi ngày để kịp.</div>`;
+
+  /* ---- tài khoản ---- */
+  h += sectionTitle('Người dùng', usersCfg
+    ? `<span class="dim">${usersCfg.length} tài khoản</span>` : '');
+  h += usersCard();
 
   /* ---- nhắc qua Telegram ---- */
   const g = tgCfg;

@@ -43,13 +43,19 @@ function matchHash(string $stored, string $given): bool {
   $got = hash_pbkdf2('sha256', $given, $salt, max(1, (int)$iter), strlen($want), true);
   return hash_equals($want, $got);   // so sánh thời gian không đổi
 }
-/* Trả về vai trò ứng với mật khẩu vừa gõ, hoặc '' nếu sai cả hai.
-   Luôn thử ĐỦ cả hai mật khẩu, kể cả khi cái đầu đã khớp — để thời gian
-   trả lời không tiết lộ mình vừa gõ trúng mật khẩu nào. */
-function roleForPassword(string $given): string {
-  $owner = matchHash(KH_PASSWORD, $given);
-  $staff = KH_PASSWORD_STAFF !== '' && matchHash(KH_PASSWORD_STAFF, $given);
-  return $owner ? 'owner' : ($staff ? 'staff' : '');
+/* Tìm tài khoản ứng với tên + mật khẩu vừa gõ, hoặc null.
+
+   Tên sai và mật khẩu sai phải mất chừng ấy thời gian và trả về chừng ấy
+   lời: nếu "tên không tồn tại" trả lời nhanh hơn "sai mật khẩu" thì chỉ cần
+   bấm giờ là dò ra danh sách nhân viên của bạn. Nên tên không có thì vẫn
+   chạy một phép băm giả rồi mới trả lời, và câu báo lỗi giống hệt nhau. */
+function userForLogin(string $name, string $given): ?array {
+  $u = khUserByName($name);
+  if (!$u || (int)$u['disabled'] === 1) {
+    matchHash(KH_PASSWORD, $given);          // tốn đúng chừng ấy thời gian
+    return null;
+  }
+  return matchHash((string)$u['pass_hash'], $given) ? $u : null;
 }
 
 /* ---------------- phiên đăng nhập ---------------- */
@@ -80,14 +86,30 @@ function currentSession(): ?array {
   return $row;
 }
 function requireAuth(): void {
-  if (!currentSession()) fail('Chưa đăng nhập', 401);
+  if (!currentUser()) fail('Chưa đăng nhập', 401);
 }
-/* Phiên tạo từ bản cũ chưa có cột role — coi như chủ, vì hồi đó chỉ có
-   một mật khẩu duy nhất và nó là của bạn. */
-function roleOf(): string {
+/* Người đang mở phiên này. Đọc lại từ bảng users mỗi lượt gọi, KHÔNG lấy
+   bản sao đóng băng lúc đăng nhập: gỡ một quyền hay khoá một người phải có
+   tác dụng ngay, chứ không đợi tới khi họ chịu đăng xuất. */
+function currentUser(): ?array {
+  static $cache = false;
+  if ($cache !== false) return $cache;
+  $cache = null;
   $s = currentSession();
-  if (!$s) return '';
-  return ($s['role'] ?? '') === 'staff' ? 'staff' : 'owner';
+  if ($s) {
+    $u = khUserById((string)($s['user_id'] ?? ''));
+    /* Phiên từ bản cũ chưa gắn người dùng — hồi đó chỉ có một mật khẩu và
+       nó là của bạn, nên coi như chủ, đủ quyền. */
+    if (!$u && ($s['user_id'] ?? '') === '')
+      $u = ['id' => '', 'name' => 'Chủ', 'role' => ($s['role'] ?? '') === 'staff' ? 'staff' : 'owner',
+            'perms' => json_encode(KH_PERMS), 'disabled' => 0];
+    if ($u && (int)$u['disabled'] !== 1) $cache = $u;
+  }
+  return $cache;
+}
+function roleOf(): string {
+  $u = currentUser();
+  return $u ? (($u['role'] ?? '') === 'staff' ? 'staff' : 'owner') : '';
 }
 /* Những việc chỉ chủ được làm: cấu hình Telegram, xem/đổi thiết lập máy chủ,
    đá thiết bị khác ra. Ẩn nút ở giao diện KHÔNG phải là chặn — ai cũng mở
@@ -127,33 +149,58 @@ switch ($action) {
   /* ai đang mở? dùng để biết có cần hiện màn đăng nhập không */
   case 'me': {
     $s = currentSession();
-    out(['ok' => true, 'auth' => (bool)$s, 'server' => true,
-         'role' => $s ? roleOf() : '', 'expires' => $s['expires_at'] ?? null]);
+    $u = currentUser();
+    out(['ok' => true, 'auth' => (bool)$u, 'server' => true,
+         'role'  => $u ? roleOf() : '',
+         'name'  => $u['name'] ?? '',
+         'perms' => $u ? khPerms($u) : [],
+         'expires' => $u ? ($s['expires_at'] ?? null) : null]);
   }
 
   case 'login': {
     if (failCount() >= FAIL_MAX)
       fail('Sai quá nhiều lần. Thử lại sau 15 phút.', 429);
 
+    $name = (string)($in['name'] ?? '');
     $pw   = (string)($in['password'] ?? '');
-    $role = $pw === '' ? '' : roleForPassword($pw);
-    if ($role === '') {
+
+    /* Cửa cứu hộ: bỏ trống ô tên và gõ mật khẩu trong config.php thì vào
+       được với quyền chủ. Cần nó cho đúng một tình huống — bạn lỡ xoá hoặc
+       khoá mất tài khoản chủ của chính mình, lúc đó không còn đường nào
+       khác ngoài sửa file trên máy chủ. */
+    $u = null; $cuuHo = false;
+    if ($pw !== '') {
+      if (trim($name) === '') { $cuuHo = matchHash(KH_PASSWORD, $pw); }
+      else                    { $u = userForLogin($name, $pw); }
+    }
+    if (!$u && !$cuuHo) {
       db()->prepare('INSERT INTO login_fails (ip, at) VALUES (?, ?)')->execute([clientIp(), time()]);
       usleep(400000);                        // làm chậm mỗi lần thử
       $left = max(0, FAIL_MAX - failCount());
-      fail($left > 0 ? "Sai mật khẩu. Còn $left lần thử." : 'Sai quá nhiều lần. Thử lại sau 15 phút.', 401);
+      /* Cố ý không nói sai tên hay sai mật khẩu: nói ra là ai cũng dò được
+         danh sách nhân viên của bạn bằng cách gõ tên bừa. */
+      fail($left > 0 ? "Tên hoặc mật khẩu không đúng. Còn $left lần thử."
+                     : 'Sai quá nhiều lần. Thử lại sau 15 phút.', 401);
     }
 
     db()->prepare('DELETE FROM login_fails WHERE ip = ?')->execute([clientIp()]);
     db()->exec("DELETE FROM sessions WHERE expires_at < '" . gmdate('c') . "'");
 
+    $role = $u ? (($u['role'] ?? '') === 'staff' ? 'staff' : 'owner') : 'owner';
+    $uid  = $u['id'] ?? '';
     $token = bin2hex(random_bytes(32));
     $exp   = time() + SESSION_DAY * 86400;
-    db()->prepare('INSERT INTO sessions (token_hash, created_at, expires_at, label, role) VALUES (?,?,?,?,?)')
+    db()->prepare('INSERT INTO sessions (token_hash, created_at, expires_at, label, role, user_id)
+                   VALUES (?,?,?,?,?,?)')
         ->execute([hash('sha256', $token), gmdate('c'), gmdate('c', $exp),
-                   substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 120), $role]);
+                   substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 120), $role, $uid]);
+    if ($uid !== '') db()->prepare('UPDATE users SET last_seen = ? WHERE id = ?')
+                         ->execute([gmdate('c'), $uid]);
     setSessionCookie($token, $exp);
-    out(['ok' => true, 'auth' => true, 'role' => $role, 'expires' => gmdate('c', $exp)]);
+    out(['ok' => true, 'auth' => true, 'role' => $role,
+         'name' => $u['name'] ?? 'Chủ',
+         'perms' => $u ? khPerms($u) : KH_PERMS,
+         'expires' => gmdate('c', $exp)]);
   }
 
   case 'logout': {
@@ -171,20 +218,120 @@ switch ($action) {
     out(['ok' => true, 'auth' => false]);
   }
 
+  /* ---------------- tài khoản ---------------- */
+
+  case 'users_list': {
+    requireOwner();
+    $rows = db()->query('SELECT id, name, role, perms, disabled, created_at, last_seen
+                         FROM users ORDER BY role DESC, name ASC')->fetchAll();
+    foreach ($rows as &$r) {
+      $r['perms']    = khPerms($r);
+      $r['disabled'] = (int)$r['disabled'] === 1;
+      /* Số máy đang đăng nhập bằng tài khoản này — để bạn biết khoá một
+         người thì thật sự có bao nhiêu máy bị đá ra. */
+      $c = db()->prepare('SELECT COUNT(*) c FROM sessions WHERE user_id = ? AND expires_at >= ?');
+      $c->execute([$r['id'], gmdate('c')]);
+      $r['sessions'] = (int)$c->fetch()['c'];
+    }
+    unset($r);
+    out(['ok' => true, 'users' => $rows, 'perms' => KH_PERMS]);
+  }
+
+  case 'user_save': {
+    requireOwner();
+    $id    = trim((string)($in['id'] ?? ''));
+    $name  = trim((string)($in['name'] ?? ''));
+    $pw    = (string)($in['password'] ?? '');
+    $role  = ($in['role'] ?? 'staff') === 'owner' ? 'owner' : 'staff';
+    $perms = array_values(array_intersect((array)($in['perms'] ?? []), KH_PERMS));
+    $off   = !empty($in['disabled']);
+
+    if ($name === '')            fail('Chưa đặt tên tài khoản');
+    if (mb_strlen($name) > 40)   fail('Tên dài quá 40 ký tự');
+    $clash = khUserByName($name);
+    if ($clash && $clash['id'] !== $id) fail('Đã có tài khoản tên "' . $name . '" rồi');
+
+    $me  = currentUser();
+    $cur = $id === '' ? null : khUserById($id);
+    if ($id !== '' && !$cur) fail('Không tìm thấy tài khoản này', 404);
+
+    /* Ba lối tự khoá mình ra ngoài, chặn cả ba. Không chặn thì bạn mất quyền
+       vào Cài đặt và cách duy nhất lấy lại là sửa file trên máy chủ. */
+    if ($cur && $cur['id'] === ($me['id'] ?? '') && ($role !== 'owner' || $off))
+      fail('Không tự hạ quyền hay tự khoá tài khoản đang dùng được. Nhờ một tài khoản chủ khác làm.');
+    if ($cur && ($cur['role'] ?? '') === 'owner' && $role !== 'owner' && khOwnerCount() <= 1)
+      fail('Đây là tài khoản chủ cuối cùng — hạ quyền nó thì không còn ai vào được Cài đặt.');
+
+    if ($pw !== '' && mb_strlen($pw) < 8) fail('Mật khẩu nên từ 8 ký tự trở lên');
+    if ($id === '' && $pw === '')         fail('Tài khoản mới phải có mật khẩu');
+
+    $now = gmdate('c');
+    if ($id === '') {
+      $id = bin2hex(random_bytes(8));
+      db()->prepare('INSERT INTO users (id, name, norm, pass_hash, role, perms, disabled, created_at, updated_at)
+                     VALUES (?,?,?,?,?,?,?,?,?)')
+          ->execute([$id, $name, khNorm($name), khMakeHash($pw), $role,
+                     json_encode($perms, JSON_UNESCAPED_UNICODE), $off ? 1 : 0, $now, $now]);
+    } else {
+      db()->prepare('UPDATE users SET name=?, norm=?, role=?, perms=?, disabled=?, updated_at=? WHERE id=?')
+          ->execute([$name, khNorm($name), $role,
+                     json_encode($perms, JSON_UNESCAPED_UNICODE), $off ? 1 : 0, $now, $id]);
+      if ($pw !== '')
+        db()->prepare('UPDATE users SET pass_hash = ? WHERE id = ?')->execute([khMakeHash($pw), $id]);
+      /* Khoá tài khoản hoặc đổi mật khẩu thì đá luôn mọi máy đang mở bằng
+         tài khoản đó. Không làm thì "khoá" chỉ có nghĩa là "lần sau không
+         đăng nhập lại được" — người đang mở app vẫn dùng tiếp hàng tháng. */
+      if ($off || $pw !== '')
+        db()->prepare('DELETE FROM sessions WHERE user_id = ?')->execute([$id]);
+    }
+    out(['ok' => true, 'id' => $id]);
+  }
+
+  case 'user_del': {
+    requireOwner();
+    $id = (string)($in['id'] ?? '');
+    $u  = khUserById($id);
+    if (!$u) fail('Không tìm thấy tài khoản này', 404);
+    $me = currentUser();
+    if ($u['id'] === ($me['id'] ?? '')) fail('Không xoá được tài khoản bạn đang dùng.');
+    if (($u['role'] ?? '') === 'owner' && khOwnerCount() <= 1)
+      fail('Đây là tài khoản chủ cuối cùng, xoá thì không còn ai vào được Cài đặt.');
+    db()->prepare('DELETE FROM sessions WHERE user_id = ?')->execute([$id]);
+    db()->prepare('DELETE FROM users WHERE id = ?')->execute([$id]);
+    out(['ok' => true]);
+  }
+
   /* kéo về những bản ghi mới hơn mốc đang giữ */
   case 'pull': {
     requireAuth();
+    $u = currentUser();
     $since = (string)($in['since'] ?? '');
     $st = db()->prepare('SELECT kind, item_id, data, updated_at, deleted FROM items
                          WHERE updated_at >= ? ORDER BY updated_at ASC LIMIT ' . PULL_LIMIT);
     $st->execute([$since]);
-    $rows = $st->fetchAll();
-    foreach ($rows as &$r) {
-      $r['data']    = json_decode($r['data'], true);
+    $raw = $st->fetchAll();
+
+    /* Đây là chỗ "không nhìn thấy phần của nhau" trở thành sự thật: dòng nào
+       người này không có quyền đọc thì không rời khỏi máy chủ. Ẩn ở trình
+       duyệt không tính — mở bảng điều khiển là thấy hết.
+
+       `more` vẫn tính theo SỐ DÒNG ĐÃ ĐỌC chứ không phải số dòng trả về. Nếu
+       tính theo số trả về thì một lượt lọc sạch 500 dòng sẽ ra `more=false`,
+       máy gọi tưởng đã hết và dừng lại — mất toàn bộ phần đứng sau. */
+    $rows = [];
+    foreach ($raw as $r) {
+      $data = json_decode($r['data'], true);
+      if (!khMayRow($u, (string)$r['kind'], $data)) continue;
+      $r['data']    = $data;
       $r['deleted'] = (bool)$r['deleted'];
+      $rows[] = $r;
     }
-    unset($r);
-    out(['ok' => true, 'rows' => $rows, 'more' => count($rows) >= PULL_LIMIT, 'now' => gmdate('c')]);
+    /* Kèm quyền hiện tại vào mỗi lượt kéo. Nhờ đó app đang mở biết ngay khi
+       bạn gỡ bớt quyền của một người — không phải đợi tới lúc họ chịu tải
+       lại trang, mà tới lúc đó thì phần dữ liệu cũ vẫn còn nằm trong máy họ. */
+    out(['ok' => true, 'rows' => $rows, 'more' => count($raw) >= PULL_LIMIT,
+         'now' => gmdate('c'), 'checked' => count($raw),
+         'role' => roleOf(), 'name' => $u['name'] ?? '', 'perms' => khPerms($u)]);
   }
 
   /* đẩy lên — bản ghi cũ hơn thứ máy chủ đang giữ thì bỏ qua */
@@ -202,6 +349,7 @@ switch ($action) {
     /* Nhân viên được thêm và sửa, không được xoá. Chặn ở đây chứ không chỉ
        ẩn nút, vì nút ẩn thì vẫn gọi thẳng vào địa chỉ này được. */
     $mayDelete = roleOf() === 'owner';
+    $u = currentUser();
 
     $saved = 0; $skipped = 0; $blockedRows = [];
     $pdo->beginTransaction();
@@ -213,6 +361,27 @@ switch ($action) {
         if ($kind === '' || $id === '' || $upAt === '') { $skipped++; continue; }
         $json = json_encode($r['data'] ?? null, JSON_UNESCAPED_UNICODE);
         $del  = !empty($r['deleted']) ? 1 : 0;
+
+        /* Không đọc được thì cũng không ghi đè được. Thiếu chỗ này thì bạn
+           nhân viên luồng Facebook vẫn xoá trắng được bài TikTok của người
+           kia bằng cách gọi thẳng vào đây — họ không nhìn thấy dòng đó,
+           nhưng đoán được id thì vẫn ghi lên nó. */
+        if (!khMayRow($u, $kind, $r['data'] ?? null)) {
+          if (count($blockedRows) < 200) $blockedRows[] = ['kind' => $kind, 'item_id' => $id];
+          continue;
+        }
+        /* Và không được đổi một dòng đang thuộc quyền người khác thành của
+           mình — đọc bản đang có trên máy chủ để xét, chứ không tin vào bản
+           vừa gửi lên. */
+        $old = $pdo->prepare('SELECT data FROM items WHERE kind = ? AND item_id = ?');
+        $old->execute([$kind, $id]);
+        if ($oRow = $old->fetch()) {
+          if (!khMayRow($u, $kind, json_decode((string)$oRow['data'], true))) {
+            if (count($blockedRows) < 200) $blockedRows[] = ['kind' => $kind, 'item_id' => $id];
+            continue;
+          }
+        }
+
         if ($del && !$mayDelete) {
           /* Trả về ĐÚNG dòng nào bị chặn, không phải chỉ số lượng — máy gọi
              cần biết để kéo lại bản thật, nếu không nó sẽ tưởng đã xoá xong
@@ -364,9 +533,12 @@ switch ($action) {
 
   /* app đẩy lên danh sách việc kèm ngày hẹn — cron đọc lại mỗi sáng */
   case 'remind_set': {
-    /* Nhân viên cũng được đẩy — xem chú thích ở pushReminders() trong
-       js/sync.js. Chặn ở đây thì lời nhắc sẽ đứng yên cả tuần. */
-    requireAuth();
+    /* Chỉ tài khoản chủ. Danh sách trên máy chủ là MỘT bản, ai đẩy sau thì
+       đè lên — mà từ khi mỗi người một bộ quyền, người chỉ thấy một luồng
+       bài đăng sẽ soạn ra một danh sách chỉ có việc của họ. Để họ đẩy thì
+       sáng hôm sau Telegram thôi nhắc mọi thứ còn lại. js/sync.js cũng chặn,
+       nhưng cái chặn thật là chỗ này. */
+    requireOwner();
     $tasks = $in['tasks'] ?? null;
     if (!is_array($tasks)) fail('Thiếu danh sách tasks');
     if (count($tasks) > 500) $tasks = array_slice($tasks, 0, 500);

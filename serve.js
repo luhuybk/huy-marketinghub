@@ -63,7 +63,67 @@ function db(){
      Giống hệt chỗ nâng cấp trong api/lib.php. */
   try { store.exec("ALTER TABLE sessions ADD COLUMN role TEXT NOT NULL DEFAULT 'owner'"); }
   catch(e){ /* đã có cột rồi */ }
+  try { store.exec("ALTER TABLE sessions ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); }
+  catch(e){ /* đã có cột rồi */ }
+  store.exec(`CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, norm TEXT NOT NULL UNIQUE,
+      pass_hash TEXT NOT NULL, role TEXT NOT NULL, perms TEXT NOT NULL,
+      disabled INTEGER NOT NULL DEFAULT 0, created_at TEXT, updated_at TEXT,
+      last_seen TEXT)`);
+  seedUsers(store);
   return store;
+}
+
+/* ---------------- người dùng & quyền: bản Node của api/lib.php ----------------
+   Hai bản phải giống nhau từng luật một. Lệch một chỗ thì bản chạy thử ở máy
+   nói "được" còn máy chủ thật nói "không" — hoặc tệ hơn, ngược lại. */
+const KH_PERMS = ['dash','pipeline','kols','clips','postfb','posttt','ads',
+                  'improve','newprod','compare','resources'];
+const KH_KIND_PERM = {
+  kols:['kols','pipeline'], statuses:['kols','pipeline'], templates:['kols','pipeline'],
+  bookings:['pipeline','kols','clips'], clips:['clips','pipeline','kols'],
+  adperiods:['ads'], actions:['ads'], spweeks:['improve','ads'],
+  impacts:['improve'], ideas:['newprod']
+};
+const khNorm = s => String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
+function khMakeHash(pw){
+  const ITER = 210000, salt = crypto.randomBytes(16);
+  return `pbkdf2_sha256$${ITER}$${salt.toString('base64')}$` +
+         crypto.pbkdf2Sync(pw, salt, ITER, 32, 'sha256').toString('base64');
+}
+function khPerms(u){
+  if (!u) return [];
+  if (u.role === 'owner') return KH_PERMS.slice();
+  try { const p = JSON.parse(u.perms || '[]');
+        return Array.isArray(p) ? p.filter(x => KH_PERMS.includes(x)) : []; }
+  catch(e){ return []; }
+}
+const khMay = (u, perm) => !!u && (u.role === 'owner' || khPerms(u).includes(perm));
+/* posts xét theo LUỒNG nằm trong dữ liệu — đây là chỗ hai bạn nhân viên
+   không nhìn thấy phần của nhau. */
+function khMayRow(u, kind, data){
+  if (!u) return false;
+  if (u.role === 'owner') return true;
+  if (kind === 'posts')
+    return khMay(u, (data && data.flow) === 'tt' ? 'posttt' : 'postfb');
+  const need = KH_KIND_PERM[kind];
+  if (!need) return true;                    // products, brands, và bộ mới chưa khai
+  return need.some(p => khMay(u, p));
+}
+const khUserById   = id   => id ? (db().prepare('SELECT * FROM users WHERE id = ?').get(id) || null) : null;
+const khUserByName = name => db().prepare('SELECT * FROM users WHERE norm = ?').get(khNorm(name)) || null;
+const khOwnerCount = () =>
+  db().prepare("SELECT COUNT(*) c FROM users WHERE role='owner' AND disabled=0").get().c;
+
+function seedUsers(store){
+  if (store.prepare('SELECT COUNT(*) c FROM users').get().c > 0) return;
+  const now = iso();
+  const add = (name, hash, role) => store.prepare(`INSERT OR IGNORE INTO users
+      (id,name,norm,pass_hash,role,perms,disabled,created_at,updated_at) VALUES (?,?,?,?,?,?,0,?,?)`)
+      .run(crypto.randomBytes(8).toString('hex'), name, khNorm(name), hash, role,
+           JSON.stringify(KH_PERMS), now, now);
+  if (KH_PASSWORD) add('Chủ', KH_PASSWORD, 'owner');
+  if (KH_PASSWORD_STAFF) add('Nhân viên chung', KH_PASSWORD_STAFF, 'staff');
 }
 
 /* kho khoá–giá trị: mã bot Telegram, khoá cron, danh sách việc cần nhắc.
@@ -213,10 +273,12 @@ function itemApply(ref, set, todayYmd){
 /* ---------------- mật khẩu: giống hệt PHP ---------------- */
 /* Vai trò ứng với mật khẩu vừa gõ, hoặc '' nếu sai cả hai. Thử đủ cả hai
    kể cả khi cái đầu đã khớp, để thời gian trả lời không tiết lộ gì. */
-function roleForPassword(given){
-  const owner = matchHash(KH_PASSWORD, given);
-  const staff = !!KH_PASSWORD_STAFF && matchHash(KH_PASSWORD_STAFF, given);
-  return owner ? 'owner' : (staff ? 'staff' : '');
+/* Tên sai và mật khẩu sai phải tốn chừng ấy thời gian: nếu "tên không tồn
+   tại" trả lời nhanh hơn thì bấm giờ là dò ra danh sách nhân viên. */
+function userForLogin(name, given){
+  const u = khUserByName(name);
+  if (!u || u.disabled === 1){ matchHash(KH_PASSWORD, given); return null; }
+  return matchHash(String(u.pass_hash), given) ? u : null;
 }
 function matchHash(stored, given){
   if (!stored) return false;
@@ -276,9 +338,18 @@ function api(req, res, body){
 
   let inp; try { inp = JSON.parse(body || '{}'); } catch(e){ return fail('JSON không hợp lệ'); }
   const s = session(req);
-  const need = () => { if (!s) { fail('Chưa đăng nhập', 401); return false; } return true; };
-  /* phiên cũ chưa có cột role thì coi như chủ */
-  const role = () => s ? (s.role === 'staff' ? 'staff' : 'owner') : '';
+  /* Đọc lại người dùng mỗi lượt gọi, không dùng bản đóng băng lúc đăng nhập:
+     gỡ quyền hay khoá một người phải có tác dụng ngay. */
+  const me = (() => {
+    if (!s) return null;
+    let u = khUserById(String(s.user_id || ''));
+    if (!u && !s.user_id)      // phiên từ bản cũ chưa gắn người dùng → coi như chủ
+      u = {id:'', name:'Chủ', role:s.role === 'staff' ? 'staff' : 'owner',
+           perms:JSON.stringify(KH_PERMS), disabled:0};
+    return (u && u.disabled !== 1) ? u : null;
+  })();
+  const need = () => { if (!me) { fail('Chưa đăng nhập', 401); return false; } return true; };
+  const role = () => me ? (me.role === 'staff' ? 'staff' : 'owner') : '';
   /* Ẩn nút ở giao diện KHÔNG phải là chặn — chặn thật ở đây. */
   const owner = () => {
     if (!need()) return false;
@@ -289,23 +360,37 @@ function api(req, res, body){
 
   switch (inp.action){
     case 'me':
-      return send({ok:true, auth:!!s, server:true, role:role(), expires:s ? s.expires_at : null});
+      return send({ok:true, auth:!!me, server:true, role:role(),
+                   name:(me && me.name) || '', perms:khPerms(me),
+                   expires: me && s ? s.expires_at : null});
 
     case 'login': {
       db().prepare('DELETE FROM login_fails WHERE at < ?').run(Math.floor(Date.now()/1000) - FAIL_WIN);
       const fails = db().prepare('SELECT COUNT(*) c FROM login_fails WHERE ip = ?').get(ip).c;
       if (fails >= FAIL_MAX) return fail('Sai quá nhiều lần. Thử lại sau 15 phút.', 429);
-      const newRole = roleForPassword(String(inp.password || ''));
-      if (!newRole){
+      const nm = String(inp.name || ''), pw = String(inp.password || '');
+      /* Cửa cứu hộ: bỏ trống ô tên + mật khẩu trong config.php → vào với
+         quyền chủ. Cần cho đúng một tình huống: bạn lỡ khoá mất tài khoản
+         chủ của chính mình. */
+      let u = null, cuuHo = false;
+      if (pw){ if (!nm.trim()) cuuHo = matchHash(KH_PASSWORD, pw); else u = userForLogin(nm, pw); }
+      if (!u && !cuuHo){
         db().prepare('INSERT INTO login_fails (ip, at) VALUES (?, ?)').run(ip, Math.floor(Date.now()/1000));
-        return fail(`Sai mật khẩu. Còn ${Math.max(0, FAIL_MAX - fails - 1)} lần thử.`, 401);
+        /* Cố ý không nói sai tên hay sai mật khẩu — nói ra là dò được danh
+           sách nhân viên bằng cách gõ tên bừa. */
+        return fail(`Tên hoặc mật khẩu không đúng. Còn ${Math.max(0, FAIL_MAX - fails - 1)} lần thử.`, 401);
       }
       db().prepare('DELETE FROM login_fails WHERE ip = ?').run(ip);
+      const newRole = u ? (u.role === 'staff' ? 'staff' : 'owner') : 'owner';
       const token = crypto.randomBytes(32).toString('hex');
       const exp = iso(Date.now() + SESSION_DAY * 86400000);
-      db().prepare('INSERT INTO sessions (token_hash, created_at, expires_at, label, role) VALUES (?,?,?,?,?)')
-          .run(sha(token), iso(), exp, String(req.headers['user-agent'] || '').slice(0,120), newRole);
-      return send({ok:true, auth:true, role:newRole, expires:exp}, 200,
+      db().prepare(`INSERT INTO sessions (token_hash, created_at, expires_at, label, role, user_id)
+                    VALUES (?,?,?,?,?,?)`)
+          .run(sha(token), iso(), exp, String(req.headers['user-agent'] || '').slice(0,120),
+               newRole, (u && u.id) || '');
+      if (u && u.id) db().prepare('UPDATE users SET last_seen = ? WHERE id = ?').run(iso(), u.id);
+      return send({ok:true, auth:true, role:newRole, name:(u && u.name) || 'Chủ',
+                   perms: u ? khPerms(u) : KH_PERMS.slice(), expires:exp}, 200,
         {'Set-Cookie': `kh_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAY*86400}`});
     }
 
@@ -321,12 +406,22 @@ function api(req, res, body){
 
     case 'pull': {
       if (!need()) return;
-      const rows = db().prepare(`SELECT kind, item_id, data, updated_at, deleted FROM items
-                                 WHERE updated_at >= ? ORDER BY updated_at ASC LIMIT ${PULL_LIMIT}`)
-                       .all(String(inp.since || ''));
-      return send({ok:true, now:iso(), more: rows.length >= PULL_LIMIT,
-        rows: rows.map(r => ({kind:r.kind, item_id:r.item_id, data:JSON.parse(r.data),
-                              updated_at:r.updated_at, deleted:!!r.deleted}))});
+      const raw = db().prepare(`SELECT kind, item_id, data, updated_at, deleted FROM items
+                                WHERE updated_at >= ? ORDER BY updated_at ASC LIMIT ${PULL_LIMIT}`)
+                      .all(String(inp.since || ''));
+      /* Dòng không có quyền đọc thì không rời khỏi máy chủ. `more` vẫn đếm
+         theo số dòng ĐÃ ĐỌC, không phải số trả về: một lượt lọc sạch 500
+         dòng mà báo more=false thì máy gọi tưởng hết và dừng, mất toàn bộ
+         phần đứng sau. */
+      const rows = [];
+      for (const r of raw){
+        const data = JSON.parse(r.data);
+        if (!khMayRow(me, r.kind, data)) continue;
+        rows.push({kind:r.kind, item_id:r.item_id, data, updated_at:r.updated_at, deleted:!!r.deleted});
+      }
+      /* Kèm quyền hiện tại — xem chú thích bên api/index.php */
+      return send({ok:true, now:iso(), more: raw.length >= PULL_LIMIT, checked: raw.length, rows,
+                   role:role(), name:me.name || '', perms:khPerms(me)});
     }
 
     case 'push': {
@@ -344,6 +439,16 @@ function api(req, res, body){
           const kind = String(r.kind || ''), id = String(r.item_id || ''), up = String(r.updated_at || '');
           if (!kind || !id || !up){ skipped++; continue; }
           const json = JSON.stringify(r.data ?? null), del = r.deleted ? 1 : 0;
+          /* Không đọc được thì cũng không ghi đè được — nếu không, người ở
+             luồng này vẫn xoá trắng được dòng của luồng kia bằng cách gọi
+             thẳng vào đây. Và xét cả bản ĐANG CÓ trên máy chủ, chứ không chỉ
+             bản vừa gửi lên: nếu không thì đổi flow là chiếm được dòng của
+             người khác. */
+          if (!khMayRow(me, kind, r.data ?? null)){
+            if (blocked.length < 200) blocked.push({kind, item_id:id}); continue; }
+          const oRow = db().prepare('SELECT data FROM items WHERE kind=? AND item_id=?').get(kind, id);
+          if (oRow && !khMayRow(me, kind, JSON.parse(oRow.data))){
+            if (blocked.length < 200) blocked.push({kind, item_id:id}); continue; }
           /* trả về đúng dòng bị chặn, xem chú thích bên api/index.php */
           if (del && !mayDelete){ if (blocked.length < 200) blocked.push({kind, item_id:id}); continue; }
           const cur = sel.get(kind, id);
@@ -354,6 +459,70 @@ function api(req, res, body){
         db().exec('COMMIT');
       } catch(e){ db().exec('ROLLBACK'); return fail('Ghi dữ liệu lỗi: ' + e.message, 500); }
       return send({ok:true, saved, skipped, blocked, now:iso()});
+    }
+
+    /* ---- tài khoản: cùng hợp đồng với bản PHP ---- */
+    case 'users_list': {
+      if (!owner()) return;
+      const rows = db().prepare(`SELECT id,name,role,perms,disabled,created_at,last_seen
+                                 FROM users ORDER BY role DESC, name ASC`).all();
+      return send({ok:true, perms:KH_PERMS, users: rows.map(r => Object.assign({}, r, {
+        perms: khPerms(r), disabled: r.disabled === 1,
+        sessions: db().prepare('SELECT COUNT(*) c FROM sessions WHERE user_id=? AND expires_at>=?')
+                      .get(r.id, iso()).c
+      }))});
+    }
+
+    case 'user_save': {
+      if (!owner()) return;
+      const id = String(inp.id || '').trim(), name = String(inp.name || '').trim();
+      const pw = String(inp.password || '');
+      const nrole = inp.role === 'owner' ? 'owner' : 'staff';
+      const perms = (Array.isArray(inp.perms) ? inp.perms : []).filter(p => KH_PERMS.includes(p));
+      const off = !!inp.disabled;
+
+      if (!name) return fail('Chưa đặt tên tài khoản');
+      if (name.length > 40) return fail('Tên dài quá 40 ký tự');
+      const clash = khUserByName(name);
+      if (clash && clash.id !== id) return fail(`Đã có tài khoản tên "${name}" rồi`);
+      const cur = id ? khUserById(id) : null;
+      if (id && !cur) return fail('Không tìm thấy tài khoản này', 404);
+      /* Ba lối tự khoá mình ra ngoài, chặn cả ba. */
+      if (cur && cur.id === (me.id || '') && (nrole !== 'owner' || off))
+        return fail('Không tự hạ quyền hay tự khoá tài khoản đang dùng được. Nhờ một tài khoản chủ khác làm.');
+      if (cur && cur.role === 'owner' && nrole !== 'owner' && khOwnerCount() <= 1)
+        return fail('Đây là tài khoản chủ cuối cùng — hạ quyền nó thì không còn ai vào được Cài đặt.');
+      if (pw && pw.length < 8) return fail('Mật khẩu nên từ 8 ký tự trở lên');
+      if (!id && !pw) return fail('Tài khoản mới phải có mật khẩu');
+
+      const now = iso();
+      let nid = id;
+      if (!id){
+        nid = crypto.randomBytes(8).toString('hex');
+        db().prepare(`INSERT INTO users (id,name,norm,pass_hash,role,perms,disabled,created_at,updated_at)
+                      VALUES (?,?,?,?,?,?,?,?,?)`)
+            .run(nid, name, khNorm(name), khMakeHash(pw), nrole, JSON.stringify(perms), off?1:0, now, now);
+      } else {
+        db().prepare('UPDATE users SET name=?, norm=?, role=?, perms=?, disabled=?, updated_at=? WHERE id=?')
+            .run(name, khNorm(name), nrole, JSON.stringify(perms), off?1:0, now, id);
+        if (pw) db().prepare('UPDATE users SET pass_hash=? WHERE id=?').run(khMakeHash(pw), id);
+        /* Khoá hoặc đổi mật khẩu thì đá luôn máy đang mở. Không làm thì
+           "khoá" chỉ có nghĩa là lần sau không đăng nhập lại được. */
+        if (off || pw) db().prepare('DELETE FROM sessions WHERE user_id=?').run(id);
+      }
+      return send({ok:true, id:nid});
+    }
+
+    case 'user_del': {
+      if (!owner()) return;
+      const u = khUserById(String(inp.id || ''));
+      if (!u) return fail('Không tìm thấy tài khoản này', 404);
+      if (u.id === (me.id || '')) return fail('Không xoá được tài khoản bạn đang dùng.');
+      if (u.role === 'owner' && khOwnerCount() <= 1)
+        return fail('Đây là tài khoản chủ cuối cùng, xoá thì không còn ai vào được Cài đặt.');
+      db().prepare('DELETE FROM sessions WHERE user_id=?').run(u.id);
+      db().prepare('DELETE FROM users WHERE id=?').run(u.id);
+      return send({ok:true});
     }
 
     /* ---- Telegram: cùng hợp đồng với bản PHP ---- */
@@ -436,7 +605,10 @@ function api(req, res, body){
                   'Bấm nút này trên bản đã upload lên hosting (https) thì mới đăng ký được.');
     }
     case 'remind_set': {
-      if (!need()) return;      /* nhân viên cũng được đẩy, xem js/sync.js */
+      /* Chỉ chủ. Danh sách trên máy chủ là MỘT bản, ai đẩy sau thì đè lên —
+         người chỉ thấy một luồng bài đăng mà đẩy thì Telegram thôi nhắc mọi
+         thứ còn lại. Xem chú thích ở pushReminders() trong js/sync.js. */
+      if (!owner()) return;
       if (!Array.isArray(inp.tasks)) return fail('Thiếu danh sách tasks');
       kvSet('reminders', inp.tasks.slice(0, 500));
       kvSet('reminders_at', iso());

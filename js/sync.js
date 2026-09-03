@@ -99,6 +99,11 @@ const Sync = (() => {
     let changed = 0, guard = 0;
     while (guard++ < 200){
       const d = await Server.pull(cursor);
+      /* Câu trả lời mang theo quyền hiện tại. Quyền vừa bị gỡ thì bỏ dở lượt
+         này, dọn sạch bản sao dưới máy rồi kéo lại từ đầu — phần dữ liệu cũ
+         nằm trong máy sẽ không tự biến mất chỉ vì máy chủ thôi gửi nó. */
+      Server.notePerms(d);
+      if (Server.takeWhoChanged()) return 'reset';
       d.rows.forEach(r => { changed += absorb(r); });
       if (d.rows.length){
         const max = d.rows.reduce((m,r) => r.updated_at > m ? r.updated_at : m, cursor);
@@ -118,11 +123,15 @@ const Sync = (() => {
      lần trước. */
   let lastTasks = null;
   async function pushReminders(){
-    /* Nhân viên cũng được đẩy. Ban đầu tôi chặn, nhưng như thế thì tuần nào
-       chỉ nhân viên dùng app là danh sách trên máy chủ đứng yên — Telegram cứ
-       nhắc booking đã lên clip xong. Nhắc sai việc tệ hơn hẳn cái giá phải
-       trả: ngưỡng cảnh báo lưu theo từng máy, nên ngày hẹn của mấy việc
-       "gửi hàng lâu chưa thấy clip" có thể lệch vài ngày tuỳ ai đồng bộ sau. */
+    /* CHỈ tài khoản thấy đủ dữ liệu mới được đẩy danh sách này.
+
+       Danh sách trên máy chủ là MỘT bản duy nhất, ai đẩy sau thì đè lên. Hồi
+       chỉ có một mật khẩu nhân viên và họ thấy mọi thứ thì đè cũng không sao
+       — hai bên soạn ra cùng một danh sách. Từ khi mỗi người một bộ quyền
+       thì khác hẳn: bạn đăng bài TikTok mở app một cái là danh sách trên máy
+       chủ chỉ còn mấy việc reup của riêng họ, và sáng mai Telegram thôi nhắc
+       toàn bộ booking. Chặn ở đây, và chặn lại lần nữa ở máy chủ. */
+    if (window.Server && Server.state() !== 'none' && !Server.isOwner()) return;
     let list;
     try { list = reminderTasks(); } catch(e){ return; }
     let dir = [];
@@ -139,7 +148,20 @@ const Sync = (() => {
     try {
       await doPush();
       dirty = false;
-      const changed = await doPull();
+      let changed = await doPull();
+      /* Quyền đổi giữa chừng: xoá hết rồi kéo lại đúng một lần nữa. Chỉ một
+         lần — nếu lượt thứ hai lại báo đổi nữa thì có gì đó sai, và lặp vô
+         hạn ở đây sẽ nghiền máy chủ. */
+      if (changed === 'reset'){
+        wipeLocal();
+        changed = await doPull();
+        if (changed === 'reset') changed = 0;
+        if (window.toast) toast('Quyền của bạn vừa được cập nhật — đã tải lại dữ liệu');
+        ensure(); persist();
+        setState('idle');
+        if (window.render) render();
+        return;
+      }
       if (changed) ensure();
       persist();
       try { await pushReminders(); } catch(e){}   /* nhắc lỗi thì cũng đừng làm hỏng đồng bộ */
