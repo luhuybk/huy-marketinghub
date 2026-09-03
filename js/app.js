@@ -13,6 +13,7 @@ const NAV = [
   {id:'pipeline', icon:'▤', label:'Booking'},
   {id:'kols',     icon:'☺', label:'KOL / KOC'},
   {id:'clips',    icon:'▶', label:'Clip'},
+  {id:'posts',    icon:'📝',label:'Bài đăng'},
   {id:'ads',      icon:'◎', label:'Shopee Ads'},
   {id:'improve',  icon:'🔻',label:'Cải thiện SP'},
   {id:'newprod',  icon:'💡',label:'Sản phẩm mới'},
@@ -22,7 +23,7 @@ const NAV = [
   {id:'settings', icon:'⚙', label:'Cài đặt', ownerOnly:true}
 ];
 const TITLES = {today:'Hôm nay', dash:'Tổng quan', pipeline:'Booking', kols:'KOL / KOC',
-                clips:'Clip', ads:'Shopee Ads', improve:'Cải thiện sản phẩm',
+                clips:'Clip', posts:'Bài đăng', ads:'Shopee Ads', improve:'Cải thiện sản phẩm',
                 newprod:'Xây dựng sản phẩm mới', compare:'So sánh kênh', resources:'Tài nguyên',
                 review:'Cần bạn duyệt', settings:'Cài đặt', kol:'Hồ sơ KOC', product:'Sản phẩm',
                 sp:'Sức khoẻ trên Shopee'};
@@ -71,6 +72,7 @@ function render(){
       case 'kols':     html = viewKols(); break;
       case 'kol':      html = viewKol(route.id); break;
       case 'clips':    html = viewClips(); break;
+      case 'posts':    html = viewPosts(); break;
       case 'ads':      html = viewAds(); break;
       case 'improve':  html = viewImprove(); break;
       case 'newprod':  html = viewNewProd(); break;
@@ -137,6 +139,7 @@ function renderSide(){
     pipeline: bookings().filter(b => LIVE_STAGES.includes(b.stage) && b.stage !== 'done').length,
     kols: kols().length,
     clips: clips().length,
+    posts: postsDueReup().length,
     ads: products().filter(p => ['due','overdue'].includes(trackState(p.id).key)).length,
     improve: openImpacts().filter(im => dayDiff(im.reviewAt) <= 0).length,
     newprod: dueIdeas().length,
@@ -144,7 +147,7 @@ function renderSide(){
     today: todayCount(),
     review: reviewCount()
   };
-  const hot = {dash:1, ads:1, today:1, improve:1};
+  const hot = {dash:1, ads:1, today:1, improve:1, posts:1};
   const active = route.page === 'kol' ? 'kols' : route.page === 'product' ? 'ads'
                : route.page === 'sp' ? 'improve' : route.page;
   const st = Sync.status();
@@ -592,6 +595,99 @@ function askAddClip(b){
       <button class="btn sm" data-act="closem">Để sau</button>
       <button class="btn pri" data-act="addclipfor" data-id="${b.id}">Thêm clip</button></div>`);
   return el;
+}
+
+/* ============================================================
+   BÀI ĐĂNG NỘI BỘ
+   ============================================================ */
+/* Hỏi luồng trước rồi mới mở biểu mẫu. Vì sao không nhét cái select vào
+   trong biểu mẫu rồi thôi: nhãn của hai ô link và việc có ô sản phẩm hay
+   không đều phụ thuộc luồng, mà biểu mẫu ở đây vẽ một lần chứ không vẽ lại
+   khi bạn đổi select. Hỏi trước thì mọi nhãn đều đúng ngay từ đầu. */
+function askPostFlow(){
+  openModal('Ghi bài đăng — luồng nào?',
+    `<div class="askbox">Chọn luồng thì các ô link sẽ hiện đúng tên kênh,
+      đỡ phải đọc để đoán ô nào dán cái gì.</div>
+     <div class="flowpick">` + POST_FLOW_IDS.map(f => {
+       const F = POST_FLOWS[f];
+       return `<button class="fpick" data-act="newpostflow" data-id="${f}">
+         <span class="fp-ic">${F.icon}</span>
+         <div><b>${esc(F.label)}</b>
+           <div class="dim">đăng ${esc(F.short)} rồi đăng lại sang ${esc(F.reupShort)}${
+             F.needProduct ? ' · có gắn sản phẩm' : ''}</div></div></button>`;
+     }).join('') + `</div>`,
+    `<div class="btns end"><div class="grow"></div>
+      <button class="btn sm" data-act="closem">Huỷ</button></div>`);
+}
+
+function postForm(p, presetFlow){
+  const isNew = !p;
+  const flow  = POST_FLOWS[isNew ? presetFlow : p.flow] ? (isNew ? presetFlow : p.flow) : 'fb';
+  const F     = POST_FLOWS[flow];
+  p = p || {flow, date: today(), poster:'', title:'', url:'', reupUrl:'', reupAt:'', productId:'', note:''};
+
+  const ps  = products().filter(x => !x.archived || x.id === p.productId);
+  const ten = postPeople();
+
+  formModal({
+    title: (isNew ? 'Ghi bài ' : 'Sửa bài ') + F.short,
+    values: p,
+    saveLabel: isNew ? 'Lưu bài' : 'Lưu',
+    extra: `<div class="explain">Ô <b>${esc(F.reup.label)}</b> để trống nghĩa là
+      <b>chưa đăng lại</b> — app sẽ nhắc cho tới khi có link. Dán link vào là việc tự khép,
+      không cần bấm gì thêm.</div>`,
+    fields: [
+      {k:'flow', l:'Luồng', t:'select', opts: POST_FLOW_IDS.map(f => [f, POST_FLOWS[f].label]),
+       hint:'Đổi luồng thì lưu lại rồi mở lại — nhãn các ô link và ô sản phẩm đổi theo luồng'},
+      {k:'date', l:'Ngày đăng bài gốc', t:'date', half:true, req:true},
+      {k:'poster', l:'Người đăng', half:true, list: ten,
+       ph: ten[0] || 'tên bạn phụ trách', hint: ten.length ? 'gõ đúng tên cũ để đếm gộp được' : ''},
+      {k:'title', l:'Tên bài / nội dung chính',
+       ph:'vd: review serum B5 · so sánh 3 loại kem chống nắng',
+       hint:'để trống cũng được, nhưng có tên thì lúc dò lại đỡ phải mở từng link'},
+      F.needProduct
+        ? {k:'productId', l:'Sản phẩm gắn trong bài', t:'select',
+           opts: [['', '— không gắn sản phẩm —']].concat(
+             ps.map(x => [x.id, (x.brand ? x.brand + ' · ' : '') + x.name])),
+           hint: ps.length ? 'chọn xong thì bài này hiện luôn trong trang sản phẩm đó'
+                           : 'chưa có sản phẩm nào — thêm ở tab Tài nguyên'}
+        : null,
+      {t:'sec', l:'Hai kênh'},
+      {k:'url',     l:F.main.label, t:'url', ph:F.main.ph},
+      {k:'reupUrl', l:F.reup.label, t:'url', ph:F.reup.ph},
+      {k:'reupAt',  l:'Ngày đăng lại', t:'date', half:true,
+       hint:'bỏ trống thì app tự điền ngày hôm nay lúc bạn dán link vào'},
+      {k:'note', l:'Ghi chú', t:'textarea', rows:2, ph:'bài chạy tốt · bị hạn chế hiển thị…'}
+    ],
+    onSave(v){
+      if (!v.date){ toast('Chọn ngày đăng'); return false; }
+      if (!v.url && !v.reupUrl){ toast('Dán ít nhất một link vào'); return false; }
+      /* Trùng link = đếm hai lần. Mà đếm là toàn bộ lý do trang này tồn tại,
+         nên hỏi thẳng chứ không lặng lẽ ghi thêm một dòng. */
+      const trung = posts().find(x => x.id !== (isNew ? '' : p.id) && v.url &&
+                                      (x.url === v.url || x.reupUrl === v.url));
+      if (trung && !confirm('Link này đã có trong bài "' +
+            (trung.title || fmtDate(trung.date)) + '" ngày ' + fmtDate(trung.date) +
+            '.\n\nGhi tiếp thì tháng này bị đếm thành hai bài.\nVẫn ghi?')) return false;
+      /* Có link đăng lại mà chưa ghi ngày → lấy hôm nay. Làm ở đây chứ không
+         ở ensure(): ensure() chạy mỗi lần mở app, đóng dấu hôm nay lên cả
+         những bài reup từ đời nào. */
+      if (v.reupUrl && !v.reupAt) v.reupAt = today();
+      if (!v.reupUrl) v.reupAt = '';
+
+      const rec = isNew ? stamp({}) : db.posts.find(x => x.id === p.id);
+      Object.assign(rec, v);
+      stamp(rec);
+      if (isNew) db.posts.push(rec);
+      ensure(); save();
+      toast(isNew ? 'Đã ghi bài' : 'Đã lưu');
+    },
+    onDelete: isNew ? null : () => {
+      if (!confirm('Xoá bài này khỏi danh sách?')) return false;
+      const rec = db.posts.find(x => x.id === p.id);
+      rec.deleted = true; stamp(rec); save(); toast('Đã xoá'); render();
+    }
+  });
 }
 
 /* ---------------- clip ---------------- */
@@ -2121,6 +2217,10 @@ const ACTIONS = {
   delkol:     id => delKol(id),
   newbooking: id => bookingForm(null, id),
   newclip:    id => clipForm(null),
+  newpost:    () => askPostFlow(),
+  newpostflow:id => { closeModal(); postForm(null, id); },
+  editpost:   id => { const p = postOf(id); if (p) postForm(p); },
+  postmonthonly: () => { ui.postMonthOnly = !ui.postMonthOnly; render(); },
   addclipfor: id => { closeModal(); clipForm(null, id); },
   newproduct: () => productForm(null),
   editproduct:id => productForm(productOf(id)),
@@ -2209,6 +2309,8 @@ const ACTIONS = {
     else if (t.ref.kind === 'impacts'){ const im = impactOf(t.ref.id); if (im) go('sp', im.productId); }
     else if (t.ref.kind === 'products'){ go('sp', t.ref.id); setTimeout(() => spImportModal(t.ref.id), 150); }
     else if (t.ref.kind === 'ideas'){ go('newprod'); setTimeout(() => ideaForm(ideaOf(t.ref.id)), 120); }
+    else if (t.ref.kind === 'posts'){ go('posts'); setTimeout(() => { const p = postOf(t.ref.id); if (p) postForm(p); }, 120); }
+    else if (t.ref.kind === 'page'){ go(t.ref.id); }
   },
 
   /* cần bạn duyệt */
@@ -2284,6 +2386,13 @@ document.addEventListener('click', e => {
     });
     return;
   }
+  /* Bấm thẳng vào một đường dẫn thật thì để trình duyệt mở nó ra, đừng chạy
+     thao tác của cái hàng bọc bên ngoài. Thiếu chỗ này thì mọi link nằm
+     trong một hàng bấm được đều chết: hàng nuốt cú bấm rồi preventDefault,
+     nên bấm link chỉ thấy hộp thoại sửa mở lên. */
+  const link = e.target.closest('a[href]');
+  if (link && !link.dataset.act) return;
+
   const el = e.target.closest('[data-act]');
   if (!el) return;
   const act = el.dataset.act;
@@ -2348,6 +2457,13 @@ document.addEventListener('change', e => {
 
   const a = e.target.closest('[data-a]');
   if (a){ db.settings.alerts[a.dataset.a] = Math.max(1, +a.value || 1); save(); render(); return; }
+
+  const pt = e.target.closest('[data-pt]');
+  if (pt){
+    db.settings.postTargets = db.settings.postTargets || {};
+    db.settings.postTargets[pt.dataset.pt] = Math.max(0, +pt.value || 0);
+    save(); render(); return;
+  }
 
   const my = e.target.closest('[data-my]');
   if (my){ db.settings[my.dataset.my] = my.value.trim(); save(); return; }

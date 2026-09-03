@@ -116,10 +116,10 @@ function apiBase(): string {
 /* Thêm một luồng ở đây là xong: cron, tg_save, hộp thoại Cài đặt đều đọc
    từ ba mảng này chứ không viết cứng tên luồng ở đâu cả. Luồng mới chưa có
    trong cấu hình đã lưu thì tgConfig() vá bằng giá trị mặc định. */
-const TG_FEEDS = ['booking', 'clip', 'ads', 'prod'];
+const TG_FEEDS = ['booking', 'clip', 'ads', 'prod', 'post'];
 const TG_FEED_LABEL = ['booking' => 'Booking', 'clip' => 'Clip', 'ads' => 'Shopee Ads',
-                       'prod' => 'Sản phẩm'];
-const TG_FEED_HOUR  = ['booking' => 8, 'clip' => 9, 'ads' => 17, 'prod' => 10];
+                       'prod' => 'Sản phẩm', 'post' => 'Bài đăng'];
+const TG_FEED_HOUR  = ['booking' => 8, 'clip' => 9, 'ads' => 17, 'prod' => 10, 'post' => 16];
 
 function tgConfig(): array {
   $c = array_merge(['token' => '', 'chat' => '', 'enabled' => false, 'feeds' => []],

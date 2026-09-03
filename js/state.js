@@ -314,7 +314,7 @@ const WEIGHT_LABEL = {
 
 /* Sau khi gửi sản phẩm mà không hẹn ngày cụ thể thì bao nhiêu ngày
    coi là quá lâu. Đổi được trong Cài đặt. */
-const DEFAULT_ALERTS = {shipDays:10, staleDeal:7, staleClip:7, roasDrop:20, spStale:10};
+const DEFAULT_ALERTS = {shipDays:10, staleDeal:7, staleClip:7, roasDrop:20, spStale:10, reupDays:2};
 
 /* ============================================================
    MẪU TIN NHẮN
@@ -536,20 +536,52 @@ function percentile(value, all, dir){
   return clamp(Math.round((better + same/2) / a.length * 100), 0, 100);
 }
 
+/* ============================================================
+   BÀI ĐĂNG NỘI BỘ — nhân viên tự đăng, khác hẳn clip đi booking
+
+   Hai luồng, mỗi luồng một bạn phụ trách: đăng ở kênh chính rồi đăng
+   lại (reup) sang kênh thứ hai.
+
+   Vì sao gộp chung một danh sách chứ không tách hai: hai việc chỉ khác
+   nhau ở cái nhãn và một ô sản phẩm. Tách đôi là nhân đôi biểu mẫu,
+   trang, bộ đếm tháng và phần nhắc — để phục vụ đúng một khác biệt.
+   Thêm luồng thứ ba sau này chỉ là thêm một dòng ở đây.
+
+   Vì sao reup là một trạng thái phải đóng chứ không phải ô để trống
+   cũng chẳng sao: bài gốc khó quên vì có hạn nội dung, còn reup làm
+   sau, không ai hỏi, tới cuối tháng đếm mới biết thiếu. Lúc đó thì
+   không làm lại được nữa.
+   ============================================================ */
+const POST_FLOWS = {
+  fb: {label:'Facebook → Google', short:'Facebook', icon:'📘', reupShort:'Google',
+       main:{label:'Link bài Facebook', ph:'facebook.com/…'},
+       reup:{label:'Link bài Google',   ph:'dán vào sau khi đã đăng lại'},
+       needProduct:false},
+  tt: {label:'TikTok → Shopee', short:'TikTok', icon:'🎬', reupShort:'Shopee',
+       main:{label:'Link clip TikTok',  ph:'tiktok.com/@…'},
+       reup:{label:'Link video Shopee', ph:'dán vào sau khi đã đăng lại'},
+       needProduct:true}
+};
+const POST_FLOW_IDS = Object.keys(POST_FLOWS);
+/* Chỉ tiêu bài mỗi tháng cho từng luồng. 0 = không đặt chỉ tiêu, lúc đó
+   app chỉ đếm chứ không nhắc thiếu. */
+const DEFAULT_POST_TARGETS = {fb:0, tt:0};
+
 /* ---------------- kho dữ liệu ---------------- */
 const KEY = 'kolhub.v1';
 const COLLECTIONS = ['kols','bookings','clips','products','adperiods','actions','brands','statuses',
-                     'templates','spweeks','impacts','ideas'];
+                     'templates','spweeks','impacts','ideas','posts'];
 
 function blank(){
   return {
     kols:[], bookings:[], clips:[], products:[], adperiods:[], actions:[], brands:[], statuses:[],
-    templates:[], spweeks:[], impacts:[], ideas:[],
+    templates:[], spweeks:[], impacts:[], ideas:[], posts:[],
     settings:{
       theme:'dark',
       myName:'',
       weights: Object.assign({}, DEFAULT_WEIGHTS),
-      alerts:  Object.assign({}, DEFAULT_ALERTS)
+      alerts:  Object.assign({}, DEFAULT_ALERTS),
+      postTargets: Object.assign({}, DEFAULT_POST_TARGETS)
     },
     meta:{ lastPull:null, lastPush:null, srvPull:'', srvPush:'' }
   };
@@ -590,6 +622,8 @@ function mergeInto(base, raw){
   out.settings = Object.assign({}, base.settings, raw.settings || {});
   out.settings.weights = Object.assign({}, DEFAULT_WEIGHTS, raw.settings && raw.settings.weights || {});
   out.settings.alerts  = Object.assign({}, DEFAULT_ALERTS,  raw.settings && raw.settings.alerts  || {});
+  out.settings.postTargets = Object.assign({}, DEFAULT_POST_TARGETS,
+                                           raw.settings && raw.settings.postTargets || {});
   out.meta     = Object.assign({}, base.meta, raw.meta || {});
   COLLECTIONS.forEach(k => { if (!Array.isArray(out[k])) out[k] = []; });
   return out;
@@ -776,6 +810,21 @@ function ensure(){
     if (!VERDICTS[im.verdict]) im.verdict = '';
     ['productId','title','detail','verdictNote'].forEach(f => { if (im[f] === undefined) im[f] = ''; });
     im.done = !!im.done;
+  });
+  /* Người đăng để ở ô `poster`, KHÔNG phải `by`: mọi bản ghi đều có sẵn `by`
+     và stamp() ghi đè nó bằng "ai vừa sửa dòng này" (owner / staff). Đặt tên
+     người đăng vào đó thì cứ lưu một cái là tên bay mất, mà mục Cần duyệt —
+     thứ lọc theo by === 'staff' — cũng mù luôn với bảng này. */
+  db.posts.forEach(p => {
+    if (!POST_FLOWS[p.flow]) p.flow = 'fb';
+    if (!p.date) p.date = today();
+    ['poster','title','url','reupUrl','reupAt','productId','note']
+      .forEach(f => { if (typeof p[f] !== 'string') p[f] = String(p[f] == null ? '' : p[f]); });
+    /* Luồng không gắn sản phẩm thì không giữ productId — đổi luồng xong mà
+       vẫn còn sản phẩm cũ dính lại là bảng thống kê sản phẩm đếm nhầm. */
+    if (!POST_FLOWS[p.flow].needProduct) p.productId = '';
+    if (p.productId && !db.products.some(x => x.id === p.productId && !x.deleted)) p.productId = '';
+    if (!p.reupUrl) p.reupAt = '';
   });
   db.ideas.forEach(i => {
     if (typeof i.name !== 'string') i.name = String(i.name || 'Chưa đặt tên');
@@ -974,6 +1023,7 @@ const REVIEW_KINDS = {
   spweeks:   'Tuần số liệu Shopee',
   impacts:   'Hành động cải thiện sản phẩm',
   clips:     'Clip',
+  posts:     'Bài đăng nội bộ',
   bookings:  'Booking',
   kols:      'Hồ sơ KOC',
   actions:   'Hành động quảng cáo',
@@ -1001,6 +1051,15 @@ function reviewLabel(kind, rec){
               sub: (b ? kolName(b.kolId) + ' · ' : '') + PLATFORMS[rec.platform].label
                    + (rec.postedAt ? ' · lên ' + fmtDate(rec.postedAt) : ''),
               go: b ? ['kol', b.kolId] : null};
+    }
+    case 'posts': {
+      const F = POST_FLOWS[rec.flow] || POST_FLOWS.fb;
+      const p = rec.productId ? productOf(rec.productId) : null;
+      return {title: F.icon + ' ' + (rec.title || 'bài ' + F.short + ' ngày ' + fmtDate(rec.date)),
+              sub: F.label + (rec.poster ? ' · ' + rec.poster : '') + ' · ' + fmtDate(rec.date)
+                   + (p ? ' · ' + p.name : '')
+                   + (rec.reupUrl ? ' · đã reup' : ' · chưa reup'),
+              go: ['posts', '']};
     }
     case 'bookings':
       return {title: kolName(rec.kolId) + ' · ' + (bookingProduct(rec) || 'chưa ghi sản phẩm'),
@@ -1079,7 +1138,8 @@ const TG_FEEDS = {
   booking: {label:'Booking',    icon:'🤝', hint:'KOC tới hẹn liên hệ lại'},
   clip:    {label:'Clip',       icon:'🎬', hint:'chờ lên clip, đã gửi hàng lâu chưa thấy'},
   ads:     {label:'Shopee Ads', icon:'📊', hint:'thử nghiệm quảng cáo tới hạn xem kết quả'},
-  prod:    {label:'Sản phẩm',   icon:'🛍', hint:'cải thiện sản phẩm tới hạn đo lại · sản phẩm mới tới việc kế tiếp'}
+  prod:    {label:'Sản phẩm',   icon:'🛍', hint:'cải thiện sản phẩm tới hạn đo lại · sản phẩm mới tới việc kế tiếp'},
+  post:    {label:'Bài đăng',   icon:'📝', hint:'bài đăng rồi mà chưa reup · gần hết tháng còn thiếu bài'}
 };
 const TG_FEED_IDS = Object.keys(TG_FEEDS);
 
@@ -1171,6 +1231,33 @@ function reminderTasks(){
          sub:IDEA_STAGE[i.stage].label + (i.nextNote ? ' · ' + i.nextNote : ' · chưa ghi việc gì'),
          ref:{kind:'ideas', id:i.id},
          doneLabel:'✅ Đã làm', doneSet:{nextAt:'', nextNote:''}, dueField:'nextAt'});
+  });
+
+  /* Bài đăng: khoản reup còn treo. Không có nút "Xong" — đóng việc này nghĩa
+     là dán được cái link, mà dán link thì phải mở app. Một nút "Xong" ở đây
+     chỉ cho phép tắt lời nhắc mà không làm gì, tức là hỏng đúng thứ nó canh.
+     Chặn 3 bài như bên nạp số liệu: nhân viên nghỉ vài hôm là cả chục bài
+     cùng treo, mà mười tin nhắn cùng lúc thì bạn tắt luồng này luôn. */
+  const canReup = postsDueReup();
+  canReup.slice(0, 3).forEach((p, i) => {
+    const F = POST_FLOWS[p.flow], conLai = (i === 2 && canReup.length > 3) ? canReup.length - 3 : 0;
+    add({id:'reup_' + p.id, feed:'post', due:addDays(p.date, A.reupDays), icon:'🔁',
+         title:'Chưa đăng lại sang ' + F.reupShort + ': ' + (p.title || 'bài ' + fmtShort(p.date)),
+         sub:F.short + (p.poster ? ' · ' + p.poster : '') + ' · đăng gốc ' + agoText(p.date) +
+             (conLai ? ' · còn ' + conLai + ' bài nữa cũng đang treo' : ''),
+         ref:{kind:'posts', id:p.id}});
+  });
+
+  /* Gần hết tháng mà còn thiếu bài. Nhắc lúc còn 5 ngày chứ không phải ngày
+     cuối cùng — hết tháng rồi thì biết cũng chẳng làm gì được nữa. */
+  const thang = today().slice(0, 7);
+  postMonth(thang).forEach(m => {
+    if (!m.target || !m.thieu) return;
+    add({id:'quota_' + m.flow + '_' + thang, feed:'post', due:addDays(monthEnd(thang), -4), icon:'📅',
+         title:'Còn thiếu ' + m.thieu + ' bài ' + POST_FLOWS[m.flow].short + ' tháng này',
+         sub:'đã có ' + m.n + '/' + m.target + ' bài · còn ' + m.daysLeft + ' ngày' +
+             (m.pace > 1 ? ' · cần ' + m.pace.toFixed(1).replace('.',',') + ' bài mỗi ngày' : ''),
+         ref:{kind:'page', id:'posts'}});
   });
 
   return out.sort((x,y) => x.due.localeCompare(y.due));
@@ -1279,6 +1366,71 @@ const clipCost = c => {
 };
 
 const bookingCost = b => (b.cost.fee||0) + (b.cost.product||0) + (b.cost.ship||0);
+
+/* ============================================================
+   BÀI ĐĂNG NỘI BỘ — đếm và soi khoản còn treo
+   ============================================================ */
+const posts       = () => alive(db.posts);
+const postOf      = id => posts().find(p => p.id === id) || null;
+const postsOfFlow = f  => posts().filter(p => p.flow === f);
+const postsIn     = (from, to) => posts().filter(p => p.date >= from && p.date <= to);
+const postsOfProduct = pid => posts().filter(p => p.productId === pid)
+                                     .sort((a,b) => b.date.localeCompare(a.date));
+/* Reup xong = đã có link. Không dùng ô ngày làm mốc: ngày có thể quên điền,
+   còn link thì không — không có link nghĩa là chưa làm. */
+const postReupped = p => !!p.reupUrl;
+
+/* Tên những người đã từng ghi bài, để gợi ý trong biểu mẫu. Gõ tay mỗi lần
+   một kiểu ("Linh", "linh", "Bạn Linh") là ba người khác nhau lúc đếm. */
+function postPeople(){
+  const seen = {};
+  posts().forEach(p => { const t = String(p.poster||'').trim(); if (t) seen[norm(t)] = t; });
+  return Object.values(seen).sort((a,b) => a.localeCompare(b, 'vi'));
+}
+
+/* Bài đã đăng gốc nhưng quá hạn mà chưa reup. Đây là danh sách việc thật,
+   không phải thống kê — nên sắp bài cũ nhất lên trước. */
+function postsDueReup(){
+  const n = Math.max(0, +db.settings.alerts.reupDays || 0);
+  return posts().filter(p => p.url && !p.reupUrl && dayDiff(addDays(p.date, n)) <= 0)
+                .sort((a,b) => a.date.localeCompare(b.date));
+}
+
+/* Số ngày từ lúc đăng gốc tới lúc reup — cho biết bước reup đang chậm bao lâu */
+function postReupLag(p){
+  if (!p.reupUrl || !p.reupAt || !p.date) return null;
+  return Math.max(0, Math.round(
+    (new Date(p.reupAt + 'T00:00:00') - new Date(p.date + 'T00:00:00')) / 86400000));
+}
+
+/* Tổng kết một tháng theo từng luồng: đủ chỉ tiêu chưa, còn treo mấy bài,
+   và ai đăng bao nhiêu. */
+function postMonth(ym){
+  const from = monthStart(ym), to = monthEnd(ym);
+  /* Ngày còn lại kể cả hôm nay. Tháng đã qua thì bằng 0 — lúc đó "còn thiếu"
+     là kết luận, không phải lời nhắc. */
+  const conNgay = to < today() ? 0 : Math.max(0, dayDiff(to) + 1);
+  return POST_FLOW_IDS.map(f => {
+    const list = postsIn(from, to).filter(p => p.flow === f)
+                                 .sort((a,b) => b.date.localeCompare(a.date) ||
+                                                (b.updatedAt||'').localeCompare(a.updatedAt||''));
+    const reup   = list.filter(postReupped).length;
+    const target = Math.max(0, +((db.settings.postTargets || {})[f]) || 0);
+    const thieu  = Math.max(0, target - list.length);
+    const dem = {};
+    list.forEach(p => { const t = String(p.poster||'').trim() || '(chưa ghi tên)'; dem[t] = (dem[t]||0) + 1; });
+    const lags = list.map(postReupLag).filter(x => x != null);
+    return {
+      flow:f, list, n:list.length, reup, chuaReup:list.length - reup,
+      target, thieu, daysLeft:conNgay,
+      /* Còn phải ra bao nhiêu bài mỗi ngày mới kịp. Số này nói thẳng "kịp hay
+         không kịp" theo cách mà "còn thiếu 7 bài" không nói được. */
+      pace: (conNgay && thieu) ? thieu / conNgay : 0,
+      lagTB: lags.length ? median(lags) : null,
+      nguoi: Object.entries(dem).sort((a,b) => b[1] - a[1])
+    };
+  });
+}
 
 /* ---- tổng hợp một KOL ---- */
 function kolStats(kolId){
@@ -2216,6 +2368,19 @@ function alerts(){
       sub: IDEA_STAGE[i.stage].label + (i.nextNote ? ' · ' + i.nextNote : ''),
       sort: 150 + d});
   });
+
+  /* 11. bài đăng rồi mà chưa đăng lại.
+     Gộp một dòng cho cả danh sách, không phải mỗi bài một dòng: đây là một
+     việc ("ngồi reup nốt"), làm một lượt, chứ không phải mười việc rời. */
+  const treo = postsDueReup();
+  if (treo.length){
+    const cu = -dayDiff(treo[0].date);
+    out.push({level: cu > 7 ? 'warn' : 'info', kind:'reup',
+      title: treo.length + ' bài đã đăng nhưng chưa đăng lại',
+      sub: 'cũ nhất là ' + (treo[0].title || POST_FLOWS[treo[0].flow].short) + ' — ' + cu + ' ngày trước'
+           + ' · để lâu thì tháng sau đếm mới biết thiếu, lúc đó không làm bù được',
+      sort: 170 + cu});
+  }
 
   const rank = {bad:0, warn:1, info:2};
   return out.sort((a,b) => (rank[a.level] - rank[b.level]) || (b.sort - a.sort));

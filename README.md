@@ -643,6 +643,69 @@ sửa một dòng nào ở máy chủ — đã kiểm cả hai: nút *Xong* trê
 
 ---
 
+## Bài đăng nội bộ
+
+Phần nhân viên tự đăng, tách hẳn khỏi clip đi booking KOC. Hai luồng, mỗi
+luồng một bạn phụ trách:
+
+```
+📘 Facebook  →  đăng lại sang Google
+🎬 TikTok    →  đăng lại sang Shopee     (+ gắn sản phẩm)
+```
+
+### Một danh sách, không phải hai
+
+Hai việc chỉ khác nhau ở cái nhãn và một ô sản phẩm. Tách đôi là nhân đôi biểu
+mẫu, trang, bộ đếm tháng và phần nhắc — để phục vụ đúng một khác biệt. Nên chỉ
+có một bộ `posts` với ô `flow`; thêm luồng thứ ba sau này là thêm một dòng trong
+`POST_FLOWS`.
+
+### Reup là trạng thái phải đóng, không phải ô để trống cũng được
+
+Đây là điểm chính. Bài gốc khó quên vì có hạn nội dung. Bước **đăng lại** thì
+làm sau, không ai hỏi, và tới cuối tháng đếm mới biết thiếu — lúc đó không làm
+bù được nữa. Nên app coi *chưa có link ở kênh thứ hai* là **việc đang treo**:
+
+- Khối **Chưa đăng lại** nằm trên cùng trang Bài đăng.
+- Một dòng trong Cảnh báo ở Tổng quan, gộp cả danh sách thành một việc.
+- Nhắc qua Telegram, mặc định sau 2 ngày (đổi trong Cài đặt).
+
+Việc này **không có nút “Xong”**, kể cả trong Telegram. Đóng nó nghĩa là dán
+được cái link, mà dán link thì phải mở app. Một nút *Xong* ở đây chỉ cho phép
+tắt lời nhắc mà không làm gì — tức là hỏng đúng thứ nó canh. Dán link vào là
+việc tự khép, `reupAt` tự điền ngày hôm nay.
+
+### Chỉ tiêu tháng
+
+Đặt trong Cài đặt, để `0` là không đặt — lúc đó app chỉ đếm chứ không nhắc.
+Thẻ mỗi luồng cho biết được bao nhiêu bài, ai đăng bao nhiêu, còn thiếu mấy
+bài và **còn bao nhiêu ngày**. Nhịp cần (“phải ra 2,3 bài mỗi ngày mới kịp”)
+chỉ hiện khi phải ra từ một bài mỗi ngày trở lên — dưới mức đó thì “cần 0,1
+bài mỗi ngày” chẳng nói thêm gì mà đọc lại rối.
+
+Telegram nhắc thiếu chỉ tiêu khi **còn 5 ngày cuối tháng**, không phải ngày
+cuối cùng: hết tháng rồi thì biết cũng chẳng làm gì được.
+
+### Hai chi tiết dễ sai đã xử
+
+- **Người đăng để ở ô `poster`, không phải `by`.** Mọi bản ghi trong app đều
+  có sẵn `by` và `stamp()` ghi đè nó bằng *ai vừa sửa dòng này* (`owner` /
+  `staff`). Đặt tên người đăng vào đó thì cứ lưu một cái là tên bay mất, mà mục
+  **Cần bạn duyệt** — thứ lọc theo `by === 'staff'` — cũng mù luôn với bảng
+  này. Lỗi này đã xảy ra thật trong lúc dựng và chỉ lộ ra khi chạy thử.
+- **Trùng link thì hỏi.** Đếm là toàn bộ lý do trang này tồn tại, nên ghi thêm
+  một dòng có link đã tồn tại (kể cả trùng với ô *đăng lại* của bài khác) sẽ bị
+  hỏi lại trước khi lưu.
+
+Bài TikTok gắn sản phẩm thì hiện luôn trong trang sản phẩm đó, ngay dưới phần
+clip đi booking: cùng một sản phẩm, một bên là phần tự làm, một bên là phần đi
+thuê. Tuần nào doanh số nhảy mà không rõ vì sao thì chỗ này thường có câu
+trả lời.
+
+Luồng Telegram thứ năm: **📝 Bài đăng**, mặc định 16 giờ.
+
+---
+
 ## Điều quan trọng cần biết trước khi dùng
 
 **Shopee và TikTok không cho lấy số liệu tự động.** Số nằm sau tài khoản đăng
@@ -954,12 +1017,17 @@ Ba quy ước giữ cho mã không rối khi lớn dần:
 
 4. **Thêm một bộ dữ liệu chỉ cần khai trong `COLLECTIONS`.** `sync.js` lặp theo
    mảng đó, và máy chủ không có danh sách trắng nào cho `kind` — nên `spweeks`,
-   `impacts`, `ideas` đồng bộ được mà không sửa một dòng PHP. Đổi lại: bản app
+   `impacts`, `ideas`, `posts` đồng bộ được mà không sửa một dòng PHP. Đổi lại: bản app
    **cũ** kéo về bộ dữ liệu nó chưa biết sẽ bỏ qua (`absorb()` chặn kind lạ).
    Không mất gì — máy chủ vẫn giữ — nhưng máy đó sẽ không thấy dữ liệu mới cho
    tới khi cập nhật.
 
-5. **Thêm một tệp JS phải khai ở ba chỗ**: `index.html`, mảng `JS` trong
+5. **Cẩn thận với `by` khi thêm ô mới.** Mọi bản ghi có sẵn `by` và `stamp()`
+   ghi đè nó bằng *ai vừa sửa dòng này*. Đặt tên ô mới trùng `by` thì giá trị
+   của bạn bay mất mỗi lần lưu, mà mục Cần bạn duyệt cũng mù luôn với bảng đó.
+   `id`, `updatedAt`, `deleted`, `seen` cũng vậy — đó là ô của hệ thống.
+
+6. **Thêm một tệp JS phải khai ở ba chỗ**: `index.html`, mảng `JS` trong
    `build.js`, và… không cần chỗ thứ ba nữa. `checkBuild()` từng viết cứng
    “phải có 6 tệp”; giờ nó đếm thẳng từ các thẻ `<script>` trong trang. Viết
    cứng thì thêm một tệp là bộ kiểm tra báo lệch trên một bản dựng hoàn toàn

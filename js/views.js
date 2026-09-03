@@ -13,6 +13,7 @@ const ui = {
   kolQ:'', kolFlag:'', kolTier:'', kolNiche:'', kolStatus:'', kolSort:'score',
   pipeBrand:'', pipeQ:'',
   clipQ:'', clipSort:'date', clipKol:'',
+  postQ:'', postFlow:'', postState:'', postMonthOnly:false,
   resTab:'brands', resQ:'',
   cmpFrom:'', cmpTo:'',
   todayAhead:0,
@@ -206,8 +207,9 @@ function viewDash(){
     const show = al.slice(0, 6);
     h += sectionTitle('Cần xử lý', al.length > 6 ? `<span class="dim">còn ${al.length-6} việc nữa</span>` : '');
     h += `<div class="alerts">` + show.map(a => `
-      <div class="al al-${a.level}" data-act="${a.bookingId ? 'booking' : a.clipId ? 'clip' : a.productId ? 'product' : ''}"
-           data-id="${a.bookingId || a.clipId || a.productId || ''}">
+      <div class="al al-${a.level}" data-act="${a.bookingId ? 'booking' : a.clipId ? 'clip' :
+             a.kind === 'reup' ? 'nav' : a.productId ? 'product' : ''}"
+           data-id="${a.bookingId || a.clipId || (a.kind === 'reup' ? 'posts' : a.productId) || ''}">
         <span class="al-dot"></span>
         <div class="grow"><div class="al-t">${esc(a.title)}</div><div class="al-s">${esc(a.sub)}</div></div>
         <span class="al-go">›</span>
@@ -807,6 +809,51 @@ function pendingCard(a){
 /* ============================================================
    MỘT SẢN PHẨM — bảng điều khiển đầy đủ
    ============================================================ */
+/* Những gì gắn với sản phẩm này ngoài số liệu quảng cáo: ai đã làm, clip
+   đi booking, và bài nhân viên tự đăng.
+
+   Tách ra thành hàm riêng vì trang sản phẩm có một lối thoát sớm khi chưa
+   có kỳ quảng cáo nào — trước đây lối đó nuốt luôn cả ba khối này, nên một
+   sản phẩm chưa chạy ads nhưng đã có KOC làm thì mở ra chỉ thấy "chưa theo
+   dõi gì", trong khi dữ liệu vẫn nằm đó. */
+function productRelated(p){
+  let h = '';
+
+  const pk = productKols(p.id);
+  h += sectionTitle('KOC đã làm sản phẩm này (' + pk.length + ')');
+  if (!pk.length) h += `<div class="card dim">Chưa có ai. Tạo booking và chọn đúng sản phẩm này để chúng nối vào nhau.</div>`;
+  else h += `<div class="card list">` + pk.map(x => `
+    <div class="li" data-act="kol" data-id="${x.kolId}">
+      ${avatar(x.kol)}
+      <div class="grow"><div class="li-t">${esc(x.kol.name)}</div>
+        <div class="li-s">${x.bookings.length} booking · ${num(x.views)} view
+          ${x.cpm != null ? ' · ' + moneyShort(x.cpm) + '/1000 view' : ''}</div></div>
+      <div class="li-r"><b>${moneyShort(x.cost)}</b><div class="dim">${x.roas != null ? xText(x.roas) : 'chưa có GMV'}</div></div>
+    </div>`).join('') + `</div>`;
+
+  const pc = productClips(p.id);
+  if (pc.length){
+    h += sectionTitle('Clip cho sản phẩm này (' + pc.length + ')');
+    h += `<div class="card list">` +
+      pc.slice().sort((a,b) => (b.postedAt||'').localeCompare(a.postedAt||''))
+        .map(c => clipRow(c, false)).join('') + `</div>`;
+  }
+
+  /* Bài nhân viên tự đăng đứng cạnh clip đi booking là có chủ ý: cùng một
+     sản phẩm, đây là phần tự làm còn trên kia là phần đi thuê. Tuần nào
+     doanh số nhảy mà không rõ vì sao thì chỗ này thường có câu trả lời. */
+  const pp = postsOfProduct(p.id);
+  if (pp.length){
+    const chua = pp.filter(x => !x.reupUrl).length;
+    h += sectionTitle('Bài nhân viên đăng gắn sản phẩm này (' + pp.length + ')',
+      chua ? `<span class="chip warn">${chua} chưa reup</span>` : '');
+    h += `<div class="card list">` + pp.slice(0, 12).map(postRow).join('') + `</div>`;
+    if (pp.length > 12)
+      h += `<div class="dim" style="margin:6px 2px 0">…và ${pp.length - 12} bài nữa trong tab Bài đăng.</div>`;
+  }
+  return h;
+}
+
 function viewProduct(id){
   const p = productOf(id);
   if (!p) return emptyBox('Không tìm thấy sản phẩm này', 'Có thể đã bị xoá.');
@@ -835,7 +882,7 @@ function viewProduct(id){
     h += emptyBox('Chưa theo dõi gì cho sản phẩm này',
       'Bắt đầu bằng cách ghi số liệu hiện tại làm mốc gốc, rồi ghi lại hành động đầu tiên bạn định làm.',
       'newperiod', '+ Ghi số liệu làm mốc');
-    return h;
+    return h + productRelated(p);
   }
 
   /* ---- kỳ chồng nhau: tổng sẽ sai, phải nói ra ---- */
@@ -979,28 +1026,7 @@ function viewProduct(id){
     </div>`;
   }).join('') + `</div></div>`;
 
-  /* ---- ai đã làm sản phẩm này ---- */
-  const pk = productKols(p.id);
-  h += sectionTitle('KOC đã làm sản phẩm này (' + pk.length + ')');
-  if (!pk.length) h += `<div class="card dim">Chưa có ai. Tạo booking và chọn đúng sản phẩm này để chúng nối vào nhau.</div>`;
-  else h += `<div class="card list">` + pk.map(x => `
-    <div class="li" data-act="kol" data-id="${x.kolId}">
-      ${avatar(x.kol)}
-      <div class="grow"><div class="li-t">${esc(x.kol.name)}</div>
-        <div class="li-s">${x.bookings.length} booking · ${num(x.views)} view
-          ${x.cpm != null ? ' · ' + moneyShort(x.cpm) + '/1000 view' : ''}</div></div>
-      <div class="li-r"><b>${moneyShort(x.cost)}</b><div class="dim">${x.roas != null ? xText(x.roas) : 'chưa có GMV'}</div></div>
-    </div>`).join('') + `</div>`;
-
-  /* ---- clip liên quan ---- */
-  const pc = productClips(p.id);
-  if (pc.length){
-    h += sectionTitle('Clip cho sản phẩm này (' + pc.length + ')');
-    h += `<div class="card list">` +
-      pc.slice().sort((a,b) => (b.postedAt||'').localeCompare(a.postedAt||''))
-        .map(c => clipRow(c, false)).join('') + `</div>`;
-  }
-
+  h += productRelated(p);
   h += `<div class="btns" style="margin-top:20px">
     ${isOwner() ? `<button class="btn dngr sm" data-act="delproduct" data-id="${p.id}">Xoá sản phẩm</button>` : ''}</div>`;
   return h;
@@ -1655,6 +1681,151 @@ const RES_TABS = [
   {id:'templates',label:'Mẫu tin nhắn'}
 ];
 
+/* ============================================================
+   BÀI ĐĂNG NỘI BỘ
+
+   Trang này trả lời đúng ba câu, theo thứ tự bạn thật sự hỏi chúng:
+     1. Còn gì đang treo chưa reup?   (việc phải làm hôm nay)
+     2. Tháng này được bao nhiêu bài? (câu bạn hỏi cuối tháng)
+     3. Cụ thể những bài nào?         (lúc cần dò lại một bài)
+   Danh sách để cuối cùng vì nó là thứ ít khi phải đọc hết.
+   ============================================================ */
+/* Link mở thẳng ra tab mới. Kiểm bài nghĩa là mở bài ra xem — bắt phải vào
+   hộp thoại sửa mới chép được link thì mỗi lần kiểm là thừa hai cú bấm. */
+const postLink = (url, label) => url
+  ? `<a class="plnk" href="${esc(url)}" target="_blank" rel="noopener">↗ ${esc(label)}</a>`
+  : `<span class="plnk off">— ${esc(label)}</span>`;
+
+function postRow(p){
+  const F = POST_FLOWS[p.flow] || POST_FLOWS.fb;
+  const pr = p.productId ? productOf(p.productId) : null;
+  const lag = postReupLag(p);
+  return `<div class="li" data-act="editpost" data-id="${p.id}">
+    <span class="li-ic">${F.icon}</span>
+    <div class="grow">
+      <div class="li-t">${esc(p.title || F.short + ' ' + fmtDate(p.date))}</div>
+      <div class="li-s">${fmtDate(p.date)}${p.poster ? ' · ' + esc(p.poster) : ''}${
+        pr ? ' <span class="chip">' + esc(pr.brand || '—') + ' · ' + esc(pr.name) + '</span>' : ''}</div>
+      <div class="plnks">${postLink(p.url, F.short)}${postLink(p.reupUrl, F.reupShort)}</div>
+    </div>
+    <div class="li-r">
+      ${p.reupUrl
+        ? `<span class="chip ok">✓ ${esc(F.reupShort)}</span>
+           <div class="dim">${lag == null ? 'đã reup' : lag === 0 ? 'reup cùng ngày' : 'sau ' + lag + ' ngày'}</div>`
+        : `<span class="chip warn">chờ ${esc(F.reupShort)}</span>
+           <div class="dim">${agoText(p.date)}</div>`}
+    </div>
+  </div>`;
+}
+
+/* Thẻ tổng kết tháng của một luồng. Con số to nhất là số bài — đó là thứ
+   bạn hỏi. Chỉ tiêu và nhịp cần chỉ là chú thích quanh nó. */
+function postFlowCard(m){
+  const F = POST_FLOWS[m.flow];
+  const pct = m.target ? Math.min(100, Math.round(m.n / m.target * 100)) : 0;
+  const du  = m.target && !m.thieu;
+  const cls = !m.target ? '' : du ? 'ok' : (m.pace > 1.5 ? 'bad' : m.pace ? 'warn' : 'bad');
+  return `<div class="pcard">
+    <div class="pc-hd"><span class="pc-ic">${F.icon}</span>
+      <div class="grow"><b>${esc(F.label)}</b>
+        <div class="dim">${m.nguoi.length
+          ? m.nguoi.map(x => esc(x[0]) + ' ' + x[1] + ' bài').join(' · ')
+          : 'chưa có bài nào tháng này'}</div></div>
+      <div class="pc-n ${cls}">${m.n}${m.target ? `<span>/${m.target}</span>` : ''}</div>
+    </div>
+    ${m.target ? `<div class="chb"><i style="width:${pct}%;background:var(--${du?'ok':m.pace>1.5?'bad':'acc'})"></i></div>` : ''}
+    <div class="pc-ft">
+      ${m.target
+        ? (du ? `<span class="chip ok">đủ chỉ tiêu</span>`
+              : m.daysLeft
+                ? `<span class="chip ${m.pace > 1.5 ? 'bad' : 'warn'}">còn thiếu ${m.thieu} bài</span>
+                   <span class="dim">${m.daysLeft} ngày nữa hết tháng${
+                     /* Chỉ nói nhịp khi phải ra từ một bài mỗi ngày trở lên. Dưới mức đó thì
+                        "cần 0,1 bài/ngày" chẳng nói thêm gì mà đọc lại rối. */
+                     m.pace >= 1 ? ' · phải ra ' + m.pace.toFixed(1).replace('.',',') +
+                                   ' bài mỗi ngày mới kịp' : ''}</span>`
+                : `<span class="chip bad">thiếu ${m.thieu} bài</span><span class="dim">tháng đã hết</span>`)
+        : `<span class="dim">chưa đặt chỉ tiêu tháng — đặt trong Cài đặt để app biết đường nhắc</span>`}
+      <div class="grow"></div>
+      ${m.chuaReup
+        ? `<span class="chip warn">${m.chuaReup} bài chưa reup</span>`
+        : m.n ? `<span class="chip ok">reup đủ ${m.reup}/${m.n}</span>` : ''}
+      ${m.lagTB != null ? `<span class="dim">${m.lagTB < 0.5 ? 'reup ngay trong ngày'
+        : 'reup sau ~' + Math.round(m.lagTB) + ' ngày'}</span>` : ''}
+    </div>
+  </div>`;
+}
+
+function viewPosts(){
+  const ym = ui.month;
+  const thang = postMonth(ym);
+  const treo  = postsDueReup();
+
+  let h = `<div class="toolbar">
+    <input class="inp grow" placeholder="Tìm bài theo tên, link, người đăng…" data-inp="postQ" value="${esc(ui.postQ)}">
+    <button class="btn pri" data-act="newpost">+ Bài đăng</button>
+  </div>`;
+
+  if (!posts().length)
+    return h + emptyBox('Chưa ghi bài đăng nào',
+      'Mỗi bài ghi một dòng: ngày đăng, link bài gốc, rồi link bài đăng lại. ' +
+      'Ô đăng lại để trống thì app coi là chưa làm và sẽ nhắc.',
+      'newpost', '+ Ghi bài đầu tiên');
+
+  /* ---- 1. đang treo ---- */
+  if (treo.length){
+    h += sectionTitle('Chưa đăng lại', `<span class="chip warn">${treo.length} bài</span>`);
+    h += `<div class="explain">Bài gốc đã lên nhưng chưa có link ở kênh thứ hai, quá
+      ${db.settings.alerts.reupDays} ngày. Bấm vào bài để dán link vào là xong.</div>`;
+    h += `<div class="card list">` + treo.slice(0, 8).map(postRow).join('') + `</div>`;
+    if (treo.length > 8) h += `<div class="dim" style="margin:6px 2px 0">…và ${treo.length - 8} bài nữa, xem trong danh sách bên dưới.</div>`;
+  }
+
+  /* ---- 2. tổng kết tháng ---- */
+  h += `<div class="sec">Kết quả tháng<span class="ln"></span>
+    <div class="mnav">
+      <button class="iconbtn sm" data-act="month" data-id="-1">‹</button>
+      <b>${esc(monthLabel(ym))}</b>
+      <button class="iconbtn sm" data-act="month" data-id="1">›</button>
+    </div></div>`;
+  h += `<div class="pcards">` + thang.map(postFlowCard).join('') + `</div>`;
+
+  /* ---- 3. danh sách ---- */
+  let list = posts();
+  if (ui.postFlow) list = list.filter(p => p.flow === ui.postFlow);
+  if (ui.postState === 'todo') list = list.filter(p => !p.reupUrl);
+  if (ui.postState === 'done') list = list.filter(p => !!p.reupUrl);
+  if (ui.postMonthOnly) list = list.filter(p => p.date.slice(0,7) === ym);
+  if (ui.postQ){
+    const q = norm(ui.postQ);
+    list = list.filter(p => norm([p.title, p.url, p.reupUrl, p.poster, p.note,
+      (productOf(p.productId)||{}).name].join(' ')).includes(q));
+  }
+  list = list.slice().sort((a,b) => b.date.localeCompare(a.date) ||
+                                    (b.updatedAt||'').localeCompare(a.updatedAt||''));
+
+  h += sectionTitle('Danh sách bài', `<span class="dim">${list.length} bài</span>`);
+  h += `<div class="filters">
+    <select class="inp sm" data-inp="postFlow">
+      <option value="">Cả hai luồng</option>
+      ${POST_FLOW_IDS.map(f => `<option value="${f}" ${ui.postFlow===f?'selected':''}>${esc(POST_FLOWS[f].label)}</option>`).join('')}
+    </select>
+    <select class="inp sm" data-inp="postState">
+      <option value=""     ${ui.postState===''    ?'selected':''}>Mọi tình trạng</option>
+      <option value="todo" ${ui.postState==='todo'?'selected':''}>Chưa reup</option>
+      <option value="done" ${ui.postState==='done'?'selected':''}>Đã reup</option>
+    </select>
+    <button class="btn sm ${ui.postMonthOnly ? 'pri' : ''}" data-act="postmonthonly">${
+      ui.postMonthOnly ? '📅 Chỉ ' + esc(monthLabel(ym)) : '📅 Mọi tháng'}</button>
+  </div>`;
+
+  if (!list.length) return h + emptyBox('Không có bài nào khớp', 'Thử bỏ bớt điều kiện lọc.');
+  h += `<div class="card list">` + list.slice(0, 200).map(postRow).join('') + `</div>`;
+  if (list.length > 200)
+    h += `<div class="dim" style="margin:6px 2px 0">Đang hiện 200 bài mới nhất. Dùng ô tìm kiếm để lọc bớt.</div>`;
+  return h;
+}
+
 function viewResources(){
   const tab = RES_TABS.some(t => t.id === ui.resTab) ? ui.resTab : 'brands';
   let h = `<div class="subtabs">` + RES_TABS.map(t =>
@@ -1887,9 +2058,21 @@ function viewSettings(){
       <input class="inp num" type="number" min="1" data-a="roasDrop" value="${a.roasDrop}"></div>
     <div class="kv"><span>Bao nhiêu ngày sau tuần cuối thì nhắc nạp số liệu Shopee</span>
       <input class="inp num" type="number" min="1" data-a="spStale" value="${a.spStale}"></div>
+    <div class="kv"><span>Đăng bài xong bao nhiêu ngày chưa reup thì nhắc</span>
+      <input class="inp num" type="number" min="1" data-a="reupDays" value="${a.reupDays}"></div>
   </div>
   <div class="dim" style="margin-top:6px">Mặc định 10 ngày: tuần kế tiếp đã kết thúc được ba hôm.
     Sản phẩm đang <b>tạm dừng</b> hoặc <b>cân nhắc bỏ</b> thì không nhắc.</div>`;
+
+  /* ---- chỉ tiêu bài đăng ---- */
+  h += sectionTitle('Chỉ tiêu bài đăng mỗi tháng');
+  h += `<div class="card">` + POST_FLOW_IDS.map(f => `
+    <div class="kv"><span>${POST_FLOWS[f].icon} ${esc(POST_FLOWS[f].label)}</span>
+      <input class="inp num" type="number" min="0" data-pt="${f}"
+             value="${(db.settings.postTargets||{})[f] || 0}"> bài</div>`).join('') + `</div>
+  <div class="dim" style="margin-top:6px">Để <b>0</b> nếu không đặt chỉ tiêu — lúc đó app chỉ đếm
+    chứ không nhắc thiếu. Có chỉ tiêu thì còn 5 ngày cuối tháng mà chưa đủ, Telegram sẽ nhắc một lần,
+    kèm số bài cần ra mỗi ngày để kịp.</div>`;
 
   /* ---- nhắc qua Telegram ---- */
   const g = tgCfg;
