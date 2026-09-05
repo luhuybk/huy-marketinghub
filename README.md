@@ -862,6 +862,40 @@ khi người ta thôi đọc cảnh báo.
 Còn mốc của cả gian hàng thì chia cho tổng ngày của mọi tháng, vì đó đúng là
 "một ngày trung bình của giai đoạn".
 
+### Khối "So với mức thường" — quy đổi về thang 100
+
+Có ở cả tab **Hôm nay** và **Hôm qua**, nằm ngoài tấm thẻ để chụp. Nó trả lời
+câu khác với mấy ô số phía trên: không phải "có gì bất thường không" mà "lệch
+bao nhiêu, ở chỗ nào, và chỗ nào lệch xa hơn chỗ nào".
+
+Bảng bày tám chỉ số cạnh nhau — **View · Click · CPC · CTR · CVR · Chi phí ·
+GMV · ROAS** — ba dòng: mức thường, hôm đó, chênh lệch.
+
+Biểu đồ dưới bảng quy đổi tất cả về **mức thường = 100**. Phải quy đổi vì tám
+chỉ số có tám đơn vị (lượt, đồng, phần trăm, lần), không thang nào chứa nổi cả
+tám; lấy mức thường làm 100 thì cột nào cũng đọc được bằng một cách. Cột 40 là
+mới bằng 40% mức thường, 134 là gấp 1,34 lần. Chỉ số nào có mức thường bằng 0
+thì bị bỏ khỏi biểu đồ — chia cho 0 ra cột vô nghĩa.
+
+Riêng **CPC thấp mới tốt**, ngược chiều với bảy cái còn lại; chú thích dưới
+biểu đồ nói rõ chỗ này.
+
+Ô **Phạm vi** ngay trên bảng đổi cả khối sang **một chiến dịch**: cùng tám chỉ
+số đó nhưng so chiến dịch ấy với chính nó ở tháng làm mốc. Chiến dịch mới mở,
+tháng mốc chưa có nó thì nói thẳng là chưa so được, không bày một bảng toàn dấu
+gạch.
+
+### Vì sao không cần nạp 30 file ngày để có mốc
+
+Công cụ rời trước đây phải thả cả thư mục 31 file ngày vào mới dựng được mức
+thường. Ở đây không cần: tổng cả tháng chia cho số ngày của tháng cho ra **đúng
+cùng một con số** với trung bình 31 file ngày, mà chỉ tốn một file và một bản
+ghi cho mỗi chiến dịch.
+
+Thứ duy nhất phải có dữ liệu ngày thật là **đường xu hướng** — nó vẽ từ những
+ngày đã nạp (giữ 45 ngày gần nhất), kèm một đường ngang là ROAS mức thường để
+biết bao nhiêu mới là bình thường.
+
 ### Phần ngày đã trôi qua lấy từ nhịp mua thật, không chia đều
 
 Chia đều 24 giờ thì 10h sáng app tưởng đã qua 46% ngày. Nhịp thật của shop

@@ -15,7 +15,7 @@ const ui = {
   clipQ:'', clipSort:'date', clipKol:'',
   postQ:'', postFlow:'', postState:'', postMonthOnly:false,
   adYm:'', adQ:'', adIssue:'', adOnlyBad:false, adShop:'', adTab:'day', adDate:'', adGioYm:'',
-  adGioQ:'', adGioSp:'',
+  adGioQ:'', adGioSp:'', adSoSanh:'',
   resTab:'brands', resQ:'',
   cmpFrom:'', cmpTo:'',
   todayAhead:0,
@@ -751,6 +751,99 @@ function shopBar(ids, dang){
 }
 
 /* ============================================================
+   SO VỚI MỨC THƯỜNG — bảng đủ chỉ số và biểu đồ quy đổi
+
+   Mấy ô số ở tấm thẻ phía trên trả lời "hôm nay có gì bất thường không" —
+   gọn để chụp gửi đi. Khối này trả lời câu khác: "lệch bao nhiêu, ở chỗ nào,
+   so với chỗ khác thì chỗ nào lệch nhiều hơn". Muốn trả lời được câu sau thì
+   phải bày mọi chỉ số cạnh nhau trên CÙNG một thang — mà tám chỉ số có tám
+   đơn vị khác nhau (lượt, đồng, phần trăm, lần), không thang nào chứa nổi.
+
+   Cách quy đổi: lấy mức thường làm 100. Cột nào cao hơn 100 là đang chạy
+   nhiều hơn mức thường, thấp hơn là ít hơn. Nhìn một cái là thấy con nào lệch
+   xa nhất, không phải nhẩm phần trăm trong đầu.
+   ============================================================ */
+/* Thứ tự theo cái phễu: ra mắt → được bấm → giá mỗi cú bấm → bấm rồi có mua
+   → tiêu bao nhiêu → thu về bao nhiêu → hiệu quả. `tot` là chiều tốt: true là
+   tăng thì tốt, false là giảm thì tốt (CPC, chi phí mỗi click), null là không
+   tốt không xấu nếu đứng một mình. */
+const AD_SS = [
+  {k:'impressions', l:'View',    p:'lượt hiển thị',  tot:null,  f: v => dem(Math.round(v))},
+  {k:'clicks',      l:'Click',   p:'lượt bấm vào',   tot:null,  f: v => dem(Math.round(v))},
+  /* CPC in đủ số, không rút gọn: 2.463 và 2.514 mà cùng ra "2k" thì cột này
+     vô dụng — đúng chỗ cần nhìn từng trăm đồng một. */
+  {k:'cpc',         l:'CPC',     p:'đồng mỗi click', tot:false, f: v => dem(Math.round(v || 0))},
+  {k:'ctr',         l:'CTR',     p:'view → click',   tot:true,  f: v => pctText(v, 2)},
+  {k:'cvr',         l:'CVR',     p:'click → đơn',    tot:true,  f: v => pctText(v, 2)},
+  {k:'cost',        l:'Chi phí', p:'tiền đã tiêu',   tot:null,  f: moneyShort},
+  {k:'gmv',         l:'GMV',     p:'doanh số',       tot:true,  f: moneyShort},
+  {k:'roas',        l:'ROAS',    p:'gmv ÷ chi phí',  tot:true,  f: xText}
+];
+
+function adCompareBlock(rp, o){
+  if (!rp.nen) return '';
+  const ds  = rp.rows.slice().sort((a, b) => b.m.cost - a.m.cost);
+  const chon = ui.adSoSanh ? ds.find(r => r.c.id === ui.adSoSanh) : null;
+  const nay = chon ? chon.m : rp.sum;
+  const bau = chon ? chon.bm : rp.nen.total;
+
+  let h = sectionTitle('So với mức thường',
+    `<span class="dim">mốc: trung bình một ngày của ${esc(o.nhanBau)}</span>`);
+
+  h += `<div class="toolbar">
+    <span class="dim" style="align-self:center">Phạm vi:</span>
+    <select class="inp grow" data-inp="adSoSanh">
+      <option value="">— Toàn gian hàng (${ds.length} chiến dịch) —</option>
+      ${ds.map(r => `<option value="${r.c.id}"${r.c.id === ui.adSoSanh ? ' selected' : ''}>${
+        esc(r.c.name.slice(0, 70))} · ${moneyShort(r.m.cost)}</option>`).join('')}
+    </select>
+  </div>`;
+
+  /* Chiến dịch mới mở, tháng làm mốc chưa có nó: không so được, và nói thẳng
+     thế thay vì bày một bảng toàn dấu gạch. */
+  if (chon && !chon.b)
+    return h + `<div class="card dim">Chiến dịch này chưa chạy trong ${esc(o.nhanBau)}
+      nên chưa có mức thường để so. Số của hôm nay: ${moneyShort(chon.m.cost)} chi phí,
+      ${moneyShort(chon.m.gmv)} doanh số, ROAS ${xText(chon.m.roas)}.</div>`;
+
+  const d = (k) => {
+    const a = bau[k], b = nay[k];
+    return a && b != null && isFinite(a) ? (b - a) / a * 100 : null;
+  };
+
+  h += `<div class="tblwrap"><table class="tbl sm ptbl"><thead><tr><th class="nw">Chỉ số</th>` +
+    AD_SS.map(x => `<th class="r">${x.l}<div class="dim" style="font-weight:400">${x.p}</div></th>`).join('') +
+    `</tr></thead><tbody>
+      <tr><td class="nw"><b>Mức thường</b><div class="dim">trung bình ngày ${esc(o.nhanBau)}${
+        o.tyLe ? ' · co còn ' + pctText(o.tyLe * 100, 0) : ''}</div></td>` +
+      AD_SS.map(x => `<td class="r nw dim">${x.f(bau[x.k])}</td>`).join('') + `</tr>
+      <tr><td class="nw"><b>${esc(o.nhanNay)}</b><div class="dim">${esc(o.phuNay || '')}</div></td>` +
+      AD_SS.map(x => `<td class="r nw"><b>${x.f(nay[x.k])}</b></td>`).join('') + `</tr>
+      <tr><td class="nw"><b>Chênh lệch</b><div class="dim">so với mức thường</div></td>` +
+      AD_SS.map(x => `<td class="r nw">${deltaChip(d(x.k), x.tot) || '—'}</td>`).join('') + `</tr>
+    </tbody></table></div>`;
+
+  /* Biểu đồ quy đổi. Bỏ chỉ số nào mức thường bằng 0 — chia cho 0 thì cột đó
+     hoặc vô tận hoặc biến mất, cả hai đều đánh lừa người nhìn. */
+  const qd = AD_SS.filter(x => bau[x.k] && isFinite(bau[x.k]))
+                  .map(x => ({label: x.l, bau: 100,
+                              nay: Math.max(0, (nay[x.k] || 0) / bau[x.k] * 100)}));
+  if (qd.length)
+    h += `<div class="card pad0" style="margin-top:10px">` + Chart.combo({
+      rows: qd,
+      bars: [{key:'bau', label:'Mức thường = 100', color:'var(--tx3)'},
+             {key:'nay', label:esc(o.nhanNay), color:'var(--acc)'}],
+      fmtBar: v => Math.round(v)
+    }) + `</div>`;
+
+  h += `<div class="dim" style="margin-top:6px">Cột xám luôn là 100 — đó là mức thường của
+    ${esc(o.nhanBau)}. Cột màu là ${esc(String(o.nhanNay).toLowerCase())} quy về cùng thang:
+    40 nghĩa là mới bằng 40% mức thường, 134 là gấp 1,34 lần. Riêng <b>CPC</b> thì thấp mới
+    tốt — cột CPC ngắn là đang mua click rẻ hơn thường lệ.</div>`;
+  return h;
+}
+
+/* ============================================================
    TAB BÁO CÁO ADS — khung chung của hai mục con
 
    Tách hẳn khỏi tab Shopee Ads: bên kia là việc tối ưu từng sản phẩm (ghi
@@ -897,6 +990,13 @@ function viewAdNow(shopId){
     <button class="btn" data-act="adtg" data-id="${nay.date}">Gửi tóm tắt vào Telegram</button>
     <span class="dim" style="align-self:center">Nạp lại giữa ngày lúc nào cũng được — mỗi lần
       ghi đè và mốc tự tính lại theo giờ mới.</span></div>`;
+
+  h += adCompareBlock(rp, {
+    nhanBau: rp.nen ? rp.nen.nhan : '',
+    nhanNay: 'Tới ' + gioLabel(nay.atHour),
+    phuNay:  fmtShort(nay.date) + (nay.partial ? ' · mới đi được ' + pctText(chia.tyLe * 100, 0) + ' ngày' : ''),
+    tyLe:    nay.partial ? chia.tyLe : null
+  });
 
   /* ---- bảng đầy đủ ---- */
   const q = norm(ui.adQ);
@@ -1277,18 +1377,29 @@ function viewAdDay(shopId){
 
   /* ---- đường xu hướng vài ngày ---- */
   if (dates.length > 1){
+    /* Kèm một đường ROAS mức thường nằm ngang: không có nó thì đường ROAS
+       thật lên xuống mà chẳng biết bao nhiêu mới là bình thường — phải nhớ
+       con số ở tấm thẻ phía trên rồi tự ướm bằng mắt. */
+    const nenRoas = rp.nen ? rp.nen.total.roas : null;
     const chuoi = dates.slice(0, 21).reverse().map(d => {
       const t = adSum(adDaysIn(d, shopId));
-      return {label: fmtShort(d), cost:t.cost, gmv:t.gmv, roas:t.roas};
+      return {label: fmtShort(d), cost:t.cost, gmv:t.gmv, roas:t.roas, nen: nenRoas};
     });
     h += sectionTitle(chuoi.length + ' ngày gần nhất');
     h += `<div class="card pad0">` + Chart.combo({
       rows: chuoi,
       bars: [{key:'cost', label:'Chi phí', color:'var(--bad)'}, {key:'gmv', label:'Doanh số', color:'var(--ok)'}],
-      lines:[{key:'roas', label:'ROAS', color:'var(--acc)'}],
+      lines:[{key:'roas', label:'ROAS', color:'var(--acc)'}].concat(
+        nenRoas ? [{key:'nen', label:'ROAS mức thường ' + monthLabel(rp.nen.ym), color:'var(--tx3)'}] : []),
       fmtBar: moneyShort, fmtLine: xText
     }) + `</div>`;
   }
+
+  h += adCompareBlock(rp, {
+    nhanBau: rp.nen ? monthLabel(rp.nen.ym) : '',
+    nhanNay: 'Ngày ' + fmtShort(date),
+    phuNay:  gioChup != null ? 'ảnh chụp lúc ' + gioLabel(gioChup) : 'trọn ngày'
+  });
 
   /* ---- bảng đầy đủ của ngày ---- */
   const q = norm(ui.adQ);

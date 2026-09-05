@@ -1987,8 +1987,10 @@ function adBaseline(shopId, date, tyLe, che){
     che: che === 'gan' ? 'gan' : 'moi',
     nhan: co.length === 1 ? monthLabel(co[0])
           : co.map(m => monthLabel(m).replace('Tháng ','T')).join(' · '),
-    total: {impressions: t.impressions*h, clicks: t.clicks*h, orders: t.orders*h,
-            cost: t.cost*h, gmv: t.gmv*h, roas: t.roas, ctr: t.ctr, cvr: t.cvr}
+    /* Cho qua adMetrics để có luôn cpc, cpo, aov — nhân đều mọi số tuyệt đối
+       thì mọi tỉ lệ giữ nguyên, nên không cần chép tay từng cái. */
+    total: adMetrics({impressions: t.impressions*h, clicks: t.clicks*h, orders: t.orders*h,
+                      cost: t.cost*h, gmv: t.gmv*h})
   };
 }
 
@@ -2032,6 +2034,8 @@ function adDayReport(shopId, date, tyLe, che){
     const dCost = dd(m.cost, b && b.cost);
     const dRoas = dd(m.roas, bm && bm.roas);
     const dImp  = dd(m.impressions, b && b.impressions);
+    const dClicks = dd(m.clicks, b && b.clicks);
+    const dCpc  = dd(m.cpc, bm && bm.cpc);
     const dCtr  = dd(m.ctr, bm && bm.ctr);
     const dCvr  = dd(m.cvr, bm && bm.cvr);
     const dGmv  = dd(m.gmv, b && b.gmv);
@@ -2050,7 +2054,7 @@ function adDayReport(shopId, date, tyLe, che){
     /* Một câu "gãy ở khúc nào" cho riêng chiến dịch này, tính sẵn ở đây để
        chỗ nào cần cũng dùng được cùng một kết luận. */
     const dx = bm && duLon ? adDiagnose(bm, m) : null;
-    return {c, m, b, bm, dCost, dRoas, dImp, dCtr, dCvr, dGmv, dOrders,
+    return {c, m, b, bm, dCost, dRoas, dImp, dCtr, dCvr, dGmv, dOrders, dClicks, dCpc,
             dx: dx && dx.tag !== 'Đứng yên' ? dx : null, flags};
   });
 
@@ -2080,6 +2084,7 @@ function adDayReport(shopId, date, tyLe, che){
     date, shopId: shopId || '', rows, sum, nen, byFlag, bad,
     dImp:  nen ? d(sum.impressions, nen.total.impressions) : null,
     dClicks: nen ? d(sum.clicks, nen.total.clicks) : null,
+    dCpc:  nen ? d(sum.cpc,  nen.total.cpc)  : null,
     dCost: nen ? d(sum.cost, nen.total.cost) : null,
     dGmv:  nen ? d(sum.gmv,  nen.total.gmv)  : null,
     dRoas: nen ? d(sum.roas, nen.total.roas) : null,

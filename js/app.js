@@ -2836,13 +2836,16 @@ const ACTIONS = {
   adissue:     id => { ui.adIssue = id || ''; ui.adOnlyBad = false; render(); },
   adonlybad:  (id) => { ui.adOnlyBad = id ? id === 'on' : !ui.adOnlyBad; ui.adIssue = ''; render(); },
   adtab:       id => { ui.adTab = ['month','gio','day','now'].includes(id) ? id : 'day'; ui.adQ = '';
-                       ui.adIssue = ''; ui.adOnlyBad = false; render(); },
+                       ui.adIssue = ''; ui.adOnlyBad = false; ui.adSoSanh = ''; render(); },
   adgioym:     id => { ui.adGioYm = id; ui.adGioSp = ''; render(); },
   giosp:       id => { ui.adGioSp = (ui.adGioSp === id) ? '' : (id || ''); render(); window.scrollTo(0,0); },
-  addate:      id => { ui.adDate = id; render(); },
+  /* Mỗi ngày là một bộ bản ghi mang id riêng, nên phạm vi đang chọn không
+     mang sang ngày khác được — giữ lại thì ô chọn trỏ vào một id không còn
+     tồn tại và bảng lặng lẽ quay về "toàn gian hàng". */
+  addate:      id => { ui.adDate = id; ui.adSoSanh = ''; render(); },
   adtg:        id => sendDayReport(id),
   adshop:      id => { ui.adShop = id || ''; ui.adYm = ''; ui.adIssue = '';
-                       ui.adOnlyBad = false; render(); },
+                       ui.adOnlyBad = false; ui.adSoSanh = ''; render(); },
   adcamp:      id => go('adcamp', id),
   newspweek:   id => spWeekForm(null, id),
   editspweek:  id => spWeekForm(db.spweeks.find(x => x.id === id)),
