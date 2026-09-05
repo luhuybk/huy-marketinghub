@@ -703,14 +703,30 @@ không hiểu vì sao.
 
 ---
 
-## Chiến dịch quảng cáo theo tháng
+## Tab Báo cáo Ads
 
-Vòng lặp ở trên là để **đào sâu** một sản phẩm. Phần này ngược lại: để **không
-bỏ sót** con nào.
+Tab **Shopee Ads** là để **đào sâu** một sản phẩm: ghi hành động, hẹn ngày đo
+lại. Tab **Báo cáo Ads** ngược lại — chỉ nạp file và đọc số, để **không bỏ sót**
+con nào. Hai việc khác nhịp: một cái làm khi có ý tưởng, một cái làm mỗi sáng.
+Nên chúng là hai tab, không phải hai nửa của một trang.
 
-Mỗi tháng xuất một file ở *Kênh Người Bán › Kênh Marketing › Quảng cáo Shopee ›
-Báo cáo*, chọn trọn một tháng, rồi kéo vào **Shopee Ads › Chiến dịch tháng**.
-Đọc được cả `.csv` lẫn `.xlsx`.
+Cùng dùng quyền `ads`, nên không phải tick thêm gì cho người đã có Shopee Ads.
+
+Tab có hai mục con:
+
+| Mục | Nạp gì | Trả lời câu gì |
+|---|---|---|
+| **Theo tháng** | file trọn một tháng | tháng rồi con nào hỏng, con nào gánh tiền |
+| **Hôm qua** | file đúng một ngày | hôm qua có gì lệch so với mọi ngày |
+
+File lấy cùng một chỗ: *Kênh Người Bán › Kênh Marketing › Quảng cáo Shopee ›
+Báo cáo*. Đọc được cả `.csv` lẫn `.xlsx`.
+
+**App tự nhận ra bạn đang nạp file nào** theo độ dài khoảng thời gian ghi trong
+tệp — 1 ngày là báo cáo ngày, 26–31 ngày là báo cáo tháng. Không có ô nào để
+khai, nên cũng không có chỗ để khai nhầm. Khoảng lỡ cỡ (một tuần chẳng hạn) thì
+app từ chối thẳng chứ không đoán: xếp nhầm một tuần vào ô của cả tháng là cả
+tháng đó sai, mà nhìn vẫn rất bình thường.
 
 ### Ba cấp: gian hàng → chiến dịch → tháng
 
@@ -796,6 +812,87 @@ khi làm bất cứ việc gì, mà chôn trong form thì phải biết là có 
 
 App dùng chính nó để gắn cờ 📉, và so với ROAS thực tế tháng gần nhất để nói
 thẳng nên nâng hay nên hạ giá thầu.
+
+## Báo cáo ngày
+
+Mỗi sáng, người phụ trách xuất báo cáo quảng cáo của **ngày hôm trước** rồi kéo
+vào mục **Hôm qua**. App so ngay, ra một thẻ gọn để chụp màn hình gửi đi.
+
+### Mốc so sánh lấy từ file tháng, không phải từ 30 file ngày
+
+Đây là quyết định quan trọng nhất của phần này. "Trung bình 30 ngày tháng rồi"
+đã nằm sẵn trong hệ thống rồi: chi phí cả tháng của từng chiến dịch chia cho số
+ngày của tháng đó. Nên **file ngày đầu tiên đã có cái để so** — không phải tích
+đủ 30 ngày mới dùng được, và không phải giữ 30 ngày dữ liệu chỉ để tính một
+phép trung bình.
+
+Mốc tính theo **ngày của tệp**, không theo hôm nay: nạp bù file của hai tuần
+trước thì mốc là tháng trước của ngày đó.
+
+### Chỉ giữ 45 ngày chi tiết
+
+157 chiến dịch × 365 ngày × mấy gian hàng sẽ vượt sức chứa của trình duyệt — và
+nó vượt một cách im lặng, đúng lúc bạn đang nạp file chứ không phải lúc đang
+rảnh. Nên dòng ngày cũ hơn `adRules.dayKeep` (mặc định 45) tự bị dọn mỗi lần
+nạp. Bản ghi theo tháng vẫn giữ mãi, nên phần lịch sử không mất.
+
+Thêm một chỗ tiết kiệm nữa: file ngày chỉ lưu những chiến dịch **có tiêu tiền**
+hôm đó. Con không tiêu đồng nào thì không có gì để soi.
+
+Con "đứng im" vẫn không lọt lưới, và đây là chỗ tinh tế: app bắt nó bằng cách
+đối chiếu với **mốc tháng**, chứ không dựa vào việc nó có mặt trong tệp hay
+không. Chiến dịch tháng trước ngày nào cũng chạy mà hôm qua biến mất khỏi file
+sẽ hiện ra trong nhóm 😴 với dòng "không có trong file" — nếu chỉ duyệt các dòng
+CÓ trong tệp thì loại này biến mất đúng lúc nó đáng chú ý nhất.
+
+### Năm cờ, và vì sao ngưỡng ngày là bộ riêng
+
+| Cờ | Nghĩa |
+|---|---|
+| 🔥 | tiêu mà doanh số bằng 0 |
+| 💸 | tiêu vọt hơn thường lệ trong khi ROAS lại thấp hơn |
+| 📉 | ROAS tụt so với mức trung bình tháng trước |
+| 😴 | tháng trước chạy đều, hôm qua gần như không tiêu được |
+| 🚀 | bỗng chạy tốt hẳn — đáng xem đã đổi gì để làm tiếp |
+
+Ngưỡng ngày **không phải** ngưỡng tháng chia cho 30. Một ngày là mẫu nhỏ: ROAS
+nhảy 40% giữa hai ngày là chuyện thường, còn nhảy 40% giữa hai tháng thì phải
+xem lại ngay. Lấy ngưỡng tháng áp vào ngày sẽ kêu suốt, mà kêu suốt thì chẳng ai
+đọc nữa.
+
+Ngưỡng quan trọng nhất là `dayMinCost` (mặc định 20.000₫): dưới mức đó thì bỏ
+qua. Chia một tháng ra 30 ngày thì phần lớn trong 157 chiến dịch chỉ còn vài
+nghìn đồng mỗi ngày — không có mức sàn thì chúng chiếm hết danh sách, và mấy con
+thật sự đang đốt tiền sẽ chìm mất.
+
+### Hai đường để báo cáo tới tay chủ
+
+Thẻ báo cáo có sẵn **tên gian hàng và ngày ở ngay trong thẻ**, nên chụp một phát
+là thành báo cáo đầy đủ — người nhận không phải hỏi lại "của shop nào, ngày
+nào".
+
+Cạnh đó là nút **Gửi tóm tắt vào Telegram**. Chụp thì phải nhớ chụp, mà người
+nạp file là người bận nhất. Quan trọng hơn: hôm nào **không** có tin nhắn thì
+chủ biết là hôm đó chưa ai nạp file, còn ảnh chụp thiếu thì không để lại dấu vết
+gì.
+
+Đường này là `tg_report`, và nó **không đòi quyền chủ** — người bấm nút là nhân
+viên. Đổi lại, máy chủ bọc lại phần chữ: tiêu đề cố định và tên người gửi, cắt
+ở 3.500 ký tự, escape HTML. Nên đây không thành một đường để nhân viên nhắn gì
+tuỳ ý vào Telegram của chủ.
+
+### Nhắc khi hụt file
+
+App nhắc "chưa nạp file ngày hôm qua" theo **từng gian hàng**, và chỉ nhắc shop
+đã từng nạp file ngày — shop chưa dùng tới nếp làm việc này mà nhắc mỗi sáng thì
+phiền vô ích.
+
+### Vì sao adcamps và addays không nằm trong "Cần bạn duyệt"
+
+Chúng vào bằng đường nạp file: một lần nạp là trăm rưỡi dòng, mà "Cần bạn duyệt"
+xếp mỗi dòng một mục. Duyệt tay trăm rưỡi dòng số máy móc thì không ai duyệt, và
+những thứ đáng duyệt thật — một deal, một clip — sẽ chìm mất trong đó. Số quảng
+cáo được soi bằng cờ cảnh báo trong chính báo cáo, đó mới là chỗ đọc được.
 
 ## Bài đăng nội bộ
 

@@ -347,7 +347,33 @@ const AD_ISSUE_IDS = Object.keys(AD_ISSUES);
    roasDrop : ROAS tụt bao nhiêu % so tháng trước thì báo.
    minCost  : camp chi dưới mức này thì bỏ qua mọi dấu hiệu — quá nhỏ để
               kết luận được điều gì. */
-const DEFAULT_AD_RULES = {wasteCost:50000, underTol:10, quietDrop:70, roasDrop:30, minCost:20000};
+const DEFAULT_AD_RULES = {wasteCost:50000, underTol:10, quietDrop:70, roasDrop:30, minCost:20000,
+                          dayMinCost:20000, dayCostUp:50, dayRoasDrop:30, dayQuiet:60, dayKeep:45};
+
+/* ============================================================
+   BÁO CÁO NGÀY
+
+   Ngưỡng của báo cáo ngày phải là bộ riêng, không dùng lại ngưỡng tháng chia
+   cho 30. Một ngày là một mẫu nhỏ: ROAS nhảy 40% giữa hai ngày là chuyện
+   thường, còn nhảy 40% giữa hai tháng thì phải xem lại ngay. Lấy ngưỡng tháng
+   áp vào ngày sẽ kêu suốt.
+
+   Mốc để so là TRUNG BÌNH NGÀY CỦA THÁNG TRƯỚC, lấy từ chính file tháng đã
+   nạp: chi phí cả tháng chia số ngày trong tháng. Nhờ vậy file ngày đầu tiên
+   đã có cái để so, không phải chờ tích đủ 30 ngày mới dùng được. */
+const AD_DAY_FLAGS = {
+  nosale: {icon:'🔥', label:'Tiêu mà không ra doanh số', cls:'bad',
+           hint:'hôm qua có chi nhưng doanh số bằng 0'},
+  burn:   {icon:'💸', label:'Tiêu vọt mà kém hiệu quả',  cls:'bad',
+           hint:'tiêu nhiều hơn hẳn mọi ngày, trong khi ROAS lại thấp hơn mức tháng trước'},
+  down:   {icon:'📉', label:'ROAS tụt so tháng trước',   cls:'warn',
+           hint:'vẫn tiêu bình thường nhưng đồng tiền ra ít hơn'},
+  quiet:  {icon:'😴', label:'Đứng im, không tiêu được',  cls:'warn',
+           hint:'tháng trước ngày nào cũng chạy, hôm qua gần như không tiêu — thường là giá thầu quá thấp'},
+  up:     {icon:'🚀', label:'Bỗng chạy tốt hẳn',         cls:'ok',
+           hint:'ROAS cao hơn hẳn mức tháng trước — đáng xem đã thay đổi gì để làm tiếp'}
+};
+const AD_DAY_FLAG_IDS = Object.keys(AD_DAY_FLAGS);
 
 /* ============================================================
    MẪU TIN NHẮN
@@ -652,12 +678,12 @@ const DEFAULT_POST_TARGETS = {fb:0, tt:0};
 /* ---------------- kho dữ liệu ---------------- */
 const KEY = 'kolhub.v1';
 const COLLECTIONS = ['kols','bookings','clips','products','adperiods','actions','brands','statuses',
-                     'templates','spweeks','impacts','ideas','posts','adcamps','shops'];
+                     'templates','spweeks','impacts','ideas','posts','adcamps','shops','addays'];
 
 function blank(){
   return {
     kols:[], bookings:[], clips:[], products:[], adperiods:[], actions:[], brands:[], statuses:[],
-    templates:[], spweeks:[], impacts:[], ideas:[], posts:[], adcamps:[], shops:[],
+    templates:[], spweeks:[], impacts:[], ideas:[], posts:[], adcamps:[], shops:[], addays:[],
     settings:{
       theme:'dark',
       myName:'',
@@ -872,6 +898,14 @@ function ensure(){
     if (!c.from) c.from = monthStart(c.ym);
     if (!c.to || c.to < c.from) c.to = monthEnd(c.ym);
     ['name','sku','status','bid','note','shopId'].forEach(f => {
+      if (typeof c[f] !== 'string') c[f] = String(c[f] == null ? '' : c[f]);
+    });
+    ['impressions','clicks','orders'].forEach(f => c[f] = parseCount(c[f]));
+    ['cost','gmv'].forEach(f => c[f] = parseMoney(c[f]));
+  });
+  db.addays.forEach(c => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(c.date || '')) c.date = today();
+    ['name','sku','status','bid','shopId'].forEach(f => {
       if (typeof c[f] !== 'string') c[f] = String(c[f] == null ? '' : c[f]);
     });
     ['impressions','clicks','orders'].forEach(f => c[f] = parseCount(c[f]));
@@ -1136,6 +1170,11 @@ function missingVars(text){
    mọi bản ghi đều đã mang sẵn `by` (mục 1). Nhân viên nhập là by='staff';
    bạn bấm "đã xem" thì ghi `seen`, còn `by` giữ nguyên để biết ai đã nhập.
    ============================================================ */
+/* adcamps và addays cố ý KHÔNG có trong đây. Chúng vào bằng đường nạp file:
+   một lần nạp là trăm rưỡi dòng, mà "Cần bạn duyệt" xếp mỗi dòng một mục —
+   duyệt tay trăm rưỡi dòng số máy móc thì không ai duyệt, và những thứ đáng
+   duyệt thật (một deal, một clip) sẽ chìm mất trong đó. Số quảng cáo được
+   soi bằng cờ cảnh báo trong chính báo cáo, đó mới là chỗ đọc được. */
 const REVIEW_KINDS = {
   adperiods: 'Kỳ số liệu quảng cáo',
   spweeks:   'Tuần số liệu Shopee',
@@ -1145,7 +1184,6 @@ const REVIEW_KINDS = {
   bookings:  'Booking',
   kols:      'Hồ sơ KOC',
   actions:   'Hành động quảng cáo',
-  adcamps:   'Chiến dịch quảng cáo',
   shops:     'Gian hàng',
   products:  'Sản phẩm',
   ideas:     'Sản phẩm mới',
@@ -1195,16 +1233,9 @@ function reviewLabel(kind, rec){
     }
     case 'products':
       return {title: rec.name, sub: 'sản phẩm', go: ['product', rec.id]};
-    case 'adcamps': {
-      const m = adMetrics(rec);
-      return {title: rec.name || 'chiến dịch không tên',
-              sub: shopName(rec.shopId) + ' · ' + monthLabel(rec.ym) + ' · chi ' + moneyShort(m.cost)
-                   + ' · GMV ' + moneyShort(m.gmv) + ' · ROAS ' + xText(m.roas),
-              go: ['adcamp', rec.id]};
-    }
     case 'shops':
       return {title: rec.name, sub: 'gian hàng' + (rec.code ? ' · mã ' + rec.code : ''),
-              go: ['adcamps', '']};
+              go: ['adreport', '']};
     case 'spweeks': {
       const p = productOf(rec.productId);
       const m = spMetrics(rec);
@@ -1806,6 +1837,146 @@ function adcampMissingMonth(shopId){
    này không có nghĩa là shop kia đã nạp. */
 const adcampMissingShops = () =>
   adcampShopIds().filter(id => adcampMissingMonth(id)).map(id => ({shopId:id, ym: adcampMissingMonth(id)}));
+
+/* ============================================================
+   SỐ LIỆU QUẢNG CÁO THEO NGÀY (addays)
+   ============================================================ */
+const addays        = () => alive(db.addays);
+const addaysOfShop  = shopId => shopId ? addays().filter(c => c.shopId === shopId) : addays();
+const adDayDates    = shopId => Array.from(new Set(addaysOfShop(shopId).map(c => c.date)))
+                                     .sort().reverse();
+const adDaysIn      = (date, shopId) => addaysOfShop(shopId).filter(c => c.date === date)
+                                                            .sort((a,b) => (b.cost||0) - (a.cost||0));
+/* Cùng cách đặt danh tính với bản ghi tháng, để một chiến dịch nối được từ
+   dòng ngày sang dòng tháng của chính nó. */
+const adDayKey = c => (c.shopId || '') + '|' + (c.sku ? 's:' + norm(c.sku) : 'n:' + norm(c.name));
+
+/* ---- mốc so sánh: trung bình một ngày của tháng gần nhất đã nạp ----
+   Nhận `date` chứ không mặc định tháng trước của hôm nay: nạp bù file của
+   một ngày cách đây hai tuần thì mốc phải là tháng trước của NGÀY ĐÓ, không
+   phải tháng trước của hôm nay. */
+function adBaseline(shopId, date){
+  const ym = String(date || today()).slice(0,7);
+  const co = adcampMonths(shopId).filter(m => m < ym);
+  if (!co.length) return null;
+  const nen = co[0];                                   // tháng gần nhất trước đó
+  const ngay = +monthEnd(nen).slice(8,10);             // số ngày thật của tháng đó
+  const byKey = {};
+  adcampsIn(nen, shopId).forEach(c => {
+    byKey[adcampKey(c)] = {
+      impressions: c.impressions / ngay, clicks: c.clicks / ngay,
+      orders: c.orders / ngay, cost: c.cost / ngay, gmv: c.gmv / ngay,
+      thang: c
+    };
+  });
+  const t = adSum(adcampsIn(nen, shopId));
+  return {
+    ym: nen, ngay, byKey,
+    total: {impressions: t.impressions/ngay, clicks: t.clicks/ngay, orders: t.orders/ngay,
+            cost: t.cost/ngay, gmv: t.gmv/ngay, roas: t.roas, ctr: t.ctr, cvr: t.cvr}
+  };
+}
+
+/* ---- báo cáo của một ngày ---- */
+function adDayReport(shopId, date){
+  const R  = db.settings.adRules || DEFAULT_AD_RULES;
+  const nen = adBaseline(shopId, date);
+  const list = adDaysIn(date, shopId);
+  const sum = adSum(list);
+
+  const rows = list.map(c => {
+    const m = adMetrics(c);
+    const b = nen ? nen.byKey[adDayKey(c)] : null;
+    const bm = b ? adMetrics(b) : null;
+    const flags = [];
+    const duLon = m.cost >= (+R.dayMinCost || 0);
+    const dCost = b && b.cost ? (m.cost - b.cost) / b.cost * 100 : null;
+    const dRoas = bm && bm.roas && m.roas != null ? (m.roas - bm.roas) / bm.roas * 100 : null;
+
+    if (duLon && !m.gmv) flags.push('nosale');
+    if (duLon && dCost != null && dCost >= (+R.dayCostUp || 0) &&
+        (!m.gmv || (dRoas != null && dRoas <= -(+R.dayRoasDrop || 0)))) flags.push('burn');
+    if (duLon && m.gmv && dRoas != null && dRoas <= -(+R.dayRoasDrop || 0)) flags.push('down');
+    /* Đứng im: mốc phải đủ lớn thì mới kết luận được. Chiến dịch tháng trước
+       mỗi ngày tiêu vài nghìn thì hôm qua tiêu 0 chẳng nói lên điều gì. */
+    if (b && b.cost >= (+R.dayMinCost || 0) &&
+        m.cost <= b.cost * (1 - (+R.dayQuiet || 0) / 100)) flags.push('quiet');
+    if (duLon && dRoas != null && dRoas >= (+R.dayRoasDrop || 0)) flags.push('up');
+
+    return {c, m, b, bm, dCost, dRoas, flags};
+  });
+
+  const byFlag = {};
+  AD_DAY_FLAG_IDS.forEach(k => byFlag[k] = rows.filter(r => r.flags.includes(k))
+                                               .sort((a,b) => b.m.cost - a.m.cost));
+  /* Chiến dịch tháng trước chạy đều mà hôm qua KHÔNG có dòng nào trong file:
+     đó cũng là đứng im, chỉ khác là im tới mức không xuất hiện. Không bắt
+     riêng thì loại này biến mất khỏi báo cáo đúng lúc nó đáng chú ý nhất. */
+  if (nen){
+    const co = new Set(list.map(adDayKey));
+    Object.keys(nen.byKey).forEach(k => {
+      const b = nen.byKey[k];
+      if (co.has(k) || b.cost < (+R.dayMinCost || 0)) return;
+      byFlag.quiet.push({c: Object.assign({}, b.thang, {date, impressions:0, clicks:0,
+                                                        orders:0, cost:0, gmv:0}),
+                         m: adMetrics({}), b, bm: adMetrics(b), dCost: -100, dRoas: null,
+                         flags:['quiet'], vang: true});
+    });
+    byFlag.quiet.sort((a,b) => b.b.cost - a.b.cost);
+  }
+
+  const bad = rows.filter(r => r.flags.some(f => f !== 'up'))
+                  .concat(byFlag.quiet.filter(r => r.vang));
+  const d = (cur, tr) => tr && cur != null ? (cur - tr) / tr * 100 : null;
+  return {
+    date, shopId: shopId || '', rows, sum, nen, byFlag, bad,
+    dCost: nen ? d(sum.cost, nen.total.cost) : null,
+    dGmv:  nen ? d(sum.gmv,  nen.total.gmv)  : null,
+    dRoas: nen ? d(sum.roas, nen.total.roas) : null,
+    dOrders: nen ? d(sum.orders, nen.total.orders) : null
+  };
+}
+
+/* Một câu kết luận bằng lời, để người xem ảnh chụp không phải tự đọc số. */
+function adDayVerdict(rp){
+  if (!rp.nen) return 'Chưa nạp file tháng nào trước ngày này nên chưa có mốc để so. ' +
+                      'Nạp file tháng gần nhất vào tab Theo tháng là báo cáo ngày sẽ có mốc.';
+  const t = [];
+  const noi = (v, tang, giam) => v == null ? '' : v >= 8 ? tang : v <= -8 ? giam : 'ngang mức thường';
+  t.push('Hôm đó tiêu ' + moneyShort(rp.sum.cost) + ' — ' +
+         noi(rp.dCost, 'nhiều hơn thường lệ', 'ít hơn thường lệ') + '.');
+  t.push('ROAS ' + xText(rp.sum.roas) + ' so với ' + xText(rp.nen.total.roas) +
+         ' của ' + monthLabel(rp.nen.ym) + ' — ' +
+         noi(rp.dRoas, 'tốt hơn', 'kém hơn') + '.');
+  const n = rp.bad.length;
+  t.push(n ? n + ' chiến dịch cần xem lại.' : 'Không chiến dịch nào bất thường.');
+  return t.join(' ');
+}
+
+/* Dọn dữ liệu ngày quá cũ. Giữ tất thì 157 chiến dịch × 365 ngày × mấy shop
+   sẽ vượt sức chứa của trình duyệt — và nó vượt một cách im lặng, đúng lúc
+   bạn đang nạp file chứ không phải lúc đang rảnh. Bản ghi tháng vẫn giữ mãi,
+   nên bỏ chi tiết ngày cũ không mất phần lịch sử. */
+/* Shop nào chưa nạp file của hôm qua. Chỉ nhắc shop ĐÃ từng nạp file ngày —
+   shop chưa dùng tới nếp làm việc này thì nhắc mỗi sáng là phiền vô ích. */
+function adDayMissingShops(){
+  const hom = addDays(today(), -1);
+  return adcampShopIds().filter(id => {
+    const co = adDayDates(id);
+    return co.length && !co.includes(hom);
+  }).map(id => ({shopId: id, date: hom, cuoi: adDayDates(id)[0]}));
+}
+
+function pruneAdDays(){
+  const R = db.settings.adRules || DEFAULT_AD_RULES;
+  const giu = Math.max(7, +R.dayKeep || 45);
+  const moc = addDays(today(), -giu);
+  let n = 0;
+  db.addays.forEach(c => {
+    if (!c.deleted && c.date < moc){ c.deleted = true; stamp(c); n++; }
+  });
+  return n;
+}
 function periodLabel(w){
   if (w.label) return w.label;
   const d = periodDays(w);
@@ -2647,10 +2818,20 @@ function alerts(){
     const ten = id => nhieuShop ? shopName(id) + ': ' : '';
 
     adcampMissingShops().forEach(x => {
-      out.push({level:'warn', kind:'adload', page:'adcamps',
+      out.push({level:'warn', kind:'adload', page:'adreport',
         title: ten(x.shopId) + 'chưa nạp file quảng cáo ' + monthLabel(x.ym),
         sub: 'tháng đã khép sổ mà chưa có số — không nạp thì không biết con nào đang hỏng',
         sort: 190});
+    });
+
+    adDayMissingShops().forEach(x => {
+      const tre = -dayDiff(x.cuoi) - 1;
+      out.push({level: tre > 2 ? 'warn' : 'info', kind:'adday', page:'adreport',
+        title: ten(x.shopId) + 'chưa nạp file quảng cáo ngày ' + fmtDate(x.date),
+        sub: 'file gần nhất là ngày ' + fmtDate(x.cuoi) +
+             (tre > 0 ? ' — hụt ' + tre + ' ngày' : '') +
+             ' · nạp hằng ngày mới thấy được con nào vừa hỏng hôm qua',
+        sort: 185});
     });
 
     adcampShopIds().forEach(id => {
@@ -2658,7 +2839,7 @@ function alerts(){
       if (!ym) return;
       const rp = adcampReport(ym, id);
       if (!rp.bad.length) return;
-      out.push({level: rp.waste ? 'warn' : 'info', kind:'adcamp', page:'adcamps',
+      out.push({level: rp.waste ? 'warn' : 'info', kind:'adcamp', page:'adreport',
         title: ten(id) + rp.bad.length + ' chiến dịch cần xem lại — ' + monthLabel(ym),
         sub: AD_ISSUE_IDS.filter(k => rp.byIssue[k].length)
                .map(k => rp.byIssue[k].length + ' ' + AD_ISSUES[k].label.toLowerCase()).join(' · ')

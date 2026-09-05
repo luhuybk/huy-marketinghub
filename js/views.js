@@ -14,7 +14,7 @@ const ui = {
   pipeBrand:'', pipeQ:'',
   clipQ:'', clipSort:'date', clipKol:'',
   postQ:'', postFlow:'', postState:'', postMonthOnly:false,
-  adYm:'', adQ:'', adIssue:'', adOnlyBad:false, adShop:'',
+  adYm:'', adQ:'', adIssue:'', adOnlyBad:false, adShop:'', adTab:'day', adDate:'',
   resTab:'brands', resQ:'',
   cmpFrom:'', cmpTo:'',
   todayAhead:0,
@@ -747,15 +747,176 @@ function shopBar(ids, dang){
       esc(shopName(id))}</button>`).join('') + `</div>`;
 }
 
-function viewAdcamps(){
+/* ============================================================
+   TAB BÁO CÁO ADS — khung chung của hai mục con
+
+   Tách hẳn khỏi tab Shopee Ads: bên kia là việc tối ưu từng sản phẩm (ghi
+   hành động, hẹn ngày đo lại), bên này chỉ là nạp file và đọc số. Hai việc
+   khác nhịp — một cái làm khi có ý tưởng, một cái làm mỗi sáng.
+   ============================================================ */
+function viewAdReport(){
+  const shopIds = adcampShopIds();
+  const shopId  = shopIds.includes(ui.adShop) ? ui.adShop : '';
+  const tab = ui.adTab === 'month' ? 'month' : 'day';
+
+  let h = `<div class="toolbar">
+    <div class="tabs">
+      <button class="tab ${tab === 'day' ? 'on' : ''}" data-act="adtab" data-id="day">Hôm qua</button>
+      <button class="tab ${tab === 'month' ? 'on' : ''}" data-act="adtab" data-id="month">Theo tháng</button>
+    </div>
+    <div class="grow"></div>
+    <button class="btn pri" data-act="adimport">Nạp file</button>
+  </div>`;
+
+  h += shopBar(shopIds, shopId);
+  return h + (tab === 'day' ? viewAdDay(shopId) : viewAdMonth());
+}
+
+/* ============================================================
+   BÁO CÁO MỘT NGÀY
+
+   Gói trong một thẻ duy nhất, có sẵn tên gian hàng và ngày ở trong: chụp một
+   phát là thành báo cáo đầy đủ, người nhận không phải hỏi lại "của shop nào,
+   ngày nào".
+   ============================================================ */
+function adDayRow(r){
+  const {c, m, b, bm} = r;
+  const sub = v => v == null ? '' : `<div class="dim">${v}</div>`;
+  return `<tr class="${r.flags.some(f => f !== 'up') ? 'rowwarn' : ''}"
+              ${r.vang ? '' : `data-act="adcamp" data-id="${c.id}"`}>
+    <td class="ell" style="max-width:230px" title="${esc(c.name)}">
+      <b>${esc(c.name)}</b>
+      <div class="chips" style="margin-top:4px">${r.flags.map(f =>
+        `<span class="chip ${AD_DAY_FLAGS[f].cls}" title="${esc(AD_DAY_FLAGS[f].hint)}">${
+          AD_DAY_FLAGS[f].icon} ${esc(AD_DAY_FLAGS[f].label)}</span>`).join('')}</div></td>
+    <td class="r nw">${r.vang ? '<span class="bad">không có trong file</span>' : moneyShort(m.cost)}
+      ${sub(b ? 'thường ' + moneyShort(b.cost) : null)}</td>
+    <td class="r nw">${moneyShort(m.gmv)}${sub(b ? 'thường ' + moneyShort(b.gmv) : null)}</td>
+    <td class="r nw"><b class="${m.roas == null ? '' : m.roas >= 3 ? 'ok' : m.roas < 1.5 ? 'bad' : ''}">${
+      xText(m.roas)}</b>${sub(bm && bm.roas ? 'thường ' + xText(bm.roas) : null)}</td>
+  </tr>`;
+}
+
+function viewAdDay(shopId){
+  const shopIds = adcampShopIds();
+  const dates = adDayDates(shopId);
+
+  if (!dates.length)
+    return emptyBox('Chưa nạp file ngày nào',
+      'Mỗi sáng xuất báo cáo quảng cáo của NGÀY HÔM TRƯỚC — cùng chỗ với file tháng, chỉ khác ' +
+      'là chọn khoảng đúng một ngày — rồi kéo vào đây. App so ngay với mức trung bình một ngày ' +
+      'của tháng gần nhất đã nạp, nên file đầu tiên đã có cái để so, không phải chờ đủ 30 ngày.',
+      'adimport', 'Nạp file ngày');
+
+  const date = dates.includes(ui.adDate) ? ui.adDate : dates[0];
+  const rp = adDayReport(shopId, date);
+  const cham = v => v == null ? '' : deltaChip(v, null);
+
+  let h = '';
+
+  /* Ngày gần đây, để nhảy qua lại và để thấy ngay hôm nào bị hụt file. */
+  h += `<div class="chips" style="margin-bottom:12px">
+    <span class="dim" style="align-self:center;margin-right:2px">Ngày:</span>` +
+    dates.slice(0, 10).reverse().map(d =>
+    `<button class="btn sm ${d === date ? 'pri' : ''}" data-act="addate" data-id="${d}">${
+      esc(fmtShort(d))}</button>`).join('') + `</div>`;
+
+  /* ---- thẻ báo cáo: phần để chụp ---- */
+  h += `<div class="card rpt" id="rpt">
+    <div class="rpt-hd">
+      <div class="grow">
+        <b>Báo cáo quảng cáo ngày ${esc(fmtDate(date))}</b>
+        <div class="dim">${esc(shopId ? shopName(shopId) : shopIds.length > 1 ? 'Tất cả gian hàng' : shopName(shopIds[0] || ''))}${
+          rp.nen ? ' · so với trung bình một ngày của ' + esc(monthLabel(rp.nen.ym)) : ''}</div>
+      </div>
+      <span class="chip ${rp.bad.length ? 'bad' : 'ok'}">${
+        rp.bad.length ? rp.bad.length + ' cần xem lại' : 'không có gì bất thường'}</span>
+    </div>
+
+    <div class="tiles" style="margin-top:12px">
+      ${tile('Chi phí', moneyShort(rp.sum.cost),
+             rp.nen ? cham(rp.dCost) + ' · thường ' + moneyShort(rp.nen.total.cost) : '&nbsp;')}
+      ${tile('Doanh số', moneyShort(rp.sum.gmv),
+             rp.nen ? deltaChip(rp.dGmv, true) + ' · thường ' + moneyShort(rp.nen.total.gmv) : num(rp.sum.orders) + ' đơn')}
+      ${tile('ROAS', xText(rp.sum.roas),
+             rp.nen ? deltaChip(rp.dRoas, true) + ' · thường ' + xText(rp.nen.total.roas) : '&nbsp;',
+             rp.sum.roas >= 3 ? 'ok' : rp.sum.roas < 1.5 ? 'bad' : '')}
+      ${tile('Đơn', num(rp.sum.orders),
+             rp.nen ? deltaChip(rp.dOrders, true) + ' · thường ' + num(Math.round(rp.nen.total.orders)) : '&nbsp;')}
+    </div>
+
+    <div class="explain" style="margin-top:12px">${esc(adDayVerdict(rp))}</div>
+
+    ${AD_DAY_FLAG_IDS.filter(k => rp.byFlag[k].length).map(k => {
+      const F = AD_DAY_FLAGS[k], list = rp.byFlag[k].slice(0, 5);
+      return `<div class="rpt-grp">
+        <div class="rpt-gh"><span class="chip ${F.cls}">${F.icon} ${esc(F.label)}</span>
+          <span class="dim">${rp.byFlag[k].length} chiến dịch</span></div>` +
+        list.map(r => `<div class="rpt-li">
+          <span class="ell grow" title="${esc(r.c.name)}">${esc(r.c.name)}</span>
+          <span class="nw dim">${r.vang ? 'không chạy' : moneyShort(r.m.cost)}${
+            r.b ? ' / thường ' + moneyShort(r.b.cost) : ''} · ROAS ${xText(r.m.roas)}${
+            r.bm && r.bm.roas ? ' / ' + xText(r.bm.roas) : ''}</span>
+        </div>`).join('') +
+        (rp.byFlag[k].length > list.length
+          ? `<div class="rpt-li dim">…và ${rp.byFlag[k].length - list.length} chiến dịch nữa</div>` : '') +
+      `</div>`;
+    }).join('')}
+
+    ${!rp.bad.length ? `<div class="rpt-grp"><div class="dim">Mọi chiến dịch chạy quanh mức thường ngày.
+      Không có gì phải làm hôm nay.</div></div>` : ''}
+  </div>`;
+
+  h += `<div class="btns" style="margin-top:10px">
+    <button class="btn" data-act="adtg" data-id="${date}">Gửi tóm tắt vào Telegram</button>
+    <span class="dim" style="align-self:center">hoặc chụp màn hình thẻ ở trên — trong ảnh đã có
+      sẵn tên gian hàng và ngày.</span></div>`;
+
+  /* ---- đường xu hướng vài ngày ---- */
+  if (dates.length > 1){
+    const chuoi = dates.slice(0, 21).reverse().map(d => {
+      const t = adSum(adDaysIn(d, shopId));
+      return {label: fmtShort(d), cost:t.cost, gmv:t.gmv, roas:t.roas};
+    });
+    h += sectionTitle(chuoi.length + ' ngày gần nhất');
+    h += `<div class="card pad0">` + Chart.combo({
+      rows: chuoi,
+      bars: [{key:'cost', label:'Chi phí', color:'var(--bad)'}, {key:'gmv', label:'Doanh số', color:'var(--ok)'}],
+      lines:[{key:'roas', label:'ROAS', color:'var(--acc)'}],
+      fmtBar: moneyShort, fmtLine: xText
+    }) + `</div>`;
+  }
+
+  /* ---- bảng đầy đủ của ngày ---- */
+  const q = norm(ui.adQ);
+  let rows = rp.rows.slice().sort((a,b) => b.m.cost - a.m.cost);
+  if (ui.adOnlyBad) rows = rows.filter(r => r.flags.some(f => f !== 'up'));
+  if (q) rows = rows.filter(r => norm(r.c.name).includes(q) || norm(r.c.sku).includes(q));
+
+  h += sectionTitle('Từng chiến dịch trong ngày',
+    `<span class="dim">${rows.length}/${rp.rows.length} dòng</span>`);
+  h += `<div class="toolbar">
+    <input class="inp grow" placeholder="Tìm theo tên hoặc mã sản phẩm…" data-inp="adQ" value="${esc(ui.adQ)}">
+    <button class="btn sm ${!ui.adOnlyBad ? 'pri' : ''}" data-act="adonlybad" data-id="off">Tất cả</button>
+    <button class="btn sm ${ui.adOnlyBad ? 'pri' : ''}" data-act="adonlybad" data-id="on">Chỉ con có cờ</button>
+  </div>`;
+  h += rows.length
+    ? `<div class="tblwrap"><table class="tbl sm ptbl"><thead><tr><th>Chiến dịch</th>
+        <th class="r">Chi phí</th><th class="r">Doanh số</th><th class="r">ROAS</th>
+      </tr></thead><tbody>` + rows.map(adDayRow).join('') + `</tbody></table></div>`
+    : `<div class="card dim">Không có dòng nào khớp bộ lọc.</div>`;
+
+  h += `<div class="dim" style="margin-top:8px">Chi tiết theo ngày chỉ giữ
+    ${Math.max(7, +(db.settings.adRules || DEFAULT_AD_RULES).dayKeep || 45)} ngày gần nhất rồi tự dọn —
+    giữ hết thì vượt sức chứa của trình duyệt. Bản ghi theo tháng vẫn giữ mãi.</div>`;
+  return h;
+}
+
+function viewAdMonth(){
   const shopIds = adcampShopIds();
   const shopId  = shopIds.includes(ui.adShop) ? ui.adShop : '';
   const months  = adcampMonths(shopId);
-  let h = `<div class="toolbar">
-    <button class="btn" data-act="nav" data-id="ads">‹ Shopee Ads</button>
-    <div class="grow"></div>
-    <button class="btn pri" data-act="adimport">Nạp file tháng</button>
-  </div>`;
+  let h = '';
 
   if (!months.length)
     return h + emptyBox('Chưa nạp tháng nào',
@@ -768,8 +929,6 @@ function viewAdcamps(){
   const rp = adcampReport(ym, shopId);
   const truoc = adcampsIn(rp.prevYm, shopId);
   const cu = truoc.length ? adSum(truoc) : null;
-
-  h += shopBar(shopIds, shopId);
 
   /* Tháng xếp theo thời gian tăng dần — đọc từ trái sang phải là đi tới, giống
      mọi trục thời gian khác trong app. Mặc định vẫn mở tháng mới nhất. */
@@ -877,7 +1036,7 @@ function viewAdcamp(id){
   const d = (cur, tr) => tr && cur != null ? (cur - tr) / tr * 100 : null;
 
   let h = `<div class="toolbar">
-    <button class="btn" data-act="nav" data-id="adcamps">‹ Chiến dịch tháng</button>
+    <button class="btn" data-act="nav" data-id="adreport">‹ Báo cáo Ads</button>
     <div class="grow"></div>
     ${p ? `<button class="btn" data-act="product" data-id="${p.id}">Mở sản phẩm ›</button>` : ''}
   </div>`;
@@ -961,7 +1120,7 @@ function viewAds(){
   const rp = ym ? adcampReport(ym) : null;
   let h = `<div class="toolbar">
     <div class="grow"></div>
-    <button class="btn" data-act="nav" data-id="adcamps">Chiến dịch tháng${
+    <button class="btn" data-act="nav" data-id="adreport">Báo cáo Ads${
       rp && rp.bad.length ? ` <span class="chip bad">${rp.bad.length}</span>` : ''} ›</button>
     <button class="btn" data-act="nav" data-id="resources">Quản lý sản phẩm ›</button>
     <button class="btn pri" data-act="newproduct">+ Sản phẩm</button>
@@ -979,7 +1138,7 @@ function viewAds(){
         <div class="al-s">Tháng đã khép sổ. Xuất báo cáo từ Shopee rồi kéo vào đây.</div></div>
       <span class="chip acc">Nạp file →</span></div>`).join('');
   else if (rp && rp.bad.length)
-    h += `<div class="al al-warn" data-act="nav" data-id="adcamps" style="margin-bottom:12px">
+    h += `<div class="al al-warn" data-act="nav" data-id="adreport" style="margin-bottom:12px">
       <span class="al-dot"></span>
       <div class="grow"><div class="al-t">${rp.bad.length} chiến dịch cần xem lại — ${esc(monthLabel(rp.ym))}</div>
         <div class="al-s">${esc(AD_ISSUE_IDS.filter(k => rp.byIssue[k].length)
@@ -1181,7 +1340,7 @@ function roasTargetCard(p){
       }</div>` : ''}
     <div class="btns" style="margin-top:10px">
       <button class="btn sm" data-act="roastarget" data-id="${p.id}">${tt ? 'Sửa ngưỡng' : 'Đặt ngưỡng'}</button>
-      ${camps.length ? `<button class="btn sm" data-act="nav" data-id="adcamps">Xem chiến dịch tháng ›</button>` : ''}
+      ${camps.length ? `<button class="btn sm" data-act="nav" data-id="adreport">Xem báo cáo quảng cáo ›</button>` : ''}
     </div>
   </div>`;
 }
@@ -2502,9 +2661,29 @@ function viewSettings(){
     <div class="kv"><span>Chi dưới mức này thì bỏ qua mọi dấu hiệu</span>
       <input class="inp num" type="number" min="0" step="1000" data-ar="minCost" value="${R.minCost}"></div>
   </div>
-  <div class="dim" style="margin-top:6px">Ngưỡng cuối là cái quan trọng nhất: file tháng có hàng
-    trăm chiến dịch đuôi dài mỗi con vài chục nghìn. Không có mức sàn thì chúng chiếm hết danh sách
-    cần xem lại, và mấy con thật sự đang đốt tiền sẽ chìm mất.</div>`;
+  <div class="dim" style="margin:6px 0 14px">Bốn ngưỡng trên dùng cho <b>báo cáo tháng</b>.</div>
+
+  ${sectionTitle('Báo cáo ngày — khi nào thì gắn cờ')}
+  <div class="card">
+    <div class="kv"><span>Chi dưới mức này trong một ngày thì bỏ qua</span>
+      <input class="inp num" type="number" min="0" step="1000" data-ar="dayMinCost" value="${R.dayMinCost}"></div>
+    <div class="kv"><span>${AD_DAY_FLAGS.burn.icon} Tiêu vượt trung bình ngày bao nhiêu % thì coi là vọt</span>
+      <input class="inp num" type="number" min="10" max="500" data-ar="dayCostUp" value="${R.dayCostUp}"> %</div>
+    <div class="kv"><span>${AD_DAY_FLAGS.down.icon} ROAS lệch trung bình ngày bao nhiêu % thì báo</span>
+      <input class="inp num" type="number" min="5" max="90" data-ar="dayRoasDrop" value="${R.dayRoasDrop}"> %</div>
+    <div class="kv"><span>${AD_DAY_FLAGS.quiet.icon} Tiêu ít hơn trung bình ngày bao nhiêu % thì coi là đứng im</span>
+      <input class="inp num" type="number" min="10" max="99" data-ar="dayQuiet" value="${R.dayQuiet}"> %</div>
+    <div class="kv"><span>Giữ chi tiết theo ngày bao nhiêu ngày rồi tự dọn</span>
+      <input class="inp num" type="number" min="7" max="180" data-ar="dayKeep" value="${R.dayKeep}"> ngày</div>
+  </div>
+  <div class="dim" style="margin-top:6px">Ngưỡng ngày phải là bộ riêng chứ không phải ngưỡng tháng
+    chia cho 30: một ngày là mẫu nhỏ, ROAS nhảy 40% giữa hai ngày là chuyện thường, còn nhảy 40%
+    giữa hai tháng thì phải xem lại ngay.
+    <br>Ngưỡng "chi dưới mức này thì bỏ qua" là cái quan trọng nhất ở cả hai bộ: file có hàng trăm
+    chiến dịch đuôi dài mỗi con vài chục nghìn. Không có mức sàn thì chúng chiếm hết danh sách cần
+    xem lại, và mấy con thật sự đang đốt tiền sẽ chìm mất.
+    <br>Giữ chi tiết ngày càng lâu càng tốn chỗ trong trình duyệt — mặc định 45 ngày là đủ để nhìn
+    xu hướng, còn phần lịch sử đã nằm trong bản ghi theo tháng.</div>`;
 
   /* ---- tài khoản ---- */
   h += sectionTitle('Người dùng', usersCfg

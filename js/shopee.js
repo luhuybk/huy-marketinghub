@@ -505,16 +505,22 @@ const ShopeeAds = (() => {
 
     const days = Math.round((new Date(range.to + 'T00:00:00') -
                              new Date(range.from + 'T00:00:00')) / 86400000) + 1;
-    if (days < 26 || days > 31)
-      warn.push(`Khoảng của tệp dài ${days} ngày, không phải trọn một tháng. ` +
-        `App vẫn xếp vào ${range.from.slice(0,7)}, nhưng so với tháng khác sẽ khập khiễng.`);
+    /* Tệp một ngày và tệp một tháng là cùng một loại báo cáo, chỉ khác khoảng
+       thời gian — nên nhận ra kiểu bằng chính độ dài khoảng đó, không bắt
+       người nạp phải khai. Khoảng lỡ cỡ (một tuần chẳng hạn) thì không đoán:
+       xếp nhầm vào tháng là cả tháng đó sai, mà nhìn vẫn rất bình thường. */
+    const kieu = days === 1 ? 'day' : (days >= 26 && days <= 31) ? 'month' : '';
+    if (!kieu)
+      throw new Error(`Khoảng của tệp dài ${days} ngày — không phải trọn một tháng, ` +
+        `cũng không phải đúng một ngày. App chỉ nhận hai kiểu đó: file tháng để làm mốc, ` +
+        `file ngày để so với mốc. Xuất lại với khoảng đúng một tháng hoặc đúng một ngày.`);
 
     if (!shopCode && !shopName)
       warn.push('Tệp không ghi gian hàng nào ở phần đầu. App sẽ hỏi bạn chọn shop ' +
                 'trước khi nạp — chọn nhầm là số của hai shop trộn vào nhau.');
 
-    return {ym: range.from.slice(0,7), from: range.from, to: range.to,
-            shopName, shopCode, camps, warn};
+    return {kieu, days, ym: range.from.slice(0,7), date: range.from,
+            from: range.from, to: range.to, shopName, shopCode, camps, warn};
   }
 
   function parseText(text){

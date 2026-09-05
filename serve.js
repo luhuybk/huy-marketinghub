@@ -82,7 +82,8 @@ const KH_PERMS = ['dash','pipeline','kols','clips','postfb','posttt','ads',
 const KH_KIND_PERM = {
   kols:['kols','pipeline'], statuses:['kols','pipeline'], templates:['kols','pipeline'],
   bookings:['pipeline','kols','clips'], clips:['clips','pipeline','kols'],
-  adperiods:['ads'], actions:['ads'], adcamps:['ads'], shops:['ads'], spweeks:['improve','ads'],
+  adperiods:['ads'], actions:['ads'], adcamps:['ads'], addays:['ads'], shops:['ads'],
+  spweeks:['improve','ads'],
   impacts:['improve'], ideas:['newprod']
 };
 const khNorm = s => String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
@@ -591,6 +592,25 @@ function api(req, res, body){
         if (!sent.length) return fail('Không luồng nào đang bật và có chat id.');
         return send({ok:true, sent});
       })();
+    }
+    /* Gửi báo cáo ngày vào Telegram. Khác tg_test ở chỗ KHÔNG đòi quyền chủ:
+       người bấm nút là nhân viên nạp file. Đổi lại, chữ bị bọc lại ở đây —
+       có tiêu đề cố định và tên người gửi — nên đây không thành một đường
+       để nhắn gì tuỳ ý vào Telegram của chủ. */
+    case 'tg_report': {
+      if (!need()) return;
+      if (!khMay(me, 'ads'))
+        return fail('Tài khoản này không có quyền Shopee Ads.', 403);
+      const c = tgConfig();
+      if (!c.token) return fail('Chưa có mã bot.');
+      const [chat, topic] = tgTarget(c, 'ads');
+      if (!chat) return fail('Luồng Shopee Ads chưa có chat id. Chủ vào Cài đặt để nối trước.');
+      const body = String(inp.text || '').slice(0, 3500);
+      if (!body.trim()) return fail('Không có gì để gửi.');
+      const text = '📊 <b>Báo cáo quảng cáo</b>\n<i>' + tgEsc(me.name || 'nhân viên') +
+                   ' gửi từ KOL Hub</i>\n\n' + tgEsc(body);
+      return tgSend(c.token, chat, text, topic).then(([ok, msg]) =>
+        ok ? send({ok:true}) : fail('Telegram: ' + msg));
     }
     case 'tg_hook': {
       if (!owner()) return;

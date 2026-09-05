@@ -716,3 +716,17 @@ a.plnk:hover{border-color:var(--acc);background:var(--bg4)}
 .tbl .rowwarn td:first-child{box-shadow:inset 3px 0 0 var(--warn)}
 .bignum{font-size:26px;font-weight:700;line-height:1.25;letter-spacing:-.5px}
 .ptbl .chips{margin-top:5px}
+
+/* ---- hai mục con của tab Báo cáo Ads ---- */
+.tabs{display:flex;gap:4px;background:var(--bg3);padding:3px;border-radius:10px}
+.tabs .tab{border:0;background:transparent;color:var(--dim);font:inherit;font-size:13px;
+  font-weight:600;padding:7px 15px;border-radius:8px;cursor:pointer;white-space:nowrap}
+.tabs .tab:hover{color:var(--fg)}
+.tabs .tab.on{background:var(--bg1);color:var(--fg);box-shadow:0 1px 3px rgba(0,0,0,.25)}
+
+/* ---- thẻ báo cáo ngày: phần người ta sẽ chụp màn hình ---- */
+.rpt{border:1px solid var(--acc);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 12%,transparent)}
+.rpt-hd{display:flex;gap:10px;align-items:flex-start}
+.rpt-grp{margin-top:12px;padding-top:11px;border-top:1px solid var(--bd)}
+.rpt-gh{display:flex;gap:8px;align-items:center;margin-bottom:7px}
+.rpt-li{display:flex;gap:10px;align-items:baseline;padding:4px 0;font-size:12.5px}

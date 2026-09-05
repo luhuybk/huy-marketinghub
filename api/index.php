@@ -504,6 +504,27 @@ switch ($action) {
     out(['ok' => true, 'sent' => $sent]);
   }
 
+  /* Gửi báo cáo ngày vào Telegram. Khác tg_test ở chỗ KHÔNG đòi quyền chủ:
+     người bấm nút là nhân viên nạp file. Đổi lại, chữ bị bọc lại ở đây — có
+     tiêu đề cố định và tên người gửi — nên đây không thành một đường để nhắn
+     gì tuỳ ý vào Telegram của chủ. */
+  case 'tg_report': {
+    requireAuth();
+    $u = currentUser();
+    if (!$u || !khMay($u, 'ads')) fail('Tài khoản này không có quyền Shopee Ads.', 403);
+    $c = tgConfig();
+    if ($c['token'] === '') fail('Chưa có mã bot.');
+    [$chat, $topic] = tgTarget($c, 'ads');
+    if ($chat === '') fail('Luồng Shopee Ads chưa có chat id. Chủ vào Cài đặt để nối trước.');
+    $body = mb_substr((string)($in['text'] ?? ''), 0, 3500, 'UTF-8');
+    if (trim($body) === '') fail('Không có gì để gửi.');
+    $text = "📊 <b>Báo cáo quảng cáo</b>\n<i>" . tgEsc($u['name'] ?? 'nhân viên')
+          . " gửi từ KOL Hub</i>\n\n" . tgEsc($body);
+    [$ok, $msg] = tgSend($c['token'], $chat, $text, $topic);
+    if (!$ok) fail('Telegram: ' . $msg);
+    out(['ok' => true]);
+  }
+
   /* bật/tắt đường về: Telegram gọi ngược vào api/tg.php khi bạn bấm nút */
   case 'tg_hook': {
     requireOwner();

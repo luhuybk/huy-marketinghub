@@ -17,6 +17,7 @@ const NAV = [
   {id:'postfb',   icon:'📘',label:'Bài Facebook', perm:'postfb'},
   {id:'posttt',   icon:'🎬',label:'Bài TikTok',   perm:'posttt'},
   {id:'ads',      icon:'◎', label:'Shopee Ads',   perm:'ads'},
+  {id:'adreport', icon:'📊',label:'Báo cáo Ads',  perm:'ads'},
   {id:'improve',  icon:'🔻',label:'Cải thiện SP', perm:'improve'},
   {id:'newprod',  icon:'💡',label:'Sản phẩm mới', perm:'newprod'},
   {id:'compare',  icon:'⇄', label:'So sánh kênh', perm:'compare'},
@@ -29,12 +30,12 @@ const TITLES = {today:'Hôm nay', dash:'Tổng quan', pipeline:'Booking', kols:'
                 ads:'Shopee Ads', improve:'Cải thiện sản phẩm',
                 newprod:'Xây dựng sản phẩm mới', compare:'So sánh kênh', resources:'Tài nguyên',
                 review:'Cần bạn duyệt', settings:'Cài đặt', kol:'Hồ sơ KOC', product:'Sản phẩm',
-                sp:'Sức khoẻ trên Shopee', adcamps:'Chiến dịch quảng cáo',
+                sp:'Sức khoẻ trên Shopee', adreport:'Báo cáo quảng cáo',
                 adcamp:'Chiến dịch'};
 /* Trang chỉ chủ mở được. Nhân viên gõ thẳng đường dẫn cũng bị đưa về Hôm nay. */
 const OWNER_PAGES = ['settings', 'review'];
 /* Trang con mở từ một trang chính — quyền đi theo trang cha. */
-const PAGE_PERM = {kol:'kols', product:'ads', sp:'improve', adcamps:'ads', adcamp:'ads'};
+const PAGE_PERM = {kol:'kols', product:'ads', sp:'improve', adcamp:'ads'};
 const NAV_PERM  = Object.fromEntries(NAV.filter(n => n.perm).map(n => [n.id, n.perm]));
 const mayPage = id => {
   if (OWNER_PAGES.includes(id)) return isOwner();
@@ -106,7 +107,7 @@ function render(){
       case 'product':  html = viewProduct(route.id); break;
       case 'resources':html = viewResources(); break;
       case 'review':   html = viewReview(); break;
-      case 'adcamps':  html = viewAdcamps(); break;
+      case 'adreport': html = viewAdReport(); break;
       case 'adcamp':   html = viewAdcamp(route.id); break;
       case 'settings': ensureSettingsCfg(); html = viewSettings(); break;
     }
@@ -2005,8 +2006,11 @@ function judgeImpactModal(id){
 function adImportModal(){
   const body = `
     <div class="explain">Lấy file ở <b>Kênh Người Bán › Kênh Marketing › Quảng cáo Shopee ›
-      Báo cáo</b>, chọn khoảng <b>trọn một tháng</b> rồi tải về. App đọc được cả .csv lẫn .xlsx.
-      Nạp lại cùng một tháng thì ghi đè, không nhân đôi.</div>
+      Báo cáo</b> rồi tải về. App đọc được cả .csv lẫn .xlsx, và <b>tự nhận ra bạn đang nạp
+      file tháng hay file một ngày</b> theo khoảng thời gian ghi trong tệp — không phải khai.
+      <br>· Chọn <b>trọn một tháng</b> → làm mốc để so.
+      <br>· Chọn <b>đúng một ngày</b> → báo cáo ngày, so ngay với mốc đó.
+      <br>Nạp lại cùng một tháng hay cùng một ngày thì ghi đè, không nhân đôi.</div>
     <div class="drop" id="dz">
       <div class="drop-ic">📥</div>
       <div><b>Kéo file báo cáo vào đây</b><div class="dim">hoặc bấm để chọn file</div></div>
@@ -2038,19 +2042,33 @@ function adImportModal(){
     /* Tên gian hàng đổi trên Shopee thì cập nhật theo, mã vẫn là mã cũ. */
     const doiTen = cu && parsed.shopName && cu.name !== parsed.shopName ? parsed.shopName : '';
 
-    const camps = parsed.camps.map(c => Object.assign({}, c, {shopId: shop.id}));
-    const hienCo = shop.id ? adcampsIn(parsed.ym, shop.id) : [];
-    const rows = camps.map(c => ({
+    const ngay = parsed.kieu === 'day';
+    const camps = parsed.camps.map(c => Object.assign({}, c, {shopId: shop.id},
+      ngay ? {date: parsed.date} : {}));
+    const hienCo = !shop.id ? []
+                 : ngay ? adDaysIn(parsed.date, shop.id) : adcampsIn(parsed.ym, shop.id);
+    const khoa = ngay ? adDayKey : adcampKey;
+    /* File ngày: chỉ giữ dòng có tiêu tiền. Chiến dịch hôm đó không tiêu đồng
+       nào thì không có gì để soi, mà giữ hết thì mỗi ngày cõng thêm trăm rưỡi
+       dòng — ba tháng là đầy chỗ chứa của trình duyệt. Con "đứng im" vẫn
+       không lọt lưới: báo cáo bắt nó bằng cách đối chiếu với mốc tháng, chứ
+       không dựa vào việc nó có dòng trong file hay không. */
+    const giu = ngay ? camps.filter(c => c.cost > 0) : camps;
+    const rows = giu.map(c => ({
       c,
       p:  adcampProduct(c),
-      ex: hienCo.find(x => adcampKey(x) === adcampKey(c)) || null
+      ex: hienCo.find(x => khoa(x) === khoa(c)) || null
     }));
-    plan = {parsed, rows, shop, doiTen};
+    plan = {parsed, rows, shop, doiTen, ngay, bo: camps.length - giu.length};
     const tong = rows.reduce((t, r) => ({cost: t.cost + r.c.cost, gmv: t.gmv + r.c.gmv}), {cost:0, gmv:0});
     const noi  = rows.filter(r => r.p).length;
     const de   = rows.length - noi;
     const ghi  = rows.filter(r => r.ex).length;
-    const xoa  = hienCo.filter(x => !rows.some(r => adcampKey(r.c) === adcampKey(x))).length;
+    const xoa  = ngay ? 0 : hienCo.filter(x => !rows.some(r => khoa(r.c) === khoa(x))).length;
+    const nhan = ngay ? 'ngày ' + fmtDate(parsed.date) : monthLabel(parsed.ym);
+    /* Mốc để so, tính đúng theo NGÀY của tệp chứ không theo hôm nay: nạp bù
+       file của hai tuần trước thì mốc phải là tháng trước của ngày đó. */
+    const nen = ngay && shop.id ? adBaseline(shop.id, parsed.date) : null;
 
     /* Bày mấy dòng đốt nhiều tiền nhất chứ không bày cả trăm dòng: xem trước
        là để biết mình đang nạp đúng tháng đúng shop, không phải để duyệt
@@ -2066,14 +2084,28 @@ function adImportModal(){
           : 'Đã có sẵn — số sẽ vào đúng gian hàng này.'}
         ${doiTen ? `<br>Tên trên Shopee đã đổi thành <b>${esc(doiTen)}</b>, app sẽ cập nhật theo.` : ''}
       </div>
-      ${sectionTitle('Đọc được ' + rows.length + ' chiến dịch · ' + monthLabel(parsed.ym), '', true)}
+      <div class="explain ${ngay ? 'warn' : ''}">Tệp này là <b>${
+        ngay ? 'báo cáo MỘT NGÀY — ' + esc(fmtDate(parsed.date))
+             : 'báo cáo CẢ THÁNG — ' + esc(monthLabel(parsed.ym))}</b>
+        (khoảng ${parsed.days} ngày trong tệp). ${
+        ngay
+          ? (nen ? 'Sẽ so với trung bình một ngày của ' + esc(monthLabel(nen.ym)) + '.'
+                 : 'Gian hàng này chưa có file tháng nào trước ngày đó nên chưa có mốc để so — ' +
+                   'vẫn nạp được, nhưng báo cáo sẽ chỉ có số trần. Nạp file tháng gần nhất là có mốc.')
+          : 'Sẽ dùng làm mốc cho các báo cáo ngày của tháng sau.'}</div>
+      ${sectionTitle('Đọc được ' + rows.length + ' chiến dịch · ' + nhan, '', true)}
       <div class="tiles">
         ${tile('Tổng chi', moneyShort(tong.cost), esc(fmtDate(parsed.from)) + ' – ' + esc(fmtDate(parsed.to)))}
         ${tile('Doanh số', moneyShort(tong.gmv), 'ROAS chung ' + xText(tong.cost ? tong.gmv / tong.cost : null))}
         ${tile('Nối vào sản phẩm', noi + '/' + rows.length, de ? de + ' chiến dịch chưa có sản phẩm' : 'nối hết')}
-        ${tile(ghi ? 'Ghi đè' : 'Thêm mới', String(ghi || rows.length), ghi ? 'tháng này đã nạp trước đó' : 'tháng mới')}
+        ${tile(ghi ? 'Ghi đè' : 'Thêm mới', String(ghi || rows.length),
+               ghi ? nhan + ' đã nạp trước đó' : ngay ? 'ngày mới' : 'tháng mới')}
       </div>
-      ${xoa ? `<div class="explain warn">⚠︎ ${xoa} chiến dịch đang có trong ${esc(monthLabel(parsed.ym))}
+      ${plan.bo ? `<div class="explain">${plan.bo} chiến dịch trong tệp hôm đó không tiêu đồng nào
+        nên không lưu lại — không có gì để soi, mà giữ hết thì mỗi ngày cõng thêm trăm rưỡi dòng.
+        Con nào tháng trước chạy đều mà hôm nay im bặt thì báo cáo vẫn bắt được, bằng cách đối
+        chiếu với mốc tháng chứ không dựa vào việc nó có mặt trong tệp.</div>` : ''}
+      ${xoa ? `<div class="explain warn">⚠︎ ${xoa} chiến dịch đang có trong ${esc(nhan)}
         nhưng KHÔNG có trong file này. App giữ nguyên chúng chứ không xoá — nếu bạn xuất file
         thiếu thì dữ liệu cũ vẫn còn, còn nếu Shopee đã bỏ chiến dịch đó thật thì bạn tự xoá.</div>` : ''}
       ${de ? `<div class="explain">${de} chiến dịch chưa nối được vào sản phẩm nào trong app.
@@ -2121,24 +2153,84 @@ function adImportModal(){
       if (sh){ sh.name = plan.doiTen; stamp(sh); }
     }
 
+    const kho = plan.ngay ? db.addays : db.adcamps;
     let them = 0, de = 0;
     plan.rows.forEach(r => {
-      const rec = r.ex ? db.adcamps.find(x => x.id === r.ex.id) : null;
+      const rec = r.ex ? kho.find(x => x.id === r.ex.id) : null;
       if (rec){ Object.assign(rec, r.c, {shopId}); stamp(rec); de++; }
-      else { db.adcamps.push(stamp(Object.assign({}, r.c, {shopId}))); them++; }
+      else { kho.push(stamp(Object.assign({}, r.c, {shopId}))); them++; }
     });
+    const don = plan.ngay ? pruneAdDays() : 0;
     ensure(); save();
-    ui.adShop = shopId; ui.adYm = plan.parsed.ym;
-    ui.adIssue = ''; ui.adOnlyBad = false; ui.adQ = '';
+
+    ui.adShop = shopId; ui.adIssue = ''; ui.adOnlyBad = false; ui.adQ = '';
+    ui.adTab = plan.ngay ? 'day' : 'month';
+    if (plan.ngay) ui.adDate = plan.parsed.date; else ui.adYm = plan.parsed.ym;
     closeModal();
-    go('adcamps', '');
-    const rp = adcampReport(plan.parsed.ym, shopId);
+    go('adreport', '');
+
     const dem = them && de ? `${them} chiến dịch mới, ${de} cập nhật`
               : them       ? `${them} chiến dịch mới`
                            : `đã cập nhật ${de} chiến dịch`;
-    toast(`${shopName(shopId)} · ${monthLabel(plan.parsed.ym)}: ${dem}` +
-          (rp.bad.length ? ` · ${rp.bad.length} con cần xem lại` : ' · không con nào bị gắn cờ'));
+    if (plan.ngay){
+      const rp = adDayReport(shopId, plan.parsed.date);
+      toast(`${shopName(shopId)} · ngày ${fmtDate(plan.parsed.date)}: ${dem}` +
+            (rp.bad.length ? ` · ${rp.bad.length} con cần xem lại` : ' · không có gì bất thường') +
+            (don ? ` · đã dọn ${don} dòng ngày cũ` : ''));
+    } else {
+      const rp = adcampReport(plan.parsed.ym, shopId);
+      toast(`${shopName(shopId)} · ${monthLabel(plan.parsed.ym)}: ${dem}` +
+            (rp.bad.length ? ` · ${rp.bad.length} con cần xem lại` : ' · không con nào bị gắn cờ'));
+    }
   });
+}
+
+/* Gửi tóm tắt báo cáo ngày vào Telegram.
+
+   Vì sao có nút này bên cạnh việc chụp màn hình: chụp thì phải nhớ chụp, mà
+   người nạp file là người bận nhất. Bấm một nút thì chủ nhận được ngay, và
+   quan trọng hơn — hôm nào KHÔNG có tin nhắn thì chủ biết là hôm đó chưa ai
+   nạp file, chứ ảnh chụp thiếu thì không để lại dấu vết gì.
+
+   Chữ do máy chủ bọc lại và có ghi tên người gửi, nên đây không phải một
+   đường để nhân viên nhắn gì tuỳ ý vào Telegram của chủ. */
+async function sendDayReport(date){
+  const shopIds = adcampShopIds();
+  const shopId  = shopIds.includes(ui.adShop) ? ui.adShop : '';
+  const rp = adDayReport(shopId, date);
+  const ten = shopId ? shopName(shopId) : shopIds.length > 1 ? 'Tất cả gian hàng' : shopName(shopIds[0] || '');
+
+  const d = v => v == null ? '' : (v > 0 ? ' (+' : ' (') + v.toFixed(0) + '%)';
+  const dong = [];
+  dong.push('Ngày ' + fmtDate(date) + ' · ' + ten);
+  if (rp.nen) dong.push('So với trung bình một ngày của ' + monthLabel(rp.nen.ym));
+  dong.push('');
+  dong.push('Chi phí: ' + moneyShort(rp.sum.cost) + d(rp.dCost));
+  dong.push('Doanh số: ' + moneyShort(rp.sum.gmv) + d(rp.dGmv));
+  dong.push('ROAS: ' + xText(rp.sum.roas) + d(rp.dRoas));
+  dong.push('Đơn: ' + num(rp.sum.orders) + d(rp.dOrders));
+  dong.push('');
+  dong.push(adDayVerdict(rp));
+
+  AD_DAY_FLAG_IDS.filter(k => rp.byFlag[k].length).forEach(k => {
+    const F = AD_DAY_FLAGS[k];
+    dong.push('');
+    dong.push(F.icon + ' ' + F.label + ' — ' + rp.byFlag[k].length + ' chiến dịch:');
+    rp.byFlag[k].slice(0, 4).forEach(r => {
+      dong.push('· ' + r.c.name.slice(0, 60) +
+        ' — ' + (r.vang ? 'không chạy' : moneyShort(r.m.cost)) +
+        (r.b ? ' / thường ' + moneyShort(r.b.cost) : '') +
+        ' · ROAS ' + xText(r.m.roas));
+    });
+    if (rp.byFlag[k].length > 4) dong.push('· …và ' + (rp.byFlag[k].length - 4) + ' con nữa');
+  });
+
+  try {
+    await Server.tgReport(dong.join('\n'));
+    toast('Đã gửi vào Telegram');
+  } catch(e){
+    toast('Không gửi được: ' + e.message);
+  }
 }
 
 /* Ngưỡng ROAS của một sản phẩm. Một ô duy nhất — mở form sửa sản phẩm đầy
@@ -2603,7 +2695,11 @@ const ACTIONS = {
   roastarget:  id => roasTargetForm(id),
   admonth:     id => { ui.adYm = id; ui.adIssue = ''; ui.adOnlyBad = false; render(); },
   adissue:     id => { ui.adIssue = id || ''; ui.adOnlyBad = false; render(); },
-  adonlybad:   () => { ui.adOnlyBad = !ui.adOnlyBad; ui.adIssue = ''; render(); },
+  adonlybad:  (id) => { ui.adOnlyBad = id ? id === 'on' : !ui.adOnlyBad; ui.adIssue = ''; render(); },
+  adtab:       id => { ui.adTab = id === 'month' ? 'month' : 'day'; ui.adQ = '';
+                       ui.adIssue = ''; ui.adOnlyBad = false; render(); },
+  addate:      id => { ui.adDate = id; render(); },
+  adtg:        id => sendDayReport(id),
   adshop:      id => { ui.adShop = id || ''; ui.adYm = ''; ui.adIssue = '';
                        ui.adOnlyBad = false; render(); },
   adcamp:      id => go('adcamp', id),

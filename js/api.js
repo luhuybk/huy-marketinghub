@@ -219,6 +219,7 @@ const Server = (() => {
   const tgGet   = ()    => call('tg_get');
   const tgSave  = cfg   => call('tg_save', cfg);
   const tgTest  = feed  => call('tg_test', {feed: feed || ''});
+  const tgReport= text  => call('tg_report', {text: String(text || '')});
   const tgHook  = off   => call('tg_hook', {off: !!off});
   const remind  = (list, dir) => call('remind_set', {tasks:list, products:dir || []});
 
@@ -227,7 +228,7 @@ const Server = (() => {
   const userDel   = id  => call('user_del', {id});
 
   return {probe, login, logout, logoutAll, pull, push, pushBeacon, stats,
-          tgGet, tgSave, tgTest, tgHook, remind,
+          tgGet, tgSave, tgTest, tgReport, tgHook, remind,
           users, userSave, userDel, takeWhoChanged, notePerms,
           available, authed, state, role, isOwner, name, perms, may, call};
 })();
