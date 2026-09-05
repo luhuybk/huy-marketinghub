@@ -15,6 +15,7 @@ const ui = {
   clipQ:'', clipSort:'date', clipKol:'',
   postQ:'', postFlow:'', postState:'', postMonthOnly:false,
   adYm:'', adQ:'', adIssue:'', adOnlyBad:false, adShop:'', adTab:'day', adDate:'', adGioYm:'',
+  adGioQ:'', adGioSp:'',
   resTab:'brands', resQ:'',
   cmpFrom:'', cmpTo:'',
   todayAhead:0,
@@ -757,10 +758,11 @@ function shopBar(ids, dang){
 function viewAdReport(){
   const shopIds = adcampShopIds();
   const shopId  = shopIds.includes(ui.adShop) ? ui.adShop : '';
-  const tab = ['month','gio'].includes(ui.adTab) ? ui.adTab : 'day';
+  const tab = ['month','gio','now'].includes(ui.adTab) ? ui.adTab : 'day';
 
   let h = `<div class="toolbar">
     <div class="tabs">
+      <button class="tab ${tab === 'now' ? 'on' : ''}" data-act="adtab" data-id="now">Hôm nay</button>
       <button class="tab ${tab === 'day' ? 'on' : ''}" data-act="adtab" data-id="day">Hôm qua</button>
       <button class="tab ${tab === 'month' ? 'on' : ''}" data-act="adtab" data-id="month">Theo tháng</button>
       <button class="tab ${tab === 'gio' ? 'on' : ''}" data-act="adtab" data-id="gio">Khung giờ</button>
@@ -770,9 +772,139 @@ function viewAdReport(){
   </div>`;
 
   h += shopBar(shopIds, shopId);
-  return h + (tab === 'gio'   ? viewAdHours(shopId)
+  return h + (tab === 'now'   ? viewAdNow(shopId)
+            : tab === 'gio'   ? viewAdHours(shopId)
             : tab === 'month' ? viewAdMonth()
                               : viewAdDay(shopId));
+}
+
+/* ============================================================
+   HÔM NAY — ads đang chạy có gì bất thường chưa
+
+   Khác "Hôm qua" ở một điểm quyết định: tệp của hôm nay mới đi được một phần
+   ngày. Đem số đó so thẳng với mốc cả ngày thì chiến dịch nào cũng "tiêu ít
+   hơn thường lệ" — một kết luận vô nghĩa, và tệ hơn là nó sai theo một hướng
+   cố định nên nhìn mãi vẫn thấy hợp lý.
+
+   Nên chia làm hai phần rõ ràng:
+   · Tỉ lệ (ROAS, CTR, CVR) so thẳng được, vì chúng không phụ thuộc vào việc
+     ngày đã qua bao nhiêu. Đây là phần đáng tin nhất giữa ngày.
+   · Số tuyệt đối (chi phí, doanh số) so với mốc đã co lại theo đúng phần ngày
+     đã trôi qua — và phần đó lấy từ nhịp mua hàng thật của shop, không chia
+     đều 24 giờ.
+   ============================================================ */
+function viewAdNow(shopId){
+  const shopIds = adcampShopIds();
+  const nay = adNowOf(shopId);
+
+  if (!nay)
+    return emptyBox('Chưa nạp tệp của hôm nay',
+      'Xuất báo cáo quảng cáo với khoảng đúng ngày hôm nay rồi kéo vào đây. App biết tệp mới đi ' +
+      'được một phần ngày nên sẽ co mốc so sánh lại cho tương ứng — không bắt số nửa ngày phải ' +
+      'đứng cạnh số cả ngày.',
+      'adimport', 'Nạp tệp hôm nay');
+
+  const chia = ostatDayShare(shopId, nay.atHour);
+  const rp = adDayReport(shopId, nay.date, nay.partial ? chia.tyLe : null);
+  const cham = v => v == null ? '' : deltaChip(v, null);
+
+  let h = '';
+
+  h += `<div class="card rpt">
+    <div class="rpt-hd">
+      <div class="grow">
+        <b>Ads đang chạy hôm nay · ${esc(fmtDate(nay.date))}</b>
+        <div class="dim">${esc(shopId ? shopName(shopId) : shopIds.length > 1 ? 'Tất cả gian hàng' : shopName(shopIds[0] || ''))}
+          · số chụp lúc <b>${esc(gioLabel(nay.atHour))}</b>${
+          rp.nen ? ' · mốc là ' + esc(monthLabel(rp.nen.ym)) : ''}</div>
+      </div>
+      <span class="chip ${rp.bad.length ? 'bad' : 'ok'}">${
+        rp.bad.length ? rp.bad.length + ' cần xem ngay' : 'chưa thấy gì bất thường'}</span>
+    </div>
+
+    ${nay.partial ? `<div class="explain" style="margin-top:10px">Tệp này mới đi được
+      <b>${pctText(chia.tyLe * 100, 0)}</b> của một ngày${chia.deu
+        ? ' (chia đều 24 giờ, vì gian hàng này chưa nạp tệp đơn hàng nào — nạp vào thì mốc sẽ theo đúng nhịp mua thật)'
+        : ' theo nhịp mua hàng thật của shop trong ' + esc(monthLabel(chia.ym))}.
+      Mốc chi phí và doanh số bên dưới đã co lại đúng bằng ngần ấy.</div>`
+      : `<div class="explain warn" style="margin-top:10px">⚠︎ Tệp này không đánh dấu là chụp giữa
+        ngày nên đang so với mốc CẢ NGÀY. Nếu bạn vừa xuất giữa chừng thì nạp lại để app tính đúng.</div>`}
+
+    ${!rp.nen ? `<div class="explain warn" style="margin-top:10px">Chưa có tháng nào trước hôm nay
+      để làm mốc. Nạp tệp quảng cáo tháng gần nhất ở mục <b>Theo tháng</b> là có mốc ngay.</div>` : `
+
+    <div class="sechd">Tỉ lệ — so thẳng được, không phụ thuộc giờ giấc</div>
+    <div class="tiles">
+      ${tile('ROAS', xText(rp.sum.roas),
+             deltaChip(rp.dRoas, true) + ' · thường ' + xText(rp.nen.total.roas),
+             rp.sum.roas == null ? '' : rp.sum.roas >= 3 ? 'ok' : rp.sum.roas < 1.5 ? 'bad' : '')}
+      ${tile('CTR', pctText(rp.sum.ctr, 2), 'thường ' + pctText(rp.nen.total.ctr, 2))}
+      ${tile('CVR', pctText(rp.sum.cvr, 2), 'thường ' + pctText(rp.nen.total.cvr, 2))}
+    </div>
+
+    <div class="sechd">Số đã chạy — so với mốc đã co theo phần ngày đã qua</div>
+    <div class="tiles">
+      ${tile('Chi phí', moneyShort(rp.sum.cost),
+             cham(rp.dCost) + ' · đáng lẽ ' + moneyShort(rp.nen.total.cost))}
+      ${tile('Doanh số', moneyShort(rp.sum.gmv),
+             deltaChip(rp.dGmv, true) + ' · đáng lẽ ' + moneyShort(rp.nen.total.gmv))}
+      ${tile('Đơn', dem(rp.sum.orders),
+             deltaChip(rp.dOrders, true) + ' · đáng lẽ ' + dem(Math.round(rp.nen.total.orders)))}
+    </div>
+
+    <div class="explain" style="margin-top:12px">${esc(adDayVerdict(rp))}</div>
+    ${(() => {
+      const dx = adDiagnose(rp.nen.total, rp.sum);
+      if (!dx || dx.tag === 'Đứng yên') return '';
+      return `<div class="dxbox ${dx.cls}" style="margin-top:10px;padding-left:11px">
+        <div class="dx-hd"><span class="chip ${dx.cls}">${esc(dx.tag)}</span></div>
+        <div class="dx-tx">${esc(dx.text)}</div></div>`;
+    })()}
+
+    ${AD_DAY_FLAG_IDS.filter(k => rp.byFlag[k].length).map(k => {
+      const F = AD_DAY_FLAGS[k], list = rp.byFlag[k].slice(0, 5);
+      return `<div class="rpt-grp">
+        <div class="rpt-gh"><span class="chip ${F.cls}">${F.icon} ${esc(F.label)}</span>
+          <span class="dim">${rp.byFlag[k].length} chiến dịch</span></div>` +
+        list.map(r => `<div class="rpt-li">
+          <span class="ell grow" title="${esc(r.c.name)}">${esc(r.c.name)}</span>
+          <span class="nw dim">${r.vang ? 'chưa chạy' : moneyShort(r.m.cost)}${
+            r.b ? ' / đáng lẽ ' + moneyShort(r.b.cost) : ''} · ROAS ${xText(r.m.roas)}${
+            r.bm && r.bm.roas ? ' / ' + xText(r.bm.roas) : ''}</span>
+        </div>`).join('') +
+        (rp.byFlag[k].length > list.length
+          ? `<div class="rpt-li dim">…và ${rp.byFlag[k].length - list.length} chiến dịch nữa</div>` : '') +
+      `</div>`;
+    }).join('')}
+    ${!rp.bad.length ? `<div class="rpt-grp"><div class="dim">Tới giờ này mọi chiến dịch chạy quanh
+      mức thường ngày. Không có gì phải động vào.</div></div>` : ''}`}
+  </div>`;
+
+  h += `<div class="btns" style="margin-top:10px">
+    <button class="btn" data-act="adimport">Nạp lại tệp mới hơn</button>
+    <button class="btn" data-act="adtg" data-id="${nay.date}">Gửi tóm tắt vào Telegram</button>
+    <span class="dim" style="align-self:center">Nạp lại giữa ngày lúc nào cũng được — mỗi lần
+      ghi đè và mốc tự tính lại theo giờ mới.</span></div>`;
+
+  /* ---- bảng đầy đủ ---- */
+  const q = norm(ui.adQ);
+  let rows = rp.rows.slice().sort((a,b) => b.m.cost - a.m.cost);
+  if (ui.adOnlyBad) rows = rows.filter(r => r.flags.some(f => f !== 'up'));
+  if (q) rows = rows.filter(r => norm(r.c.name).includes(q) || norm(r.c.sku).includes(q));
+
+  h += sectionTitle('Từng chiến dịch tới giờ này',
+    `<span class="dim">${rows.length}/${rp.rows.length} dòng</span>`);
+  h += `<div class="toolbar">
+    <input class="inp grow" placeholder="Tìm theo tên hoặc mã sản phẩm…" data-inp="adQ" value="${esc(ui.adQ)}">
+    <button class="btn sm ${!ui.adOnlyBad ? 'pri' : ''}" data-act="adonlybad" data-id="off">Tất cả</button>
+    <button class="btn sm ${ui.adOnlyBad ? 'pri' : ''}" data-act="adonlybad" data-id="on">Chỉ con có cờ</button>
+  </div>`;
+  h += rows.length
+    ? `<div class="tblwrap"><table class="tbl sm ptbl"><thead><tr><th>Chiến dịch</th>
+        <th class="r">Chi phí</th><th class="r">Doanh số</th><th class="r">ROAS</th>
+      </tr></thead><tbody>` + rows.map(adDayRow).join('') + `</tbody></table></div>`
+    : `<div class="card dim">Không có dòng nào khớp bộ lọc.</div>`;
+  return h;
 }
 
 /* ============================================================
@@ -783,6 +915,62 @@ function viewAdReport(){
    vì cùng là "nạp file rồi đọc số", và vì câu trả lời của nó dùng để quyết
    định giờ đẩy quảng cáo.
    ============================================================ */
+/* Biểu đồ 24 giờ đầy đủ của MỘT sản phẩm, mở ngay trên trang.
+
+   Dải ô nhỏ trong bảng đủ để liếc xem con nào lệch giờ so với con nào, nhưng
+   không đọc được con số nào cả. Mở ra thì thấy đúng giờ nào bán bao nhiêu,
+   và so được với nhịp chung của cả shop — vì "22h là giờ đỉnh" chỉ có nghĩa
+   khi biết cả shop lúc 22h cũng đang cao hay không. */
+function spHourPanel(x, o){
+  const tongSl = x.gio.reduce((a, b) => a + b, 0) || 1;
+  const shopTong = o.gio.reduce((a, g) => a + g.units, 0) || 1;
+  const rows = x.gio.map((v, hh) => ({
+    label: gioLabel(hh),
+    sl: v,
+    /* Hai đường tỉ lệ, không phải số tuyệt đối: một sản phẩm bán vài trăm cái
+       không thể vẽ chung thang với cả shop bán mười lăm nghìn cái. */
+    tySp: v / tongSl * 100,
+    tyShop: o.gio[hh].units / shopTong * 100
+  }));
+  const xep = x.gio.map((v, hh) => ({hh, v})).sort((a,b) => b.v - a.v);
+  const top3 = xep.slice(0,3).filter(z => z.v > 0);
+  const phan = top3.reduce((a, z) => a + z.v, 0) / tongSl * 100;
+  /* Giờ mà sản phẩm này lệch NHIỀU NHẤT so với nhịp chung — chỗ đáng đẩy riêng. */
+  const lech = rows.map((r, hh) => ({hh, d: r.tySp - r.tyShop}))
+                   .sort((a,b) => b.d - a.d)[0];
+
+  return `<div class="card dxbox ok" style="margin-bottom:14px">
+    <div class="row"><div class="grow">
+      <div class="dim">Sản phẩm</div>
+      <h3 style="margin:2px 0 0">${esc(x.name)}</h3>
+      <div class="dim" style="margin-top:4px">${dem(x.units)} cái · ${moneyShort(x.gmv)}${
+        x.sku ? ' · mã ' + esc(x.sku) : ''}</div>
+    </div>
+    <button class="btn sm" data-act="giosp" data-id="">Đóng</button></div>
+
+    <div class="tiles" style="margin-top:12px">
+      ${tile('Ba giờ bán nhiều nhất', top3.map(z => gioLabel(z.hh)).join(' · ') || '—',
+             pctText(phan, 0) + ' số hàng bán ra')}
+      ${tile('Lệch nhịp chung nhiều nhất', gioLabel(lech.hh),
+             lech.d > 0 ? 'cao hơn cả shop ' + lech.d.toFixed(1) + ' điểm %' : 'không lệch rõ')}
+      ${tile('Giờ vắng nhất', gioLabel(xep[xep.length-1].hh),
+             xep[xep.length-1].v ? dem(xep[xep.length-1].v) + ' cái' : 'không bán được cái nào')}
+    </div>
+
+    <div class="card pad0" style="margin-top:10px">` + Chart.combo({
+      rows,
+      bars: [{key:'sl', label:'Số cái bán ra', color:'var(--acc)'}],
+      lines:[{key:'tySp', label:'% của sản phẩm này', color:'var(--ok)'},
+             {key:'tyShop', label:'% của cả shop', color:'var(--tx2)'}],
+      fmtBar: v => dem(v), fmtLine: v => pctText(v, 1)
+    }) + `</div>
+    <div class="dim" style="margin-top:8px">Cột là số cái bán ra từng giờ. Hai đường là tỉ lệ
+      phần trăm — đường xanh là nhịp của riêng sản phẩm này, đường xám là nhịp chung cả shop.
+      Chỗ đường xanh vượt hẳn đường xám là giờ sản phẩm này bán tốt hơn mặt bằng, đáng đẩy riêng
+      thay vì đẩy đều cả ngày.</div>
+  </div>`;
+}
+
 function viewAdHours(shopId){
   const shopIds = adcampShopIds();
   const months = ostatMonths(shopId);
@@ -866,19 +1054,30 @@ function viewAdHours(shopId){
     </div>`).join('') + `</div></div>`;
 
   /* ---- từng sản phẩm ---- */
+  const dangMo = o.sp.find(x => x.name === ui.adGioSp);
+  if (dangMo) h += spHourPanel(dangMo, o);
+
+  const q = norm(ui.adGioQ);
+  const loc = q ? o.sp.filter(x => norm(x.name).includes(q) || norm(x.sku).includes(q)) : o.sp;
   h += sectionTitle('Giờ đỉnh của từng sản phẩm',
-    `<span class="dim">top ${o.sp.length} theo tiền hàng</span>`);
-  if (!o.sp.length)
-    h += `<div class="card dim">Không đọc được sản phẩm nào.</div>`;
+    `<span class="dim">${loc.length}/${o.sp.length} · top theo tiền hàng</span>`);
+  h += `<div class="toolbar">
+    <input class="inp grow" placeholder="Tìm tên sản phẩm…" data-inp="adGioQ" value="${esc(ui.adGioQ)}">
+    ${ui.adGioSp ? `<button class="btn sm" data-act="giosp" data-id="">Đóng chi tiết</button>` : ''}
+  </div>`;
+  if (!loc.length)
+    h += `<div class="card dim">${o.sp.length ? 'Không có sản phẩm nào khớp.'
+      : 'Không đọc được sản phẩm nào.'}</div>`;
   else
     h += `<div class="tblwrap"><table class="tbl sm ptbl"><thead><tr>
       <th>Sản phẩm</th><th class="r">Tiền hàng</th><th class="r">Số lượng</th>
       <th class="r">Giờ đỉnh</th><th>Rải trong ngày</th></tr></thead><tbody>` +
-      o.sp.map(x => {
+      loc.map(x => {
         const mx = Math.max(...x.gio);
         const dinhSp = x.gio.map((v, hh) => ({hh, v})).sort((a,b) => b.v - a.v).slice(0,2)
                         .filter(z => z.v > 0).map(z => gioLabel(z.hh)).join(' · ');
-        return `<tr>
+        return `<tr class="${x.name === ui.adGioSp ? 'rowon' : ''}"
+                    data-act="giosp" data-id="${esc(x.name)}">
           <td class="ell" style="max-width:250px" title="${esc(x.name)}">${esc(x.name)}</td>
           <td class="r nw">${moneyShort(x.gmv)}</td>
           <td class="r nw">${dem(x.units)}</td>
@@ -888,9 +1087,8 @@ function viewAdHours(shopId){
                 title="${gioLabel(hh)}: ${v} cái"></i>`).join('')}</div></td>
         </tr>`;
       }).join('') + `</tbody></table></div>
-    <div class="dim" style="margin-top:6px">Dải ô bên phải là 24 giờ trong ngày, ô càng đậm càng
-      nhiều hàng bán ra giờ đó. Sản phẩm khác nhau có giờ đỉnh khác nhau — thứ mà con số toàn shop
-      ở trên che mất.</div>`;
+    <div class="dim" style="margin-top:6px">Bấm một dòng để mở biểu đồ 24 giờ đầy đủ của sản phẩm đó.
+      Dải ô nhỏ chỉ để liếc nhanh xem con nào lệch giờ so với con nào.</div>`;
 
   h += `<div class="dim" style="margin-top:10px">App chỉ giữ phần đã cộng sẵn theo giờ, theo thứ và
     top ${o.sp.length} sản phẩm — không giữ từng đơn. Tệp gốc một tháng đã hơn mười bảy nghìn dòng,
@@ -935,6 +1133,11 @@ function viewAdDay(shopId){
       'adimport', 'Nạp file ngày');
 
   const date = dates.includes(ui.adDate) ? ui.adDate : dates[0];
+  /* Ngày này có phải ảnh chụp giữa chừng không. Nếu có thì mọi con số dưới
+     đây đều thấp giả, và không nói ra thì người xem sẽ đọc nó như một ngày
+     đầy đủ — sai theo một hướng cố định nên nhìn mãi vẫn thấy hợp lý. */
+  const dangDo = adDaysIn(date, shopId).filter(x => x.partial);
+  const gioChup = dangDo.length ? Math.max(...dangDo.map(x => x.atHour)) : null;
   const rp = adDayReport(shopId, date);
   const cham = v => v == null ? '' : deltaChip(v, null);
 
@@ -971,6 +1174,9 @@ function viewAdDay(shopId){
              rp.nen ? deltaChip(rp.dOrders, true) + ' · thường ' + num(Math.round(rp.nen.total.orders)) : '&nbsp;')}
     </div>
 
+    ${gioChup != null ? `<div class="explain warn" style="margin-top:12px">⚠︎ Số của ngày này là
+      <b>ảnh chụp lúc ${esc(gioLabel(gioChup))}</b>, chưa trọn 24 giờ — mọi con số dưới đây đều
+      thấp hơn thực tế. Xuất lại tệp của trọn ngày ${esc(fmtDate(date))} rồi nạp đè lên là đủ.</div>` : ''}
     <div class="explain" style="margin-top:12px">${esc(adDayVerdict(rp))}</div>
     ${(() => {
       /* Chẩn đoán cho cả gian hàng: hôm qua lệch so mức thường vì khúc nào
@@ -1204,7 +1410,7 @@ function viewAdcamp(id){
 
   /* Vì sao đổi — đặt ngay dưới bốn ô số, trước cả biểu đồ: người mở trang này
      đang muốn biết "nên làm gì", mà biểu đồ chỉ trả lời "đã xảy ra chuyện gì". */
-  const dx = truoc ? adDiagnose(chuoi[chuoi.length - 2], nay) : null;
+  const dx = truoc ? adDiagnose(truoc, m) : null;
   if (dx)
     h += `<div class="card dxbox ${dx.cls}" style="margin-top:12px">
       <div class="dx-hd"><span class="chip ${dx.cls}">${esc(dx.tag)}</span>

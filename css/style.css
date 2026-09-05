@@ -719,20 +719,20 @@ a.plnk:hover{border-color:var(--acc);background:var(--bg4)}
 
 /* ---- hai mục con của tab Báo cáo Ads ---- */
 .tabs{display:flex;gap:4px;background:var(--bg3);padding:3px;border-radius:10px}
-.tabs .tab{border:0;background:transparent;color:var(--dim);font:inherit;font-size:13px;
+.tabs .tab{border:0;background:transparent;color:var(--tx3);font:inherit;font-size:13px;
   font-weight:600;padding:7px 15px;border-radius:8px;cursor:pointer;white-space:nowrap}
-.tabs .tab:hover{color:var(--fg)}
-.tabs .tab.on{background:var(--bg1);color:var(--fg);box-shadow:0 1px 3px rgba(0,0,0,.25)}
+.tabs .tab:hover{color:var(--tx)}
+.tabs .tab.on{background:var(--bg4);color:var(--tx);box-shadow:0 1px 3px rgba(0,0,0,.25)}
 
 /* ---- thẻ báo cáo ngày: phần người ta sẽ chụp màn hình ---- */
 .rpt{border:1px solid var(--acc);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 12%,transparent)}
 .rpt-hd{display:flex;gap:10px;align-items:flex-start}
-.rpt-grp{margin-top:12px;padding-top:11px;border-top:1px solid var(--bd)}
+.rpt-grp{margin-top:12px;padding-top:11px;border-top:1px solid var(--line)}
 .rpt-gh{display:flex;gap:8px;align-items:center;margin-bottom:7px}
 .rpt-li{display:flex;gap:10px;align-items:baseline;padding:4px 0;font-size:12.5px}
 
 /* ---- khối chẩn đoán "vì sao đổi" ---- */
-.dxbox{border-left:3px solid var(--bd)}
+.dxbox{border-left:3px solid var(--line)}
 .dxbox.ok{border-left-color:var(--ok)}
 .dxbox.warn{border-left-color:var(--warn)}
 .dx-hd{display:flex;gap:9px;align-items:center;margin-bottom:7px}
@@ -745,7 +745,10 @@ a.plnk:hover{border-color:var(--acc);background:var(--bg4)}
 .dow-b i{display:block;width:100%;max-width:44px;background:var(--acc);border-radius:5px 5px 0 0;
   min-height:3px;opacity:.85}
 .dow-n{font-size:12px;font-weight:600;margin-top:5px}
-.dow-l{font-size:11.5px;color:var(--dim)}
+.dow-l{font-size:11.5px;color:var(--tx3)}
 .dow-l.ok{color:var(--ok);font-weight:700}
 .hrs{display:flex;gap:1.5px;min-width:150px}
 .hrs i{display:block;width:5px;height:16px;background:var(--acc);border-radius:1.5px}
+.tbl .rowon td{background:color-mix(in srgb,var(--acc) 14%,transparent)}
+.sechd{font-size:11.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
+  color:var(--tx3);margin:14px 0 8px}

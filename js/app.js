@@ -2055,12 +2055,24 @@ function adImportModal(){
        không lọt lưới: báo cáo bắt nó bằng cách đối chiếu với mốc tháng, chứ
        không dựa vào việc nó có dòng trong file hay không. */
     const giu = ngay ? camps.filter(c => c.cost > 0) : camps;
-    const rows = giu.map(c => ({
-      c,
-      p:  adcampProduct(c),
-      ex: hienCo.find(x => khoa(x) === khoa(c)) || null
+    /* Hai dòng trong CÙNG một tệp mà ra cùng một danh tính (cùng gian hàng,
+       cùng mã sản phẩm, cùng tên chiến dịch) thì gộp lại thành một, cộng số
+       vào nhau. Đẩy cả hai vào kho là đẻ ra hai cột cùng một tháng trên biểu
+       đồ — đúng lỗi đã gặp. Có gộp thì nói ra, đừng gộp lặng lẽ. */
+    const theoKhoa = {}, trung = [];
+    giu.forEach(c => {
+      const k = khoa(c);
+      const cu = theoKhoa[k];
+      if (!cu){ theoKhoa[k] = c; return; }
+      trung.push(c.name);
+      ['impressions','clicks','orders','cost','gmv'].forEach(f => cu[f] += c[f] || 0);
+    });
+    const rows = Object.keys(theoKhoa).map(k => ({
+      c:  theoKhoa[k],
+      p:  adcampProduct(theoKhoa[k]),
+      ex: hienCo.find(x => khoa(x) === k) || null
     }));
-    plan = {parsed, rows, shop, doiTen, ngay, bo: camps.length - giu.length};
+    plan = {parsed, rows, shop, doiTen, ngay, bo: camps.length - giu.length, trung};
     const tong = rows.reduce((t, r) => ({cost: t.cost + r.c.cost, gmv: t.gmv + r.c.gmv}), {cost:0, gmv:0});
     const noi  = rows.filter(r => r.p).length;
     const de   = rows.length - noi;
@@ -2102,6 +2114,11 @@ function adImportModal(){
         ${tile(ghi ? 'Ghi đè' : 'Thêm mới', String(ghi || rows.length),
                ghi ? nhan + ' đã nạp trước đó' : ngay ? 'ngày mới' : 'tháng mới')}
       </div>
+      ${plan.trung.length ? `<div class="explain warn">⚠︎ Đã gộp ${plan.trung.length} dòng trùng
+        danh tính (cùng gian hàng, cùng mã sản phẩm, cùng tên chiến dịch):
+        ${esc(plan.trung.slice(0,3).join(' · '))}${plan.trung.length > 3 ? '…' : ''}.
+        Số của chúng được cộng vào nhau. Nếu đây là hai chiến dịch khác nhau thật thì
+        đổi tên một con trên Shopee cho phân biệt được.</div>` : ''}
       ${plan.bo ? `<div class="explain">${plan.bo} chiến dịch trong tệp hôm đó không tiêu đồng nào
         nên không lưu lại — không có gì để soi, mà giữ hết thì mỗi ngày cõng thêm trăm rưỡi dòng.
         Con nào tháng trước chạy đều mà hôm nay im bặt thì báo cáo vẫn bắt được, bằng cách đối
@@ -2244,17 +2261,21 @@ function adImportModal(){
     }
 
     const kho = plan.ngay ? db.addays : db.adcamps;
+    /* Tệp của HÔM NAY là ảnh chụp giữa ngày, chưa trọn 24 giờ. Đánh dấu lại
+       kèm giờ nạp, để mai nó không bị đọc như một ngày đầy đủ. */
+    const giuaNgay = plan.ngay && plan.parsed.date === today();
+    const them2 = plan.ngay ? {partial: giuaNgay, atHour: giuaNgay ? new Date().getHours() : 23} : {};
     let them = 0, de = 0;
     plan.rows.forEach(r => {
       const rec = r.ex ? kho.find(x => x.id === r.ex.id) : null;
-      if (rec){ Object.assign(rec, r.c, {shopId}); stamp(rec); de++; }
-      else { kho.push(stamp(Object.assign({}, r.c, {shopId}))); them++; }
+      if (rec){ Object.assign(rec, r.c, {shopId}, them2); stamp(rec); de++; }
+      else { kho.push(stamp(Object.assign({}, r.c, {shopId}, them2))); them++; }
     });
     const don = plan.ngay ? pruneAdDays() : 0;
     ensure(); save();
 
     ui.adShop = shopId; ui.adIssue = ''; ui.adOnlyBad = false; ui.adQ = '';
-    ui.adTab = plan.ngay ? 'day' : 'month';
+    ui.adTab = plan.ngay ? (giuaNgay ? 'now' : 'day') : 'month';
     if (plan.ngay) ui.adDate = plan.parsed.date; else ui.adYm = plan.parsed.ym;
     closeModal();
     go('adreport', '');
@@ -2263,8 +2284,9 @@ function adImportModal(){
               : them       ? `${them} chiến dịch mới`
                            : `đã cập nhật ${de} chiến dịch`;
     if (plan.ngay){
-      const rp = adDayReport(shopId, plan.parsed.date);
-      toast(`${shopName(shopId)} · ngày ${fmtDate(plan.parsed.date)}: ${dem}` +
+      const chiaNay = giuaNgay ? ostatDayShare(shopId, new Date().getHours()) : null;
+      const rp = adDayReport(shopId, plan.parsed.date, chiaNay ? chiaNay.tyLe : null);
+      toast(`${shopName(shopId)} · ngày ${fmtDate(plan.parsed.date)}${giuaNgay ? ' (giữa ngày)' : ''}: ${dem}` +
             (rp.bad.length ? ` · ${rp.bad.length} con cần xem lại` : ' · không có gì bất thường') +
             (don ? ` · đã dọn ${don} dòng ngày cũ` : ''));
     } else {
@@ -2287,12 +2309,18 @@ function adImportModal(){
 async function sendDayReport(date){
   const shopIds = adcampShopIds();
   const shopId  = shopIds.includes(ui.adShop) ? ui.adShop : '';
-  const rp = adDayReport(shopId, date);
+  /* Báo cáo giữa ngày phải co mốc lại y như trên màn hình — gửi số nửa ngày
+     kèm mốc cả ngày là mỗi sáng chủ nhận một tin nhắn báo động giả. */
+  const nay = date === today() ? adNowOf(shopId) : null;
+  const chia = nay && nay.partial ? ostatDayShare(shopId, nay.atHour) : null;
+  const rp = adDayReport(shopId, date, chia ? chia.tyLe : null);
   const ten = shopId ? shopName(shopId) : shopIds.length > 1 ? 'Tất cả gian hàng' : shopName(shopIds[0] || '');
 
   const d = v => v == null ? '' : (v > 0 ? ' (+' : ' (') + v.toFixed(0) + '%)';
   const dong = [];
-  dong.push('Ngày ' + fmtDate(date) + ' · ' + ten);
+  dong.push('Ngày ' + fmtDate(date) + ' · ' + ten +
+            (chia ? ' · số chụp lúc ' + gioLabel(nay.atHour) : ''));
+  if (chia) dong.push('Mới đi được ' + pctText(chia.tyLe * 100, 0) + ' của ngày — mốc đã co theo.');
   if (rp.nen) dong.push('So với trung bình một ngày của ' + monthLabel(rp.nen.ym));
   dong.push('');
   dong.push('Chi phí: ' + moneyShort(rp.sum.cost) + d(rp.dCost));
@@ -2790,9 +2818,10 @@ const ACTIONS = {
   admonth:     id => { ui.adYm = id; ui.adIssue = ''; ui.adOnlyBad = false; render(); },
   adissue:     id => { ui.adIssue = id || ''; ui.adOnlyBad = false; render(); },
   adonlybad:  (id) => { ui.adOnlyBad = id ? id === 'on' : !ui.adOnlyBad; ui.adIssue = ''; render(); },
-  adtab:       id => { ui.adTab = ['month','gio','day'].includes(id) ? id : 'day'; ui.adQ = '';
+  adtab:       id => { ui.adTab = ['month','gio','day','now'].includes(id) ? id : 'day'; ui.adQ = '';
                        ui.adIssue = ''; ui.adOnlyBad = false; render(); },
-  adgioym:     id => { ui.adGioYm = id; render(); },
+  adgioym:     id => { ui.adGioYm = id; ui.adGioSp = ''; render(); },
+  giosp:       id => { ui.adGioSp = (ui.adGioSp === id) ? '' : (id || ''); render(); window.scrollTo(0,0); },
   addate:      id => { ui.adDate = id; render(); },
   adtg:        id => sendDayReport(id),
   adshop:      id => { ui.adShop = id || ''; ui.adYm = ''; ui.adIssue = '';

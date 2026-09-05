@@ -910,6 +910,16 @@ function ensure(){
   });
   db.addays.forEach(c => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(c.date || '')) c.date = today();
+    /* partial = tệp chụp giữa ngày, chưa trọn 24 giờ. Không đánh dấu thì hôm
+       sau nó nằm im trong báo cáo ngày như một ngày đầy đủ, và mọi so sánh
+       với nó đều thấp giả. atHour là giờ lúc nạp — mốc để biết đã qua bao
+       nhiêu phần của ngày. */
+    c.partial = !!c.partial;
+    /* KHÔNG viết `+c.atHour || mặc-định`: nạp lúc 0h cho atHour = 0, mà 0 là
+       giá trị falsy nên nó sẽ bị đá về mặc định 12 hoặc 23. Một tệp chụp lúc
+       nửa đêm sẽ bị coi như đã qua gần hết ngày. */
+    const gio = Math.round(+c.atHour);
+    c.atHour = isFinite(gio) ? Math.min(23, Math.max(0, gio)) : (c.partial ? 12 : 23);
     ['name','sku','status','bid','shopId'].forEach(f => {
       if (typeof c[f] !== 'string') c[f] = String(c[f] == null ? '' : c[f]);
     });
@@ -1772,10 +1782,25 @@ function adcampShopIds(){
 }
 const adcampsIn = (ym, shopId) => adcampsOfShop(shopId).filter(c => c.ym === ym)
                                                       .sort((a,b) => (b.cost||0) - (a.cost||0));
-/* Danh tính của một chiến dịch xuyên tháng. Mã sản phẩm là thứ Shopee không
-   đổi; chiến dịch tự đặt tên (không có mã) thì đành theo tên. Có kèm shop vì
-   hai gian hàng có thể đặt trùng tên chiến dịch mà chúng không liên quan gì. */
-const adcampKey = c => (c.shopId || '') + '|' + (c.sku ? 's:' + norm(c.sku) : 'n:' + norm(c.name));
+/* Danh tính của một chiến dịch xuyên tháng.
+
+   Có kèm shop vì hai gian hàng có thể đặt trùng tên chiến dịch mà chúng không
+   liên quan gì.
+
+   Và có kèm CẢ TÊN, không chỉ mã sản phẩm. Bản đầu chỉ lấy mã, vì tưởng mỗi
+   sản phẩm chỉ có một chiến dịch. Sai: một sản phẩm chạy được nhiều chiến
+   dịch cùng lúc — thường là một con đang chạy tốt và một con thử nghiệm gần
+   như đứng im. Hai con đó cùng mã nên bị coi là một, và lần nạp đầu tiên của
+   một gian hàng mới (lúc chưa có gì để đối chiếu) đẩy cả hai vào kho. Kết
+   quả: biểu đồ của chiến dịch đó hiện HAI cột cùng một tháng, một cột số
+   thật một cột gần như trống — đúng lỗi đã gặp.
+
+   Cái giá phải trả: đổi tên chiến dịch trên Shopee thì app coi như một chiến
+   dịch mới, chuỗi tháng bắt đầu lại. Đổi lại thì không bao giờ trộn hai
+   chiến dịch khác nhau vào một đường — và cái sau mới là thứ làm sai kết
+   luận mà không ai nhìn ra. */
+const adcampKey = c => (c.shopId || '') + '|' +
+  (c.sku ? 's:' + norm(c.sku) + '|' : '') + 'n:' + norm(c.name);
 const adcampRunning = c => !norm(c.status).includes('da dung');
 
 /* Nối vào sản phẩm bằng mã Shopee, tra lại mỗi lần đọc chứ không lưu sẵn.
@@ -1794,10 +1819,20 @@ function adcampPrev(c){
   return adcamps().find(x => x.ym === prev && adcampKey(x) === k) || null;
 }
 /* Mọi tháng của MỘT chiến dịch, xếp theo thời gian tăng dần — dữ liệu để vẽ
-   biểu đồ trên trang chi tiết. */
+   biểu đồ trên trang chi tiết.
+
+   Chốt chặn: mỗi tháng chỉ trả về MỘT bản ghi, bản mới nhất. Dữ liệu lẽ ra
+   không bao giờ có hai bản cho cùng một tháng, nhưng nếu có thì biểu đồ phải
+   hiện sai một cách lộ liễu chứ không được vẽ ra hai cột cùng tên tháng —
+   người xem sẽ tưởng đó là hai tháng khác nhau. */
 function adcampSeries(c){
   const k = adcampKey(c);
-  return adcamps().filter(x => adcampKey(x) === k).sort((a,b) => a.ym.localeCompare(b.ym));
+  const theoThang = {};
+  adcamps().filter(x => adcampKey(x) === k).forEach(x => {
+    const cu = theoThang[x.ym];
+    if (!cu || (x.updatedAt || '') > (cu.updatedAt || '')) theoThang[x.ym] = x;
+  });
+  return Object.keys(theoThang).sort().map(ym => theoThang[ym]);
 }
 /* Mọi NGÀY của cùng chiến dịch đó. adcampKey và adDayKey tính giống hệt nhau
    nên một bản ghi ngày và một bản ghi tháng của cùng chiến dịch cho ra cùng
@@ -1888,38 +1923,63 @@ const adDaysIn      = (date, shopId) => addaysOfShop(shopId).filter(c => c.date 
                                                             .sort((a,b) => (b.cost||0) - (a.cost||0));
 /* Cùng cách đặt danh tính với bản ghi tháng, để một chiến dịch nối được từ
    dòng ngày sang dòng tháng của chính nó. */
-const adDayKey = c => (c.shopId || '') + '|' + (c.sku ? 's:' + norm(c.sku) : 'n:' + norm(c.name));
+const adDayKey = adcampKey;
 
 /* ---- mốc so sánh: trung bình một ngày của tháng gần nhất đã nạp ----
    Nhận `date` chứ không mặc định tháng trước của hôm nay: nạp bù file của
    một ngày cách đây hai tuần thì mốc phải là tháng trước của NGÀY ĐÓ, không
    phải tháng trước của hôm nay. */
-function adBaseline(shopId, date){
+function adBaseline(shopId, date, tyLe){
   const ym = String(date || today()).slice(0,7);
   const co = adcampMonths(shopId).filter(m => m < ym);
   if (!co.length) return null;
   const nen = co[0];                                   // tháng gần nhất trước đó
   const ngay = +monthEnd(nen).slice(8,10);             // số ngày thật của tháng đó
+  /* tyLe < 1 khi so với một tệp chụp giữa ngày: mốc phải co lại theo đúng
+     phần ngày đã trôi qua. Nhân đều mọi chỉ số nên các TỈ LỆ (ROAS, CTR, CVR)
+     không đổi — đúng như bản chất của chúng: chúng không phụ thuộc vào việc
+     ngày đã qua được bao nhiêu. */
+  const k = (tyLe == null ? 1 : Math.max(0.01, tyLe)) / ngay;
   const byKey = {};
   adcampsIn(nen, shopId).forEach(c => {
     byKey[adcampKey(c)] = {
-      impressions: c.impressions / ngay, clicks: c.clicks / ngay,
-      orders: c.orders / ngay, cost: c.cost / ngay, gmv: c.gmv / ngay,
+      impressions: c.impressions * k, clicks: c.clicks * k,
+      orders: c.orders * k, cost: c.cost * k, gmv: c.gmv * k,
       thang: c
     };
   });
   const t = adSum(adcampsIn(nen, shopId));
   return {
-    ym: nen, ngay, byKey,
-    total: {impressions: t.impressions/ngay, clicks: t.clicks/ngay, orders: t.orders/ngay,
-            cost: t.cost/ngay, gmv: t.gmv/ngay, roas: t.roas, ctr: t.ctr, cvr: t.cvr}
+    ym: nen, ngay, byKey, tyLe: tyLe == null ? 1 : tyLe,
+    total: {impressions: t.impressions*k, clicks: t.clicks*k, orders: t.orders*k,
+            cost: t.cost*k, gmv: t.gmv*k, roas: t.roas, ctr: t.ctr, cvr: t.cvr}
   };
 }
 
+/* Tới giờ này thì thường đã đi được bao nhiêu phần của một ngày?
+
+   Không chia đều 24 giờ, vì nhịp mua hàng không đều: từ nửa đêm tới 6h sáng
+   gần như không có gì, còn 21–23h thì dồn dập. Chia đều thì 10h sáng app sẽ
+   tưởng đã qua 42% ngày trong khi thực tế mới khoảng 30% lượng mua — và mọi
+   chiến dịch sẽ bị chấm là "tiêu chậm" một cách oan uổng.
+
+   Lấy nhịp từ chính dữ liệu đơn hàng của shop. Chưa nạp tệp đơn hàng nào thì
+   đành chia đều, và chỗ nào dùng số này phải nói rõ là đang chia đều. */
+function ostatDayShare(shopId, hour){
+  const h = Math.min(23, Math.max(0, Math.round(+hour || 0)));
+  const ym = ostatMonths(shopId)[0];
+  const o = ym ? ostatSum(ostatOf(ym, shopId)) : null;
+  const tong = o ? o.gio.reduce((a, g) => a + g.orders, 0) : 0;
+  if (!tong) return {tyLe: (h + 1) / 24, deu: true};
+  let cum = 0;
+  for (let i = 0; i <= h; i++) cum += o.gio[i].orders;
+  return {tyLe: Math.max(0.01, cum / tong), deu: false, ym: o.ym};
+}
+
 /* ---- báo cáo của một ngày ---- */
-function adDayReport(shopId, date){
+function adDayReport(shopId, date, tyLe){
   const R  = db.settings.adRules || DEFAULT_AD_RULES;
-  const nen = adBaseline(shopId, date);
+  const nen = adBaseline(shopId, date, tyLe);
   const list = adDaysIn(date, shopId);
   const sum = adSum(list);
 
@@ -2008,6 +2068,13 @@ const AD_DX_SIG = 15;          // đổi từ 15% trở lên mới coi là có c
 
 function adDiagnose(truoc, nay){
   if (!truoc || !nay) return null;
+  /* Nhận cả bản ghi thô lẫn object đã tính tỉ lệ.
+     Bản ghi thô chỉ có chi phí, doanh số, click… chứ KHÔNG có roas/ctr/cvr —
+     đưa thẳng vào đây thì mọi phép so tỉ lệ ra 0 và hàm luôn kết luận "đứng
+     yên", kể cả khi ROAS vừa tăng 40%. Lỗi đó không kêu tiếng nào: câu chữ
+     vẫn trôi chảy, chỉ là sai. Nên chuẩn hoá ngay tại cửa vào. */
+  const M = o => (o && o.roas !== undefined) ? o : adMetrics(o || {});
+  truoc = M(truoc); nay = M(nay);
   const d = (a, b) => a ? (b - a) / a * 100 : (b > 0 ? 100 : 0);
   const p = v => Math.abs(v).toFixed(0) + '%';
   const gmv = d(truoc.gmv, nay.gmv), roas = d(truoc.roas, nay.roas);
@@ -2148,6 +2215,17 @@ function ostatMissingShops(){
    sẽ vượt sức chứa của trình duyệt — và nó vượt một cách im lặng, đúng lúc
    bạn đang nạp file chứ không phải lúc đang rảnh. Bản ghi tháng vẫn giữ mãi,
    nên bỏ chi tiết ngày cũ không mất phần lịch sử. */
+/* Bản ghi "hôm nay, chụp giữa ngày" của một shop — nếu có. */
+function adNowOf(shopId){
+  const hom = today();
+  const list = adDaysIn(hom, shopId);
+  if (!list.length) return null;
+  /* Giờ chụp: lấy mốc muộn nhất trong các dòng của hôm nay. Nạp lại lúc 16h
+     thì mọi dòng đều mang atHour 16, nên lấy max là đúng mốc gần nhất. */
+  const gio = Math.max(...list.map(x => x.atHour));
+  return {date: hom, list, atHour: gio, partial: list.some(x => x.partial)};
+}
+
 /* Shop nào chưa nạp file của hôm qua. Chỉ nhắc shop ĐÃ từng nạp file ngày —
    shop chưa dùng tới nếp làm việc này thì nhắc mỗi sáng là phiền vô ích. */
 function adDayMissingShops(){

@@ -813,6 +813,40 @@ khi làm bất cứ việc gì, mà chôn trong form thì phải biết là có 
 App dùng chính nó để gắn cờ 📉, và so với ROAS thực tế tháng gần nhất để nói
 thẳng nên nâng hay nên hạ giá thầu.
 
+## Hôm nay — ads đang chạy có gì bất thường chưa
+
+Mục con đầu tiên. Nạp tệp quảng cáo với khoảng **đúng ngày hôm nay**, xem ngay
+trong lúc còn kịp sửa. Khác "Hôm qua" ở một điểm quyết định: tệp hôm nay mới đi
+được một phần ngày.
+
+Đem số nửa ngày so thẳng với mốc cả ngày thì chiến dịch nào cũng "tiêu ít hơn
+thường lệ" — vô nghĩa, và tệ hơn là nó sai theo **một hướng cố định** nên nhìn
+mãi vẫn thấy hợp lý. Nên trang chia làm hai phần rõ ràng:
+
+* **Tỉ lệ** (ROAS, CTR, CVR) so thẳng được, vì chúng không phụ thuộc vào việc
+  ngày đã qua bao nhiêu. Đây là phần đáng tin nhất giữa ngày.
+* **Số tuyệt đối** (chi phí, doanh số, đơn) so với mốc **đã co lại** theo đúng
+  phần ngày đã trôi qua.
+
+### Phần ngày đã trôi qua lấy từ nhịp mua thật, không chia đều
+
+Chia đều 24 giờ thì 10h sáng app tưởng đã qua 46% ngày. Nhịp thật của shop
+(từ dữ liệu đơn hàng ở mục **Khung giờ**) cho biết lúc đó mới qua **29%** —
+vì từ nửa đêm tới 6h sáng gần như không có gì. Chia đều thì mọi chiến dịch bị
+chấm là "tiêu chậm" một cách oan uổng.
+
+Chưa nạp tệp đơn hàng nào thì đành chia đều, và trang nói rõ là đang chia đều.
+
+### Tệp giữa ngày được đánh dấu lại
+
+Bản ghi mang `partial` và `atHour` (giờ lúc nạp). Không đánh dấu thì hôm sau nó
+nằm im trong báo cáo ngày như một ngày đầy đủ, và mọi so sánh với nó đều thấp
+giả. Tab **Hôm qua** hiện cảnh báo nếu ngày đang xem là ảnh chụp giữa chừng;
+nạp đè tệp trọn ngày là hết.
+
+Nạp lại giữa ngày bao nhiêu lần cũng được — mỗi lần ghi đè và mốc tự tính lại
+theo giờ mới.
+
 ## Báo cáo ngày
 
 Mỗi sáng, người phụ trách xuất báo cáo quảng cáo của **ngày hôm trước** rồi kéo
@@ -915,6 +949,26 @@ thứ phía sau:
 Đây là **gợi ý đọc từ số liệu, không phải kết luận** — dòng chữ đó in ngay trong
 thẻ, để không ai đọc nó như một phán quyết.
 
+### Danh tính một chiến dịch phải gồm cả TÊN
+
+Bản đầu lấy danh tính theo `shop | mã sản phẩm`, vì tưởng mỗi sản phẩm chỉ có
+một chiến dịch. Sai: **một sản phẩm chạy được nhiều chiến dịch cùng lúc** —
+thường là một con đang chạy tốt và một con thử nghiệm gần như đứng im.
+
+Hai con đó cùng mã nên bị coi là một. Lần nạp đầu tiên của một gian hàng mới
+(lúc chưa có gì để đối chiếu) đẩy cả hai vào kho, và biểu đồ của chiến dịch đó
+hiện **hai cột cùng một tháng** — một cột số thật, một cột gần như trống. Nhìn
+vào thì tưởng là hai tháng khác nhau.
+
+Giờ danh tính là `shop | mã sản phẩm | tên chiến dịch`. Cái giá phải trả: đổi
+tên chiến dịch trên Shopee thì app coi như một chiến dịch mới, chuỗi tháng bắt
+đầu lại. Đổi lại thì không bao giờ trộn hai chiến dịch khác nhau vào một đường —
+và cái sau mới là thứ làm sai kết luận mà không ai nhìn ra.
+
+Thêm hai chốt chặn: hai dòng trùng danh tính trong **cùng một tệp** thì gộp lại
+và nói ra; còn `adcampSeries()` chỉ trả về **một bản ghi cho mỗi tháng**, nên dù
+dữ liệu có lạ thế nào biểu đồ cũng không vẽ ra hai cột cùng tên tháng.
+
 ### Một chiến dịch, hai kho, hai id
 
 Cùng một chiến dịch có một bản ghi trong `adcamps` (tháng) và nhiều bản ghi trong
@@ -942,6 +996,17 @@ Trang trả lời bốn câu: **khung giờ vàng** của cả shop · **giờ n
 đơn** · **thứ nào trong tuần đông nhất** · và **giờ đỉnh của từng sản phẩm** —
 thứ mà con số toàn shop che mất, vì sáp vuốt tóc và gôm xịt tóc không bán chạy
 cùng một khung giờ.
+
+### Tìm và mở từng sản phẩm
+
+Dải 24 ô đậm nhạt trong bảng đủ để liếc xem con nào lệch giờ so với con nào,
+nhưng không đọc được con số nào. Có ô tìm theo tên, và bấm một dòng thì mở ra
+biểu đồ 24 giờ đầy đủ của riêng sản phẩm đó: cột là số cái bán ra từng giờ, kèm
+**hai đường tỉ lệ** — nhịp của riêng sản phẩm và nhịp chung cả shop.
+
+Hai đường ấy mới là chỗ đáng nhìn: "22h là giờ đỉnh" chỉ có nghĩa khi biết cả
+shop lúc 22h cũng đang cao hay không. Chỗ đường sản phẩm vượt hẳn đường shop là
+giờ nó bán tốt hơn mặt bằng — đáng đẩy riêng thay vì đẩy đều cả ngày.
 
 ### Một cửa nạp cho cả ba loại tệp
 
