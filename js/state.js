@@ -1931,28 +1931,49 @@ const adDayKey = adcampKey;
    phải tháng trước của hôm nay. */
 function adBaseline(shopId, date, tyLe){
   const ym = String(date || today()).slice(0,7);
-  const co = adcampMonths(shopId).filter(m => m < ym);
+  const co = adcampMonths(shopId).filter(m => m < ym).sort();   // mọi tháng đã nạp trước đó
   if (!co.length) return null;
-  const nen = co[0];                                   // tháng gần nhất trước đó
-  const ngay = +monthEnd(nen).slice(8,10);             // số ngày thật của tháng đó
+
   /* tyLe < 1 khi so với một tệp chụp giữa ngày: mốc phải co lại theo đúng
      phần ngày đã trôi qua. Nhân đều mọi chỉ số nên các TỈ LỆ (ROAS, CTR, CVR)
      không đổi — đúng như bản chất của chúng: chúng không phụ thuộc vào việc
      ngày đã qua được bao nhiêu. */
-  const k = (tyLe == null ? 1 : Math.max(0.01, tyLe)) / ngay;
-  const byKey = {};
-  adcampsIn(nen, shopId).forEach(c => {
-    byKey[adcampKey(c)] = {
-      impressions: c.impressions * k, clicks: c.clicks * k,
-      orders: c.orders * k, cost: c.cost * k, gmv: c.gmv * k,
-      thang: c
-    };
+  const co_ = tyLe == null ? 1 : Math.max(0.01, tyLe);
+  const soNgay = m => +monthEnd(m).slice(8,10);
+  const tongNgay = co.reduce((n, m) => n + soNgay(m), 0);
+
+  /* Mỗi chiến dịch chia cho số ngày của ĐÚNG những tháng nó có mặt, không
+     chia cho tổng ngày của mọi tháng. Con mới mở tháng rồi mà đem chia cho
+     ba tháng thì mức trung bình của nó thấp đi ba lần, và hôm nay nó sẽ luôn
+     trông như đang tiêu vọt. */
+  const gom = {};
+  co.forEach(m => {
+    const n = soNgay(m);
+    adcampsIn(m, shopId).forEach(c => {
+      const k = adcampKey(c);
+      if (!gom[k]) gom[k] = {impressions:0, clicks:0, orders:0, cost:0, gmv:0, ngay:0, thang:c};
+      const g = gom[k];
+      ['impressions','clicks','orders','cost','gmv'].forEach(f => g[f] += c[f] || 0);
+      g.ngay += n;
+      /* giữ bản ghi của tháng gần nhất làm đại diện (tên, mã, trạng thái) */
+      if (c.ym >= g.thang.ym) g.thang = c;
+    });
   });
-  const t = adSum(adcampsIn(nen, shopId));
+  const byKey = {};
+  Object.keys(gom).forEach(k => {
+    const g = gom[k], h = co_ / (g.ngay || 1);
+    byKey[k] = {impressions: g.impressions*h, clicks: g.clicks*h, orders: g.orders*h,
+                cost: g.cost*h, gmv: g.gmv*h, thang: g.thang};
+  });
+
+  const t = adSum(co.reduce((a, m) => a.concat(adcampsIn(m, shopId)), []));
+  const h = co_ / (tongNgay || 1);
   return {
-    ym: nen, ngay, byKey, tyLe: tyLe == null ? 1 : tyLe,
-    total: {impressions: t.impressions*k, clicks: t.clicks*k, orders: t.orders*k,
-            cost: t.cost*k, gmv: t.gmv*k, roas: t.roas, ctr: t.ctr, cvr: t.cvr}
+    ym: co[co.length-1], thangs: co, ngay: tongNgay, byKey, tyLe: co_,
+    nhan: co.length === 1 ? monthLabel(co[0])
+          : co.map(m => monthLabel(m).replace('Tháng ','T')).join(' · '),
+    total: {impressions: t.impressions*h, clicks: t.clicks*h, orders: t.orders*h,
+            cost: t.cost*h, gmv: t.gmv*h, roas: t.roas, ctr: t.ctr, cvr: t.cvr}
   };
 }
 
@@ -2029,9 +2050,13 @@ function adDayReport(shopId, date, tyLe){
   const d = (cur, tr) => tr && cur != null ? (cur - tr) / tr * 100 : null;
   return {
     date, shopId: shopId || '', rows, sum, nen, byFlag, bad,
+    dImp:  nen ? d(sum.impressions, nen.total.impressions) : null,
+    dClicks: nen ? d(sum.clicks, nen.total.clicks) : null,
     dCost: nen ? d(sum.cost, nen.total.cost) : null,
     dGmv:  nen ? d(sum.gmv,  nen.total.gmv)  : null,
     dRoas: nen ? d(sum.roas, nen.total.roas) : null,
+    dCtr:  nen ? d(sum.ctr,  nen.total.ctr)  : null,
+    dCvr:  nen ? d(sum.cvr,  nen.total.cvr)  : null,
     dOrders: nen ? d(sum.orders, nen.total.orders) : null
   };
 }
@@ -2039,13 +2064,14 @@ function adDayReport(shopId, date, tyLe){
 /* Một câu kết luận bằng lời, để người xem ảnh chụp không phải tự đọc số. */
 function adDayVerdict(rp){
   if (!rp.nen) return 'Chưa nạp file tháng nào trước ngày này nên chưa có mốc để so. ' +
-                      'Nạp file tháng gần nhất vào tab Theo tháng là báo cáo ngày sẽ có mốc.';
+                      'Nạp file tháng vào tab Theo tháng là báo cáo ngày sẽ có mốc — ' +
+                      'nạp được bao nhiêu tháng thì mốc lấy trung bình bấy nhiêu tháng.';
   const t = [];
   const noi = (v, tang, giam) => v == null ? '' : v >= 8 ? tang : v <= -8 ? giam : 'ngang mức thường';
   t.push('Hôm đó tiêu ' + moneyShort(rp.sum.cost) + ' — ' +
          noi(rp.dCost, 'nhiều hơn thường lệ', 'ít hơn thường lệ') + '.');
   t.push('ROAS ' + xText(rp.sum.roas) + ' so với ' + xText(rp.nen.total.roas) +
-         ' của ' + monthLabel(rp.nen.ym) + ' — ' +
+         ' của ' + rp.nen.nhan + ' — ' +
          noi(rp.dRoas, 'tốt hơn', 'kém hơn') + '.');
   const n = rp.bad.length;
   t.push(n ? n + ' chiến dịch cần xem lại.' : 'Không chiến dịch nào bất thường.');

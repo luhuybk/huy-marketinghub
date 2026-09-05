@@ -2102,7 +2102,7 @@ function adImportModal(){
              : 'báo cáo CẢ THÁNG — ' + esc(monthLabel(parsed.ym))}</b>
         (khoảng ${parsed.days} ngày trong tệp). ${
         ngay
-          ? (nen ? 'Sẽ so với trung bình một ngày của ' + esc(monthLabel(nen.ym)) + '.'
+          ? (nen ? 'Sẽ so với trung bình một ngày của ' + esc(nen.nhan) + '.'
                  : 'Gian hàng này chưa có file tháng nào trước ngày đó nên chưa có mốc để so — ' +
                    'vẫn nạp được, nhưng báo cáo sẽ chỉ có số trần. Nạp file tháng gần nhất là có mốc.')
           : 'Sẽ dùng làm mốc cho các báo cáo ngày của tháng sau.'}</div>
@@ -2321,12 +2321,15 @@ async function sendDayReport(date){
   dong.push('Ngày ' + fmtDate(date) + ' · ' + ten +
             (chia ? ' · số chụp lúc ' + gioLabel(nay.atHour) : ''));
   if (chia) dong.push('Mới đi được ' + pctText(chia.tyLe * 100, 0) + ' của ngày — mốc đã co theo.');
-  if (rp.nen) dong.push('So với trung bình một ngày của ' + monthLabel(rp.nen.ym));
+  if (rp.nen) dong.push('So với trung bình một ngày của ' + rp.nen.nhan);
   dong.push('');
+  dong.push('View: ' + dem(rp.sum.impressions) + d(rp.dImp));
+  dong.push('CTR: ' + pctText(rp.sum.ctr, 2) + d(rp.dCtr));
+  dong.push('CVR: ' + pctText(rp.sum.cvr, 2) + d(rp.dCvr));
   dong.push('Chi phí: ' + moneyShort(rp.sum.cost) + d(rp.dCost));
-  dong.push('Doanh số: ' + moneyShort(rp.sum.gmv) + d(rp.dGmv));
+  dong.push('GMV: ' + moneyShort(rp.sum.gmv) + d(rp.dGmv));
   dong.push('ROAS: ' + xText(rp.sum.roas) + d(rp.dRoas));
-  dong.push('Đơn: ' + num(rp.sum.orders) + d(rp.dOrders));
+  dong.push('Đơn: ' + dem(rp.sum.orders) + d(rp.dOrders));
   dong.push('');
   dong.push(adDayVerdict(rp));
   if (rp.nen){

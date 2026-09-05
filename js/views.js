@@ -816,7 +816,7 @@ function viewAdNow(shopId){
         <b>Ads đang chạy hôm nay · ${esc(fmtDate(nay.date))}</b>
         <div class="dim">${esc(shopId ? shopName(shopId) : shopIds.length > 1 ? 'Tất cả gian hàng' : shopName(shopIds[0] || ''))}
           · số chụp lúc <b>${esc(gioLabel(nay.atHour))}</b>${
-          rp.nen ? ' · mốc là ' + esc(monthLabel(rp.nen.ym)) : ''}</div>
+          rp.nen ? ' · mốc là trung bình ngày của ' + esc(rp.nen.nhan) : ''}</div>
       </div>
       <span class="chip ${rp.bad.length ? 'bad' : 'ok'}">${
         rp.bad.length ? rp.bad.length + ' cần xem ngay' : 'chưa thấy gì bất thường'}</span>
@@ -838,19 +838,28 @@ function viewAdNow(shopId){
       ${tile('ROAS', xText(rp.sum.roas),
              deltaChip(rp.dRoas, true) + ' · thường ' + xText(rp.nen.total.roas),
              rp.sum.roas == null ? '' : rp.sum.roas >= 3 ? 'ok' : rp.sum.roas < 1.5 ? 'bad' : '')}
-      ${tile('CTR', pctText(rp.sum.ctr, 2), 'thường ' + pctText(rp.nen.total.ctr, 2))}
-      ${tile('CVR', pctText(rp.sum.cvr, 2), 'thường ' + pctText(rp.nen.total.cvr, 2))}
+      ${tile('CTR', pctText(rp.sum.ctr, 2),
+             deltaChip(rp.dCtr, true) + ' · thường ' + pctText(rp.nen.total.ctr, 2))}
+      ${tile('CVR', pctText(rp.sum.cvr, 2),
+             deltaChip(rp.dCvr, true) + ' · thường ' + pctText(rp.nen.total.cvr, 2))}
     </div>
 
     <div class="sechd">Số đã chạy — so với mốc đã co theo phần ngày đã qua</div>
     <div class="tiles">
+      ${tile('View — lượt hiển thị', dem(rp.sum.impressions),
+             cham(rp.dImp) + ' · đáng lẽ ' + dem(Math.round(rp.nen.total.impressions)))}
       ${tile('Chi phí', moneyShort(rp.sum.cost),
              cham(rp.dCost) + ' · đáng lẽ ' + moneyShort(rp.nen.total.cost))}
-      ${tile('Doanh số', moneyShort(rp.sum.gmv),
+      ${tile('GMV — doanh số', moneyShort(rp.sum.gmv),
              deltaChip(rp.dGmv, true) + ' · đáng lẽ ' + moneyShort(rp.nen.total.gmv))}
       ${tile('Đơn', dem(rp.sum.orders),
              deltaChip(rp.dOrders, true) + ' · đáng lẽ ' + dem(Math.round(rp.nen.total.orders)))}
     </div>
+
+    <div class="dim" style="margin-top:8px">Mốc là <b>trung bình một ngày</b> của
+      ${esc(rp.nen.thangs.length)} tháng đã nạp (${esc(rp.nen.nhan)}). Nạp thêm tháng cũ hơn thì
+      mốc tự tính lại gồm cả tháng đó. Mỗi chiến dịch chỉ chia cho số ngày của đúng những tháng
+      nó có mặt, nên con mới mở tháng rồi không bị mốc kéo thấp xuống một cách oan uổng.</div>
 
     <div class="explain" style="margin-top:12px">${esc(adDayVerdict(rp))}</div>
     ${(() => {
@@ -1156,7 +1165,7 @@ function viewAdDay(shopId){
       <div class="grow">
         <b>Báo cáo quảng cáo ngày ${esc(fmtDate(date))}</b>
         <div class="dim">${esc(shopId ? shopName(shopId) : shopIds.length > 1 ? 'Tất cả gian hàng' : shopName(shopIds[0] || ''))}${
-          rp.nen ? ' · so với trung bình một ngày của ' + esc(monthLabel(rp.nen.ym)) : ''}</div>
+          rp.nen ? ' · so với trung bình một ngày của ' + esc(rp.nen.nhan) : ''}</div>
       </div>
       <span class="chip ${rp.bad.length ? 'bad' : 'ok'}">${
         rp.bad.length ? rp.bad.length + ' cần xem lại' : 'không có gì bất thường'}</span>
@@ -1165,14 +1174,22 @@ function viewAdDay(shopId){
     <div class="tiles" style="margin-top:12px">
       ${tile('Chi phí', moneyShort(rp.sum.cost),
              rp.nen ? cham(rp.dCost) + ' · thường ' + moneyShort(rp.nen.total.cost) : '&nbsp;')}
-      ${tile('Doanh số', moneyShort(rp.sum.gmv),
-             rp.nen ? deltaChip(rp.dGmv, true) + ' · thường ' + moneyShort(rp.nen.total.gmv) : num(rp.sum.orders) + ' đơn')}
+      ${tile('GMV — doanh số', moneyShort(rp.sum.gmv),
+             rp.nen ? deltaChip(rp.dGmv, true) + ' · thường ' + moneyShort(rp.nen.total.gmv) : dem(rp.sum.orders) + ' đơn')}
       ${tile('ROAS', xText(rp.sum.roas),
              rp.nen ? deltaChip(rp.dRoas, true) + ' · thường ' + xText(rp.nen.total.roas) : '&nbsp;',
              rp.sum.roas >= 3 ? 'ok' : rp.sum.roas < 1.5 ? 'bad' : '')}
-      ${tile('Đơn', num(rp.sum.orders),
-             rp.nen ? deltaChip(rp.dOrders, true) + ' · thường ' + num(Math.round(rp.nen.total.orders)) : '&nbsp;')}
+      ${tile('Đơn', dem(rp.sum.orders),
+             rp.nen ? deltaChip(rp.dOrders, true) + ' · thường ' + dem(Math.round(rp.nen.total.orders)) : '&nbsp;')}
     </div>
+    ${rp.nen ? `<div class="tiles" style="margin-top:8px">
+      ${tile('View — lượt hiển thị', dem(rp.sum.impressions),
+             cham(rp.dImp) + ' · thường ' + dem(Math.round(rp.nen.total.impressions)))}
+      ${tile('CTR', pctText(rp.sum.ctr, 2),
+             deltaChip(rp.dCtr, true) + ' · thường ' + pctText(rp.nen.total.ctr, 2))}
+      ${tile('CVR', pctText(rp.sum.cvr, 2),
+             deltaChip(rp.dCvr, true) + ' · thường ' + pctText(rp.nen.total.cvr, 2))}
+    </div>` : ''}
 
     ${gioChup != null ? `<div class="explain warn" style="margin-top:12px">⚠︎ Số của ngày này là
       <b>ảnh chụp lúc ${esc(gioLabel(gioChup))}</b>, chưa trọn 24 giờ — mọi con số dưới đây đều
@@ -1456,7 +1473,7 @@ function viewAdcamp(id){
   h += `<div class="tblwrap"><table class="tbl sm"><thead><tr><th>Tháng</th>
     <th class="r">Chi phí</th><th class="r">Doanh số</th><th class="r">ROAS</th>
     <th class="r">CTR</th><th class="r">CVR</th><th class="r">Đơn</th></tr></thead><tbody>` +
-    chuoi.slice().reverse().map(x => {
+    chuoi.map(x => {
       const mm = adMetrics(x);
       const co = adcampIssues(x);
       return `<tr><td class="nw"><b>${esc(monthLabel(x.ym))}</b>${

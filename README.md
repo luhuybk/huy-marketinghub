@@ -828,6 +828,23 @@ mãi vẫn thấy hợp lý. Nên trang chia làm hai phần rõ ràng:
 * **Số tuyệt đối** (chi phí, doanh số, đơn) so với mốc **đã co lại** theo đúng
   phần ngày đã trôi qua.
 
+### Mốc là trung bình ngày của MỌI tháng đã nạp
+
+Nạp T7 và T8 thì mốc là trung bình ngày của hai tháng đó. Nạp thêm T6 thì mốc
+tự tính lại gồm cả ba. Không phải chọn gì cả — cứ nạp thêm tháng cũ là mốc dày
+thêm.
+
+Sáu chỉ số được so: **View · CTR · CVR · Chi phí · GMV · ROAS** (kèm số đơn).
+
+Một chi tiết quan trọng: mỗi chiến dịch chỉ chia cho số ngày của **đúng những
+tháng nó có mặt**, không chia cho tổng ngày của mọi tháng. Con mới mở tháng rồi
+mà đem chia cho ba tháng thì mức trung bình của nó thấp đi ba lần, và hôm nay
+nó sẽ luôn trông như đang tiêu vọt — một cảnh báo giả xuất hiện đều đặn cho tới
+khi người ta thôi đọc cảnh báo.
+
+Còn mốc của cả gian hàng thì chia cho tổng ngày của mọi tháng, vì đó đúng là
+"một ngày trung bình của giai đoạn".
+
 ### Phần ngày đã trôi qua lấy từ nhịp mua thật, không chia đều
 
 Chia đều 24 giờ thì 10h sáng app tưởng đã qua 46% ngày. Nhịp thật của shop
