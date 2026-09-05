@@ -215,8 +215,8 @@ function viewDash(){
     h += sectionTitle('Cần xử lý', al.length > 6 ? `<span class="dim">còn ${al.length-6} việc nữa</span>` : '');
     h += `<div class="alerts">` + show.map(a => `
       <div class="al al-${a.level}" data-act="${a.bookingId ? 'booking' : a.clipId ? 'clip' :
-             a.page ? 'nav' : a.productId ? 'product' : ''}"
-           data-id="${a.bookingId || a.clipId || a.page || a.productId || ''}">
+             a.campId ? 'adcamp' : a.page ? 'nav' : a.productId ? 'product' : ''}"
+           data-id="${a.bookingId || a.clipId || a.campId || a.page || a.productId || ''}">
         <span class="al-dot"></span>
         <div class="grow"><div class="al-t">${esc(a.title)}</div><div class="al-s">${esc(a.sub)}</div></div>
         <span class="al-go">›</span>
@@ -704,6 +704,24 @@ function trackChip(t){
 /* ============================================================
    CHIẾN DỊCH QUẢNG CÁO THEO THÁNG
    ============================================================ */
+/* Chip trạng thái việc trên một chiến dịch. Bấm vào là mở lại đúng việc đó
+   — chỗ nào thấy chip cũng sửa được, không phải đi tìm. */
+function fixChip(f){
+  if (!f) return '';
+  if (f.mute) return `<span class="chip" data-act="adfixedit" data-id="${f.id}"
+    title="Đã đánh dấu cố ý để vậy — bấm để bỏ">🔕 cố ý để vậy</span>`;
+  const con = dayDiff(f.reviewAt);
+  const toi = con <= 0;
+  return `<span class="chip ${toi ? 'warn' : 'acc'}"
+    data-act="${toi ? 'adfixjudge' : 'adfixedit'}" data-id="${f.id}"
+    title="${esc(AD_FIX_TYPES[f.type].label + (f.detail ? ' · ' + f.detail : ''))}">${
+    AD_FIX_TYPES[f.type].icon} ${esc(f.whoName || 'chưa giao')} · ${
+    toi ? 'tới hạn — chấm kết quả' : 'đo lại ' + fmtShort(f.reviewAt)}</span>`;
+}
+/* Nút ghi việc, hiện trên những dòng đang bị gắn cờ mà chưa ai nhận. */
+const fixBtn = id => `<span class="chip" data-act="adfix" data-id="${id}"
+  title="Ghi lại việc vừa làm rồi hẹn ngày đo lại">＋ ghi việc</span>`;
+
 function issueChip(k){
   const I = AD_ISSUES[k];
   return `<span class="chip ${I.cls}" title="${esc(I.hint)}">${I.icon} ${esc(I.label)}</span>`;
@@ -727,7 +745,8 @@ function adcampRow(r, hienShop){
         c.sku ? 'mã ' + esc(c.sku) : 'chiến dịch tự đặt tên'}${
         adcampRunning(c) ? '' : ' · <span class="bad">đã dừng</span>'}${
         p ? ' · ' + esc(p.name) : ''}</div>
-      ${r.issues.length ? `<div class="chips">${r.issues.map(issueChip).join('')}</div>` : ''}</td>
+      ${r.issues.length || r.fix ? `<div class="chips">${r.issues.map(issueChip).join('')}${
+        r.fix ? fixChip(r.fix) : r.issues.length ? fixBtn(c.id) : ''}</div>` : ''}</td>
     <td class="r nw">${dem(m.impressions)}${sub(dImp != null ? deltaChip(dImp, null) : null)}</td>
     <td class="r nw">${moneyShort(m.cost)}${sub(dCost != null ? deltaChip(dCost, null) : null)}</td>
     <td class="r nw">${moneyShort(m.gmv)}${sub(num(m.orders) + ' đơn')}</td>
@@ -779,6 +798,30 @@ const AD_SS = [
   {k:'gmv',         l:'GMV',     p:'doanh số',       tot:true,  f: moneyShort},
   {k:'roas',        l:'ROAS',    p:'gmv ÷ chi phí',  tot:true,  f: xText}
 ];
+
+/* Những con đã có người nhận. Vẫn hiện, nhưng tách hẳn khỏi "cần xem lại":
+   một danh sách phải-động-tay mà lẫn cả việc đang chờ tới ngày đo thì con số
+   của nó không bao giờ về 0, và một con số không bao giờ về 0 thì không ai
+   nhìn nữa. */
+function fixGroup(list){
+  if (!list.length) return '';
+  return `<div class="rpt-grp">
+    <div class="rpt-gh"><span class="chip acc">🛠 Đang xử lý</span>
+      <span class="dim">${list.length} chiến dịch — đã có người nhận, chờ tới ngày đo</span></div>` +
+    list.slice(0, 8).map(r => {
+      const f = r.fix, toi = !f.mute && dayDiff(f.reviewAt) <= 0;
+      return `<div class="rpt-li">
+        <span class="ell grow" title="${esc(r.c.name)}">${esc(r.c.name)}</span>
+        <span class="nw dim">${AD_FIX_TYPES[f.type].icon} ${esc(f.whoName || 'chưa giao')} · ${
+          f.mute ? 'cố ý để vậy'
+                 : toi ? '<b class="warn">tới hạn chấm</b>' : 'đo lại ' + esc(fmtShort(f.reviewAt))}</span>
+        <span class="chip ${toi ? 'warn' : ''}" data-act="${toi ? 'adfixjudge' : 'adfixedit'}"
+              data-id="${f.id}">${toi ? 'Chấm →' : 'Sửa'}</span>
+      </div>`;
+    }).join('') +
+    (list.length > 8 ? `<div class="rpt-li dim">…và ${list.length - 8} chiến dịch nữa</div>` : '') +
+  `</div>`;
+}
 
 function adCompareBlock(rp, o){
   if (!rp.nen) return '';
@@ -981,8 +1024,10 @@ function viewAdNow(shopId){
           ? `<div class="rpt-li dim">…và ${rp.byFlag[k].length - list.length} chiến dịch nữa</div>` : '') +
       `</div>`;
     }).join('')}
-    ${!rp.bad.length ? `<div class="rpt-grp"><div class="dim">Tới giờ này mọi chiến dịch chạy quanh
-      mức thường ngày. Không có gì phải động vào.</div></div>` : ''}`}
+    ${fixGroup(rp.dangXuLy)}
+    ${!rp.bad.length ? `<div class="rpt-grp"><div class="dim">${rp.dangXuLy.length
+      ? 'Ngoài mấy con đang xử lý ở trên, mọi chiến dịch khác chạy quanh mức thường ngày.'
+      : 'Tới giờ này mọi chiến dịch chạy quanh mức thường ngày. Không có gì phải động vào.'}</div></div>` : ''}`}
   </div>`;
 
   h += `<div class="btns" style="margin-top:10px">
@@ -1237,7 +1282,8 @@ function adDayRow(r){
       <div class="chips" style="margin-top:4px">${r.flags.map(f =>
         `<span class="chip ${AD_DAY_FLAGS[f].cls}" title="${esc(AD_DAY_FLAGS[f].hint)}">${
           AD_DAY_FLAGS[f].icon} ${esc(AD_DAY_FLAGS[f].label)}</span>`).join('')}${
-        r.dx ? `<span class="chip ${r.dx.cls}" title="${esc(r.dx.text)}">${esc(r.dx.tag)}</span>` : ''}</div></td>`;
+        r.dx ? `<span class="chip ${r.dx.cls}" title="${esc(r.dx.text)}">${esc(r.dx.tag)}</span>` : ''}${
+        r.fix ? fixChip(r.fix) : r.flags.some(x => x !== 'up') ? fixBtn(c.id) : ''}</div></td>`;
 
   /* Chiến dịch tháng trước chạy đều mà hôm đó không có dòng nào trong file:
      không có số nào để bày ra sáu cột, nên nói thẳng bằng một dòng chữ. */
@@ -1366,8 +1412,10 @@ function viewAdDay(shopId){
       `</div>`;
     }).join('')}
 
-    ${!rp.bad.length ? `<div class="rpt-grp"><div class="dim">Mọi chiến dịch chạy quanh mức thường ngày.
-      Không có gì phải làm hôm nay.</div></div>` : ''}
+    ${fixGroup(rp.dangXuLy)}
+    ${!rp.bad.length ? `<div class="rpt-grp"><div class="dim">${rp.dangXuLy.length
+      ? 'Ngoài mấy con đang xử lý ở trên, mọi chiến dịch khác chạy quanh mức thường ngày.'
+      : 'Mọi chiến dịch chạy quanh mức thường ngày. Không có gì phải làm hôm nay.'}</div></div>` : ''}
   </div>`;
 
   h += `<div class="btns" style="margin-top:10px">
@@ -1551,8 +1599,21 @@ function viewAdMonth(){
     }).join('') + `</div>`;
   } else {
     h += `<div class="explain" style="margin-bottom:14px">✓ Không có chiến dịch nào bị gắn cờ trong
-      ${esc(monthLabel(ym))}. Ngưỡng bắt lỗi đặt trong <b>Cài đặt › Chiến dịch quảng cáo</b>.</div>`;
+      ${esc(monthLabel(ym))}${rp.dangXuLy.length ? ' mà chưa có người nhận' : ''}.
+      Ngưỡng bắt lỗi đặt trong <b>Cài đặt › Chiến dịch quảng cáo</b>.</div>`;
   }
+  if (rp.dangXuLy.length)
+    h += `<div class="alerts" style="margin-bottom:14px">` + rp.dangXuLy.slice(0, 6).map(r => {
+      const f = r.fix, toi = !f.mute && dayDiff(f.reviewAt) <= 0;
+      return `<div class="al al-info" data-act="${toi ? 'adfixjudge' : 'adfixedit'}" data-id="${f.id}">
+        <span class="al-dot"></span>
+        <div class="grow"><div class="al-t">${AD_FIX_TYPES[f.type].icon} ${esc(r.c.name)}</div>
+          <div class="al-s">${esc(AD_FIX_TYPES[f.type].label)}${f.detail ? ' · ' + esc(f.detail) : ''} ·
+            ${esc(f.whoName || 'chưa giao cho ai')} · ${f.mute ? 'cố ý để vậy'
+              : toi ? 'tới hạn chấm kết quả' : 'đo lại ' + esc(fmtDate(f.reviewAt))}</div></div>
+        <span class="chip ${toi ? 'warn' : 'acc'}">${toi ? 'Chấm →' : 'Sửa →'}</span>
+      </div>`;
+    }).join('') + `</div>`;
 
   /* ---- bảng đầy đủ ---- */
   const q = norm(ui.adQ);
@@ -1631,6 +1692,48 @@ function viewAdcamp(id){
     ${tile('ROAS', xText(m.roas), truoc ? deltaChip(d(m.roas, truoc.roas), true) + '&nbsp;' : '&nbsp;',
            m.roas == null ? '' : m.roas >= 3 ? 'ok' : m.roas < 1.5 ? 'bad' : '')}
     ${tile('CTR / CVR', pctText(m.ctr, 2) + ' · ' + pctText(m.cvr, 2), num(m.clicks) + ' click')}
+  </div>`;
+
+  /* Nhật ký việc đã làm trên chính chiến dịch này. Đặt ngay dưới bốn ô số,
+     trước cả phần chẩn đoán: mở trang này mà thấy "tuần trước đã hạ giá thầu
+     rồi" thì đọc mọi thứ bên dưới bằng con mắt khác hẳn. */
+  const dsFix = adFixesOf(adcampKey(c));
+  const moFix = dsFix.find(x => !x.done) || null;
+  h += `<div class="card" style="margin-top:12px">
+    <div class="row"><div class="grow">
+      <div class="dim">Việc đã làm trên chiến dịch này</div>
+      ${moFix ? `<div style="margin-top:6px"><b>${AD_FIX_TYPES[moFix.type].icon} ${
+        esc(AD_FIX_TYPES[moFix.type].label)}</b> · ngày ${esc(fmtDate(moFix.date))}${
+        moFix.whoName ? ' · phụ trách <b>' + esc(moFix.whoName) + '</b>' : ' · chưa giao cho ai'}</div>
+        ${moFix.detail ? `<div class="dim" style="margin-top:3px">${esc(moFix.detail)}</div>` : ''}
+        <div class="dim" style="margin-top:3px">${moFix.mute
+          ? 'Đang ẩn cờ — chiến dịch này không hiện trong danh sách cần xem lại.'
+          : dayDiff(moFix.reviewAt) <= 0
+            ? 'Hẹn đo lại ' + esc(fmtDate(moFix.reviewAt)) + ' — <b class="warn">tới hạn rồi</b>. ' +
+              'Chấm xong nó mới quay lại danh sách cần xem lại.'
+            : 'Hẹn đo lại ' + esc(fmtDate(moFix.reviewAt)) +
+              ' · tới lúc đó nó mới quay lại danh sách cần xem lại.'}</div>`
+      : `<div class="dim" style="margin-top:4px">Chưa ghi việc nào. Ghi lại thì con này rời khỏi
+          danh sách cần xem lại cho tới ngày bạn hẹn — báo cáo mỗi sáng chỉ còn con mới hỏng.</div>`}
+    </div>
+    <div class="btns">
+      ${moFix && !moFix.mute ? `<button class="btn ${dayDiff(moFix.reviewAt) <= 0 ? 'pri' : ''}"
+        data-act="adfixjudge" data-id="${moFix.id}">Chấm kết quả</button>` : ''}
+      ${moFix ? `<button class="btn" data-act="adfixedit" data-id="${moFix.id}">Sửa</button>`
+              : `<button class="btn pri" data-act="adfix" data-id="${c.id}">Ghi việc đã làm</button>`}
+    </div></div>
+    ${dsFix.filter(x => x.done).length ? `<div class="tblwrap" style="margin-top:10px">
+      <table class="tbl sm ptbl"><thead><tr><th>Đã làm</th><th>Ngày</th><th>Ai</th>
+        <th>Kết luận</th></tr></thead><tbody>` +
+      dsFix.filter(x => x.done).slice(0, 8).map(x => `<tr data-act="adfixedit" data-id="${x.id}">
+        <td>${AD_FIX_TYPES[x.type].icon} ${esc(AD_FIX_TYPES[x.type].label)}${
+          x.detail ? `<div class="dim">${esc(x.detail)}</div>` : ''}</td>
+        <td class="nw">${esc(fmtShort(x.date))}</td>
+        <td class="nw">${esc(x.whoName || '—')}</td>
+        <td class="nw">${x.verdict ? `<span class="chip" style="color:${VERDICTS[x.verdict].color}">${
+          VERDICTS[x.verdict].icon} ${esc(VERDICTS[x.verdict].label)}</span>` : '—'}${
+          x.verdictNote ? `<div class="dim">${esc(x.verdictNote)}</div>` : ''}</td></tr>`).join('') +
+      `</tbody></table></div>` : ''}
   </div>`;
 
   /* Vì sao đổi — đặt ngay dưới bốn ô số, trước cả biểu đồ: người mở trang này

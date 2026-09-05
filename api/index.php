@@ -220,6 +220,16 @@ switch ($action) {
 
   /* ---------------- tài khoản ---------------- */
 
+  /* Chỉ TÊN của các tài khoản đang bật, cho bất kỳ ai đã đăng nhập. Cần để
+     giao việc: chọn người phụ trách thì phải biết có những ai. Khác
+     users_list ở chỗ không kèm quyền, vai trò hay số máy đang đăng nhập —
+     những thứ đó vẫn chỉ chủ mới xem được. */
+  case 'user_names': {
+    requireAuth();
+    out(['ok' => true, 'users' => db()->query(
+      'SELECT id, name FROM users WHERE disabled = 0 ORDER BY name ASC')->fetchAll()]);
+  }
+
   case 'users_list': {
     requireOwner();
     $rows = db()->query('SELECT id, name, role, perms, disabled, created_at, last_seen

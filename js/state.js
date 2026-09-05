@@ -376,6 +376,31 @@ const AD_DAY_FLAGS = {
 const AD_DAY_FLAG_IDS = Object.keys(AD_DAY_FLAGS);
 
 /* ============================================================
+   VIỆC ĐÃ LÀM TRÊN MỘT CHIẾN DỊCH (adfixes)
+
+   Vì sao phải có: báo cáo ngày gắn cờ bốn năm chục chiến dịch, và sáng mai
+   vẫn đúng bốn năm chục con đó. Không có chỗ nào nói "con này tôi cố ý tắt"
+   hay "hôm qua tôi hạ giá thầu rồi, hẹn bảy ngày nữa đo lại", nên danh sách
+   chỉ dài thêm chứ không bao giờ ngắn đi — tới lúc nào đó không ai đọc nữa,
+   và lúc ấy cảnh báo mất sạch tác dụng.
+
+   Ghi một việc là chiến dịch đó rời khỏi danh sách "cần xem lại" cho tới
+   ngày hẹn. Đúng ngày hẹn nó quay lại, kèm số trước và số sau để chấm xem
+   việc vừa làm có ăn thua gì không.
+   ============================================================ */
+const AD_FIX_TYPES = {
+  bid:    {label:'Chỉnh giá thầu / ROAS mục tiêu', icon:'🎚'},
+  budget: {label:'Chỉnh ngân sách',                icon:'💰'},
+  keyword:{label:'Sửa từ khoá',                    icon:'🔤'},
+  pause:  {label:'Tắt hoặc bật lại chiến dịch',    icon:'⏸'},
+  page:   {label:'Sửa trang sản phẩm — ảnh, giá, mô tả', icon:'🖼'},
+  stock:  {label:'Xử lý tồn kho, hết hàng',        icon:'📦'},
+  watch:  {label:'Chưa làm gì, theo dõi thêm',     icon:'👀'},
+  other:  {label:'Khác',                           icon:'•'}
+};
+const AD_FIX_TYPE_IDS = Object.keys(AD_FIX_TYPES);
+
+/* ============================================================
    MẪU TIN NHẮN
    Cùng vài nội dung gõ đi gõ lại cho hàng chục người: chào hỏi, gửi
    brief, nhắc hạn, xin số liệu. Mẫu có chỗ trống, app điền sẵn tên và
@@ -682,13 +707,13 @@ const DEFAULT_POST_TARGETS = {fb:0, tt:0};
 const KEY = 'kolhub.v1';
 const COLLECTIONS = ['kols','bookings','clips','products','adperiods','actions','brands','statuses',
                      'templates','spweeks','impacts','ideas','posts','adcamps','shops','addays',
-                     'orderstats'];
+                     'orderstats','adfixes'];
 
 function blank(){
   return {
     kols:[], bookings:[], clips:[], products:[], adperiods:[], actions:[], brands:[], statuses:[],
     templates:[], spweeks:[], impacts:[], ideas:[], posts:[], adcamps:[], shops:[], addays:[],
-    orderstats:[],
+    orderstats:[], adfixes:[],
     settings:{
       theme:'dark',
       myName:'',
@@ -925,6 +950,22 @@ function ensure(){
     });
     ['impressions','clicks','orders'].forEach(f => c[f] = parseCount(c[f]));
     ['cost','gmv'].forEach(f => c[f] = parseMoney(c[f]));
+  });
+  db.adfixes.forEach(f => {
+    if (!AD_FIX_TYPES[f.type]) f.type = 'other';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(f.date || '')) f.date = today();
+    ['campKey','shopId','name','sku','detail','who','whoName','baseLabel','verdictNote']
+      .forEach(k => { if (typeof f[k] !== 'string') f[k] = String(f[k] == null ? '' : f[k]); });
+    f.mute = !!f.mute;
+    f.done = !!f.done;
+    if (!VERDICTS[f.verdict]) f.verdict = '';
+    /* Ẩn cờ thì không hẹn ngày: "cố ý để vậy" không có hạn nào để đo lại.
+       Còn đã sửa gì đó thì buộc phải có ngày, nếu không việc rơi vào im lặng
+       — mà im lặng chính là thứ tính năng này sinh ra để chữa. */
+    f.reviewDays = f.mute ? 0 : Math.max(1, +f.reviewDays || 7);
+    f.reviewAt = f.mute ? '' : (f.reviewAt || addDays(f.date, f.reviewDays));
+    if (typeof f.base !== 'object' || !f.base) f.base = null;
+    if (f.verdict) f.done = true;
   });
   db.orderstats.forEach(o => {
     if (!/^\d{4}-\d{2}$/.test(o.ym || '')) o.ym = String(o.from || today()).slice(0,7);
@@ -1212,6 +1253,7 @@ function missingVars(text){
    duyệt thật (một deal, một clip) sẽ chìm mất trong đó. Số quảng cáo được
    soi bằng cờ cảnh báo trong chính báo cáo, đó mới là chỗ đọc được. */
 const REVIEW_KINDS = {
+  adfixes:   'Việc làm trên chiến dịch quảng cáo',
   adperiods: 'Kỳ số liệu quảng cáo',
   spweeks:   'Tuần số liệu Shopee',
   impacts:   'Hành động cải thiện sản phẩm',
@@ -1287,6 +1329,16 @@ function reviewLabel(kind, rec){
               sub: IMP_TYPES[rec.type].label + ' · làm ngày ' + fmtDate(rec.date) +
                    (s ? ' · nhắm vào ' + s.label.toLowerCase() : ''),
               go: rec.productId ? ['sp', rec.productId] : null};
+    }
+    case 'adfixes': {
+      const c = adFixCamp(rec);
+      return {title: rec.name + ': ' + AD_FIX_TYPES[rec.type].label,
+              sub: (rec.whoName ? 'phụ trách ' + rec.whoName + ' · ' : '') +
+                   'làm ngày ' + fmtDate(rec.date) +
+                   (rec.mute ? ' · đánh dấu cố ý để vậy'
+                             : rec.reviewAt ? ' · hẹn đo lại ' + fmtDate(rec.reviewAt) : '') +
+                   (rec.detail ? ' · ' + rec.detail : ''),
+              go: c ? ['adcamp', c.id] : ['adreport', '']};
     }
     case 'ideas':
       return {title: rec.name, sub: 'sản phẩm mới · ' + IDEA_STAGE[rec.stage].label,
@@ -1396,6 +1448,19 @@ function reminderTasks(){
          sub:IMP_TYPES[im.type].label + ' ngày ' + fmtDate(im.date) +
              (s ? ' · nhắm vào ' + s.label.toLowerCase() : ''),
          ref:{kind:'impacts', id:im.id},
+         doneLabel:'✅ Bỏ qua lần này', doneSet:{done:true}, dueField:'reviewAt'});
+  });
+
+  /* Chiến dịch đã sửa, tới hạn đo lại. Vào luồng `ads` cùng với các thử
+     nghiệm quảng cáo khác — cùng một người đọc, cùng một nhịp. */
+  adFixOpenAll().forEach(f => {
+    if (f.mute || !f.reviewAt) return;
+    add({id:'adfix_' + f.id, feed:'ads', due:f.reviewAt, icon:AD_FIX_TYPES[f.type].icon,
+         title:'Đo lại chiến dịch: ' + f.name,
+         sub:(f.whoName ? 'phụ trách: ' + f.whoName + ' · ' : '') +
+             AD_FIX_TYPES[f.type].label + ' ngày ' + fmtDate(f.date) +
+             (f.detail ? ' · ' + f.detail : ''),
+         ref:{kind:'adfixes', id:f.id},
          doneLabel:'✅ Bỏ qua lần này', doneSet:{done:true}, dueField:'reviewAt'});
   });
 
@@ -1848,6 +1913,39 @@ function adDaySeries(c){
 const adcampFind = id => adcamps().find(x => x.id === id) ||
                          addays().find(x => x.id === id) || null;
 
+/* ---- việc đang làm trên từng chiến dịch ---- */
+const adfixes    = () => alive(db.adfixes);
+const adFixesOf  = key => adfixes().filter(f => f.campKey === key)
+                                   .sort((a,b) => (b.date || '').localeCompare(a.date || ''));
+/* Việc còn mở của một chiến dịch. Cùng lúc chỉ nên có một — ghi việc mới thì
+   việc cũ được khép lại, vì hai thay đổi chồng lên nhau thì tới ngày đo
+   không tách được cái nào có tác dụng. */
+const adFixOpen  = key => adFixesOf(key).find(f => !f.done) || null;
+/* Bảng tra một lượt: báo cáo ngày chạy qua trăm rưỡi dòng, gọi adFixOpen cho
+   từng dòng là quét cả kho trăm rưỡi lần. */
+function adFixMap(){
+  const m = {};
+  adfixes().forEach(f => {
+    if (f.done) return;
+    const cu = m[f.campKey];
+    if (!cu || (f.date || '') > (cu.date || '')) m[f.campKey] = f;
+  });
+  return m;
+}
+const adFixOpenAll = () => Object.values(adFixMap())
+  .sort((a,b) => (a.reviewAt || '9999').localeCompare(b.reviewAt || '9999'));
+const adFixDue = () => adFixOpenAll().filter(f => !f.mute && f.reviewAt && f.reviewAt <= today());
+/* Chiến dịch của một việc, tìm ở cả hai kho — dùng để mở trang chi tiết từ
+   cảnh báo, và để lấy số hiện tại lúc chấm kết quả. */
+function adFixCamp(f){
+  const m = adcamps().filter(c => adcampKey(c) === f.campKey)
+                     .sort((a,b) => a.ym.localeCompare(b.ym));
+  if (m.length) return m[m.length - 1];
+  const d = addays().filter(c => adDayKey(c) === f.campKey)
+                    .sort((a,b) => a.date.localeCompare(b.date));
+  return d.length ? d[d.length - 1] : null;
+}
+
 /* Bốn dấu hiệu cần soi. Trả về mảng mã, có thể nhiều cái cùng lúc. */
 function adcampIssues(c){
   const R = db.settings.adRules || DEFAULT_AD_RULES;
@@ -1879,13 +1977,19 @@ function adcampIssues(c){
    cả bộ nên gọi lại cho từng dòng trong lúc vẽ là quét bình phương. */
 function adcampReport(ym, shopId){
   const list = adcampsIn(ym, shopId);
+  const fixes = adFixMap();
   const rows = list.map(c => {
     const prev = adcampPrev(c);
     return {c, m: adMetrics(c), prev, pm: prev ? adMetrics(prev) : null,
-            p: adcampProduct(c), issues: adcampIssues(c)};
+            p: adcampProduct(c), issues: adcampIssues(c), fix: fixes[adcampKey(c)] || null};
   });
   const sum = adSum(list);
-  const bad = rows.filter(r => r.issues.length);
+  /* Con nào đã có người nhận xử lý thì rời khỏi "cần xem lại" — nó vẫn nằm
+     trong bảng và vẫn đeo cờ, chỉ là không đếm vào con số bắt người ta hành
+     động nữa. Đếm cả những con đang chờ tới ngày đo thì con số ấy không bao
+     giờ về 0, và một con số không bao giờ về 0 thì không ai nhìn. */
+  const bad = rows.filter(r => r.issues.length && !r.fix);
+  const dangXuLy = rows.filter(r => r.issues.length && r.fix);
   const waste = rows.filter(r => r.issues.includes('waste'))
                     .reduce((t, r) => t + r.m.cost, 0);
   /* Bao nhiêu chiến dịch gánh 80% chi phí — con số này quyết định bạn nên
@@ -1893,8 +1997,8 @@ function adcampReport(ym, shopId){
   let cum = 0, core = 0;
   rows.forEach(r => { if (cum < sum.cost * 0.8){ cum += r.m.cost; core++; } });
   const byIssue = {};
-  AD_ISSUE_IDS.forEach(k => byIssue[k] = rows.filter(r => r.issues.includes(k)));
-  return {ym, shopId: shopId || '', rows, sum, bad, byIssue, waste, core,
+  AD_ISSUE_IDS.forEach(k => byIssue[k] = rows.filter(r => r.issues.includes(k) && !r.fix));
+  return {ym, shopId: shopId || '', rows, sum, bad, dangXuLy, byIssue, waste, core,
           prevYm: shiftMonth(ym, -1)};
 }
 
@@ -2020,6 +2124,7 @@ function adDayReport(shopId, date, tyLe, che){
   const nen = adBaseline(shopId, date, tyLe, che);
   const list = adDaysIn(date, shopId);
   const sum = adSum(list);
+  const fixes = adFixMap();
 
   const rows = list.map(c => {
     const m = adMetrics(c);
@@ -2055,11 +2160,12 @@ function adDayReport(shopId, date, tyLe, che){
        chỗ nào cần cũng dùng được cùng một kết luận. */
     const dx = bm && duLon ? adDiagnose(bm, m) : null;
     return {c, m, b, bm, dCost, dRoas, dImp, dCtr, dCvr, dGmv, dOrders, dClicks, dCpc,
-            dx: dx && dx.tag !== 'Đứng yên' ? dx : null, flags};
+            dx: dx && dx.tag !== 'Đứng yên' ? dx : null, flags,
+            fix: fixes[adDayKey(c)] || null};
   });
 
   const byFlag = {};
-  AD_DAY_FLAG_IDS.forEach(k => byFlag[k] = rows.filter(r => r.flags.includes(k))
+  AD_DAY_FLAG_IDS.forEach(k => byFlag[k] = rows.filter(r => r.flags.includes(k) && !r.fix)
                                                .sort((a,b) => b.m.cost - a.m.cost));
   /* Chiến dịch tháng trước chạy đều mà hôm qua KHÔNG có dòng nào trong file:
      đó cũng là đứng im, chỉ khác là im tới mức không xuất hiện. Không bắt
@@ -2068,20 +2174,25 @@ function adDayReport(shopId, date, tyLe, che){
     const co = new Set(list.map(adDayKey));
     Object.keys(nen.byKey).forEach(k => {
       const b = nen.byKey[k];
-      if (co.has(k) || b.cost < (+R.dayMinCost || 0)) return;
+      if (co.has(k) || b.cost < (+R.dayMinCost || 0) || fixes[k]) return;
       byFlag.quiet.push({c: Object.assign({}, b.thang, {date, impressions:0, clicks:0,
                                                         orders:0, cost:0, gmv:0}),
                          m: adMetrics({}), b, bm: adMetrics(b), dCost: -100, dRoas: null,
-                         flags:['quiet'], vang: true});
+                         flags:['quiet'], vang: true, fix: fixes[k] || null});
     });
     byFlag.quiet.sort((a,b) => b.b.cost - a.b.cost);
   }
 
-  const bad = rows.filter(r => r.flags.some(f => f !== 'up'))
+  /* Cùng lý do với báo cáo tháng: con đã có người nhận thì ra khỏi danh sách
+     phải động tay, chuyển sang danh sách đang chờ tới ngày đo. */
+  const coCo = r => r.flags.some(f => f !== 'up');
+  const bad = rows.filter(r => coCo(r) && !r.fix)
                   .concat(byFlag.quiet.filter(r => r.vang));
+  const dangXuLy = rows.filter(r => r.fix)
+                       .sort((a,b) => (a.fix.reviewAt || '9999').localeCompare(b.fix.reviewAt || '9999'));
   const d = (cur, tr) => tr && cur != null ? (cur - tr) / tr * 100 : null;
   return {
-    date, shopId: shopId || '', rows, sum, nen, byFlag, bad,
+    date, shopId: shopId || '', rows, sum, nen, byFlag, bad, dangXuLy,
     dImp:  nen ? d(sum.impressions, nen.total.impressions) : null,
     dClicks: nen ? d(sum.clicks, nen.total.clicks) : null,
     dCpc:  nen ? d(sum.cpc,  nen.total.cpc)  : null,
@@ -3160,6 +3271,22 @@ function alerts(){
              (tre > 0 ? ' — hụt ' + tre + ' ngày' : '') +
              ' · nạp hằng ngày mới thấy được con nào vừa hỏng hôm qua',
         sort: 185});
+    });
+
+    /* Tới hạn đo lại một việc đã làm. Đứng trước mấy cảnh báo "có con hỏng"
+       vì đây là việc đã hẹn với một người cụ thể — bỏ qua thì lần sửa vừa
+       rồi không bao giờ được chấm là ăn hay không ăn, và lần sau lại dò lại
+       từ đầu đúng cái đã dò rồi. */
+    adFixDue().forEach(f => {
+      const tre = -dayDiff(f.reviewAt);
+      const c = adFixCamp(f);
+      out.push({level: tre > 2 ? 'warn' : 'info', kind:'adfix', page:'adreport',
+        campId: c ? c.id : '',
+        title: (f.whoName ? f.whoName + ' — ' : '') + 'tới hạn đo lại: ' + f.name,
+        sub: AD_FIX_TYPES[f.type].label + ' ngày ' + fmtDate(f.date) +
+             (tre > 0 ? ' · quá hạn ' + tre + ' ngày' : ' · tới hạn hôm nay') +
+             ' · vào chấm xem có ăn thua không',
+        sort: 175 + tre});
     });
 
     adcampShopIds().forEach(id => {

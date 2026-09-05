@@ -83,7 +83,7 @@ const KH_KIND_PERM = {
   kols:['kols','pipeline'], statuses:['kols','pipeline'], templates:['kols','pipeline'],
   bookings:['pipeline','kols','clips'], clips:['clips','pipeline','kols'],
   adperiods:['ads'], actions:['ads'], adcamps:['ads'], addays:['ads'], shops:['ads'],
-  orderstats:['ads'],
+  orderstats:['ads'], adfixes:['ads'],
   spweeks:['improve','ads'],
   impacts:['improve'], ideas:['newprod']
 };
@@ -461,6 +461,16 @@ function api(req, res, body){
         db().exec('COMMIT');
       } catch(e){ db().exec('ROLLBACK'); return fail('Ghi dữ liệu lỗi: ' + e.message, 500); }
       return send({ok:true, saved, skipped, blocked, now:iso()});
+    }
+
+    /* Chỉ TÊN của các tài khoản đang bật, cho bất kỳ ai đã đăng nhập.
+       Cần để giao việc: chọn người phụ trách thì phải biết có những ai. Khác
+       users_list ở chỗ không kèm quyền, vai trò, số máy đang đăng nhập —
+       những thứ đó vẫn chỉ chủ mới xem được. */
+    case 'user_names': {
+      if (!need()) return;
+      return send({ok:true, users: db().prepare(
+        'SELECT id,name FROM users WHERE disabled=0 ORDER BY name ASC').all()});
     }
 
     /* ---- tài khoản: cùng hợp đồng với bản PHP ---- */

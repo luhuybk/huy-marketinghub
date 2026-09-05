@@ -1151,6 +1151,24 @@ async function loadTg(silent){
 /* ============================================================
    TÀI KHOẢN
    ============================================================ */
+/* Danh sách TÊN tài khoản, để giao việc cho một người cụ thể.
+
+   Tách khỏi loadUsers vì loadUsers chỉ chủ mới gọi được (nó kèm quyền, vai
+   trò, số máy đang đăng nhập). Nhân viên cũng phải giao được việc, mà giao
+   thì phải biết trong nhà có những ai — nên có một đường riêng chỉ trả về
+   id và tên.
+
+   Đọc một lần rồi giữ trong bộ nhớ. Không đọc được cũng không sao: form sẽ
+   cho gõ tay tên người phụ trách. */
+let nameCfg = null, nameAsked = false;
+async function loadNames(){
+  if (nameCfg || nameAsked || !Server.authed()) return nameCfg;
+  nameAsked = true;
+  try { nameCfg = (await Server.userNames()).users || []; }
+  catch(e){ nameCfg = null; nameAsked = false; }
+  return nameCfg;
+}
+
 async function loadUsers(silent){
   if (!Server.authed() || !isOwner()) return;
   cfgAsked.users = true;
@@ -2372,6 +2390,174 @@ async function sendDayReport(date){
   }
 }
 
+/* ============================================================
+   VIỆC ĐÃ LÀM TRÊN MỘT CHIẾN DỊCH
+
+   Ghi lại "tôi vừa động vào con này" rồi hẹn ngày đo lại. Kể từ lúc ghi,
+   con đó rời khỏi danh sách cần xem lại — không phải vì nó hết vấn đề, mà
+   vì đã có người nhận và có hạn. Tới hạn thì nó quay lại kèm số trước sau.
+   ============================================================ */
+/* Số hiện tại của một chiến dịch, ưu tiên bản ghi ngày mới nhất rồi mới tới
+   tháng. Chụp lại lúc ghi việc để tới ngày đo còn có cái mà so — không chụp
+   thì lúc đó chỉ còn số mới, mà số mới một mình thì không nói lên điều gì. */
+function adFixSnap(key){
+  const ng = addays().filter(c => adDayKey(c) === key).sort((a,b) => a.date.localeCompare(b.date));
+  const th = adcamps().filter(c => adcampKey(c) === key).sort((a,b) => a.ym.localeCompare(b.ym));
+  const c  = ng.length ? ng[ng.length-1] : th.length ? th[th.length-1] : null;
+  if (!c) return {base:null, baseLabel:''};
+  const lay = x => ({impressions:x.impressions||0, clicks:x.clicks||0, orders:x.orders||0,
+                     cost:x.cost||0, gmv:x.gmv||0});
+  return {base: lay(c), baseLabel: c.date ? 'ngày ' + fmtDate(c.date) : monthLabel(c.ym)};
+}
+
+async function adFixForm(campId, fixId){
+  const c = campId ? adcampFind(campId) : null;
+  const cu = fixId ? adfixes().find(x => x.id === fixId) : null;
+  if (!c && !cu){ toast('Không tìm thấy chiến dịch này'); return; }
+  const key = cu ? cu.campKey : adcampKey(c);
+  const isNew = !cu;
+
+  await loadNames();
+  const toi = Server.name() || '';
+  /* Mặc định giao cho chính người đang ghi: phần lớn trường hợp ai thấy thì
+     người đó sửa, và một ô đã điền sẵn đúng thì không ai bỏ trống nó. */
+  const nguoi = nameCfg || [];
+  const macDinh = cu ? cu.who
+    : (nguoi.find(u => u.name === toi) || {}).id || '';
+
+  const f = cu || {type:'bid', date: today(), reviewDays:7, who: macDinh, detail:'', mute:false};
+  const chup = isNew ? adFixSnap(key) : {base: cu.base, baseLabel: cu.baseLabel};
+
+  formModal({
+    title: isNew ? 'Ghi việc đã làm' : 'Sửa việc đã ghi',
+    values: Object.assign({}, f, {reviewDays: String(f.reviewDays || 7)}),
+    wide: true,
+    extra: `<div class="explain"><b>${esc(cu ? cu.name : c.name)}</b><br>
+      Ghi xong, chiến dịch này rời khỏi danh sách <b>cần xem lại</b> cho tới ngày hẹn — báo cáo
+      mỗi sáng chỉ còn những con mới hỏng. Tới ngày hẹn nó quay lại, kèm số trước và số sau để
+      bạn chấm xem việc vừa làm có ăn thua gì không.${chup.baseLabel
+        ? '<br>Số làm mốc lấy từ <b>' + esc(chup.baseLabel) + '</b>.' : ''}</div>`,
+    fields: [
+      {k:'type', l:'Đã làm gì', t:'select', half:true,
+       opts: AD_FIX_TYPE_IDS.map(k => [k, AD_FIX_TYPES[k].icon + ' ' + AD_FIX_TYPES[k].label])},
+      {k:'date', l:'Làm ngày', t:'date', half:true},
+      nguoi.length
+        ? {k:'who', l:'Ai phụ trách', t:'select',
+           opts: [['', '— chưa giao cho ai —']].concat(nguoi.map(u => [u.id, u.name])),
+           hint:'Tới hạn đo lại, tên người này hiện ngay trong cảnh báo và trong tin Telegram'}
+        : {k:'whoName', l:'Ai phụ trách', t:'text', ph:'gõ tên người phụ trách',
+           hint:'Không đọc được danh sách tài khoản nên đành gõ tay'},
+      {k:'detail', l:'Làm cụ thể thế nào', t:'textarea', rows:2,
+       ph:'hạ ROAS mục tiêu từ 9 xuống 6,5 · tăng ngân sách ngày lên 300k'},
+      {k:'reviewDays', l:'Đo lại sau', t:'select', half:true,
+       opts: [['3','3 ngày — đủ để thấy chi phí đổi'], ['7','7 ngày — đủ một tuần số liệu'],
+              ['14','14 ngày'], ['30','30 ngày']]},
+      /* Nhãn của ô tick nằm ở `ph` chứ không phải `l`: form vẽ ô tick kèm chữ
+         ngay bên cạnh và bỏ hẳn nhãn phía trên. */
+      {k:'mute', l:'', t:'check', half:true, ph:'Cố ý để vậy — đừng gắn cờ con này nữa',
+       hint:'Dùng cho con tự tay tắt hẳn. Chọn ô này thì không hẹn ngày, và nó im cho tới khi bạn xoá việc này'}
+    ],
+    onSave(v){
+      if (!v.date){ toast('Chọn ngày làm'); return false; }
+      const rec = isNew ? stamp({}) : db.adfixes.find(x => x.id === cu.id);
+      if (!rec) return;
+      Object.assign(rec, v);
+      rec.campKey = key;
+      if (isNew){
+        rec.shopId = c.shopId || '';
+        rec.name   = c.name || '';
+        rec.sku    = c.sku || '';
+        rec.base   = chup.base;
+        rec.baseLabel = chup.baseLabel;
+      }
+      rec.mute = !!v.mute;
+      rec.reviewDays = rec.mute ? 0 : (+v.reviewDays || 7);
+      rec.reviewAt = rec.mute ? '' : addDays(rec.date, rec.reviewDays);
+      /* Chụp lại tên người phụ trách chứ không chỉ giữ id: danh sách tài
+         khoản phải gọi máy chủ mới có, mà cảnh báo thì phải đọc được cả lúc
+         mất mạng. Đổi tên tài khoản về sau thì bản ghi cũ giữ tên cũ — đúng
+         hơn là hiện một ô trống. */
+      if (v.who){
+        const u = (nameCfg || []).find(x => x.id === v.who);
+        rec.whoName = u ? u.name : (rec.whoName || '');
+      } else if (!v.whoName) rec.whoName = '';
+
+      /* Một chiến dịch chỉ nên có một việc đang mở. Ghi việc mới thì khép
+         việc cũ lại — hai thay đổi chồng nhau thì tới ngày đo không tách
+         được cái nào có tác dụng. */
+      if (isNew)
+        adFixesOf(key).forEach(x => { if (!x.done){ x.done = true; x.verdict = x.verdict || 'same';
+                                                    x.verdictNote = 'khép lại vì có việc mới'; stamp(x); } });
+      stamp(rec);
+      if (isNew) db.adfixes.push(rec);
+      ensure(); save();
+      toast(rec.mute ? 'Đã ẩn cờ cho chiến dịch này'
+                     : 'Đã ghi · sẽ nhắc lại ngày ' + fmtDate(rec.reviewAt) +
+                       (rec.whoName ? ' · ' + rec.whoName : ''));
+    },
+    onDelete: isNew ? null : () => {
+      if (!confirm('Xoá việc này khỏi nhật ký? Chiến dịch sẽ quay lại danh sách cần xem lại.')) return false;
+      const rec = db.adfixes.find(x => x.id === cu.id);
+      rec.deleted = true; stamp(rec); save(); toast('Đã xoá'); render();
+    }
+  });
+}
+
+/* Chấm kết quả: bày số lúc ghi việc cạnh số bây giờ rồi hỏi một câu. */
+function adFixJudge(id){
+  const f = adfixes().find(x => x.id === id);
+  if (!f){ toast('Không tìm thấy việc này'); return; }
+  const nay = adFixSnap(f.campKey);
+  const a = f.base ? adMetrics(f.base) : null;
+  const b = nay.base ? adMetrics(nay.base) : null;
+  const d = (x, y) => x && y != null ? (y - x) / x * 100 : null;
+  const dong = (l, fmt, k, tot) => `<tr><td>${l}</td>
+    <td class="r dim">${a ? fmt(a[k]) : '—'}</td>
+    <td class="r"><b>${b ? fmt(b[k]) : '—'}</b></td>
+    <td class="r">${a && b ? (deltaChip(d(a[k], b[k]), tot) || '—') : '—'}</td></tr>`;
+
+  formModal({
+    title: 'Chấm kết quả',
+    values: {verdict:'', verdictNote:''},
+    wide: true,
+    saveLabel: 'Khép việc này',
+    extra: `<div class="explain"><b>${esc(f.name)}</b><br>
+        ${AD_FIX_TYPES[f.type].icon} ${esc(AD_FIX_TYPES[f.type].label)} ngày ${esc(fmtDate(f.date))}${
+        f.whoName ? ' · ' + esc(f.whoName) : ''}${f.detail ? '<br>' + esc(f.detail) : ''}</div>
+      <div class="tblwrap" style="margin-bottom:12px"><table class="tbl sm ptbl">
+        <thead><tr><th>Chỉ số</th>
+          <th class="r">Lúc ghi việc<div class="dim" style="font-weight:400">${esc(f.baseLabel || '—')}</div></th>
+          <th class="r">Bây giờ<div class="dim" style="font-weight:400">${esc(nay.baseLabel || '—')}</div></th>
+          <th class="r">Đổi</th></tr></thead>
+        <tbody>
+          ${dong('View', v => dem(v), 'impressions', null)}
+          ${dong('CTR', v => pctText(v, 2), 'ctr', true)}
+          ${dong('CVR', v => pctText(v, 2), 'cvr', true)}
+          ${dong('Chi phí', moneyShort, 'cost', null)}
+          ${dong('GMV', moneyShort, 'gmv', true)}
+          ${dong('ROAS', xText, 'roas', true)}
+        </tbody></table></div>
+      ${a && b && f.baseLabel === nay.baseLabel
+        ? `<div class="explain warn">⚠︎ Hai cột đang lấy từ cùng một bản ghi
+           (${esc(f.baseLabel)}) nên chưa có gì đổi để đo. Nạp tệp mới rồi hãy chấm.</div>` : ''}`,
+    fields: [
+      {k:'verdict', l:'Việc vừa làm có ăn thua không', t:'select',
+       opts: [['', '— chọn một —']].concat(Object.keys(VERDICTS).map(k => [k, VERDICTS[k].label]))},
+      {k:'verdictNote', l:'Ghi lại để lần sau còn nhớ', t:'textarea', rows:2,
+       ph:'hạ ROAS mục tiêu xuống 6,5 thì chi phí lên gấp đôi mà ROAS vẫn giữ — giữ mức này'}
+    ],
+    onSave(v){
+      if (!v.verdict){ toast('Chọn kết luận'); return false; }
+      const rec = db.adfixes.find(x => x.id === f.id);
+      if (!rec) return;
+      rec.verdict = v.verdict; rec.verdictNote = v.verdictNote || '';
+      rec.done = true; rec.doneAt = today();
+      stamp(rec); ensure(); save();
+      toast('Đã khép việc · ' + VERDICTS[v.verdict].label);
+    }
+  });
+}
+
 /* Ngưỡng ROAS của một sản phẩm. Một ô duy nhất — mở form sửa sản phẩm đầy
    đủ chỉ để gõ một con số thì lần nào cũng phải cuộn đi tìm. */
 function roasTargetForm(id){
@@ -2847,6 +3033,9 @@ const ACTIONS = {
   adshop:      id => { ui.adShop = id || ''; ui.adYm = ''; ui.adIssue = '';
                        ui.adOnlyBad = false; ui.adSoSanh = ''; render(); },
   adcamp:      id => go('adcamp', id),
+  adfix:       id => adFixForm(id, ''),
+  adfixedit:   id => adFixForm('', id),
+  adfixjudge:  id => adFixJudge(id),
   newspweek:   id => spWeekForm(null, id),
   editspweek:  id => spWeekForm(db.spweeks.find(x => x.id === id)),
   newimpact:  (id, el) => impactForm(null, id, el.dataset.m || ''),

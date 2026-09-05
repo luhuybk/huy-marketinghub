@@ -127,6 +127,7 @@ const KH_KIND_PERM = [
   'actions'   => ['ads'],
   'adcamps'   => ['ads'],
   'addays'    => ['ads'],
+  'adfixes'   => ['ads'],
   'orderstats'=> ['ads'],
   'shops'     => ['ads'],
   'spweeks'   => ['improve','ads'],

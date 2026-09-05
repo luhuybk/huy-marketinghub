@@ -949,6 +949,51 @@ phép trung bình.
 Mốc tính theo **ngày của tệp**, không theo hôm nay: nạp bù file của hai tuần
 trước thì mốc là tháng trước của ngày đó.
 
+### Việc đã làm trên từng chiến dịch — để danh sách còn ngắn lại được
+
+Vấn đề mà phần này sinh ra để chữa: báo cáo một ngày gắn cờ **47 chiến dịch**,
+trong đó 46 con là "đứng im". Sáng mai mở ra vẫn đúng 46 con đó. Tuần sau vẫn
+thế. Danh sách chỉ dài thêm chứ không bao giờ ngắn đi, và tới lúc nào đó không
+ai đọc nữa — lúc ấy cảnh báo mất sạch tác dụng, kể cả những cảnh báo đúng.
+
+Chỗ thiếu không phải là thuật toán bắt lỗi. Chỗ thiếu là không có nơi nào ghi
+*"con này tôi cố ý tắt"* hay *"hôm qua tôi hạ giá thầu rồi, hẹn bảy ngày nữa đo
+lại"*.
+
+Bấm **＋ ghi việc** ngay trên dòng đang bị gắn cờ (có ở bảng ngày, bảng tháng và
+trang chi tiết chiến dịch). Ghi ba thứ: đã làm gì, **ai phụ trách**, và bao lâu
+sau thì đo lại. Kể từ lúc đó:
+
+* Chiến dịch rời khỏi con số **cần xem lại** và sang mục **🛠 Đang xử lý** — vẫn
+  nhìn thấy, nhưng không nằm trong danh sách bắt người ta động tay. Một con số
+  không bao giờ về 0 thì không ai nhìn nó nữa.
+* Đúng ngày hẹn nó quay lại: cảnh báo ở **Tổng quan** mang sẵn tên người phụ
+  trách, và cron gửi một tin Telegram vào luồng **Shopee Ads**.
+* Bấm **Chấm kết quả** thì app bày số **lúc ghi việc** cạnh số **bây giờ** —
+  View, CTR, CVR, chi phí, GMV, ROAS — rồi hỏi đúng một câu: tốt lên, không đổi,
+  hay xấu đi. Chấm xong việc khép lại, chiến dịch quay về guồng bình thường, và
+  câu trả lời nằm lại trong nhật ký của chính chiến dịch đó.
+
+Ô **cố ý để vậy** dành cho con tự tay tắt hẳn: không hẹn ngày, không gắn cờ,
+cho tới khi xoá việc đó đi.
+
+Vì sao chụp số lại lúc ghi việc chứ không tính lại sau: tới ngày đo mà chỉ còn
+số mới thì không so được với gì cả — mà "trước khi sửa nó thế nào" là nửa quan
+trọng hơn của câu hỏi.
+
+Mỗi chiến dịch chỉ giữ **một** việc đang mở. Ghi việc mới thì việc cũ tự khép —
+hai thay đổi chồng lên nhau thì tới ngày đo không tách được cái nào có tác dụng.
+
+### Giao việc cần biết trong nhà có những ai
+
+`users_list` chỉ chủ mới gọi được, vì nó kèm quyền, vai trò và số máy đang đăng
+nhập. Nhưng nhân viên cũng phải giao được việc, mà giao thì phải chọn được tên.
+
+Nên có thêm `user_names`: ai đã đăng nhập cũng gọi được, và chỉ trả về **id với
+tên** của các tài khoản đang bật. Bản ghi giữ cả id lẫn tên chụp lại — cảnh báo
+phải đọc được cả khi mất mạng, và đổi tên tài khoản về sau thì bản ghi cũ giữ
+tên cũ, đúng hơn là hiện một ô trống.
+
 ### Chỉ giữ 45 ngày chi tiết
 
 157 chiến dịch × 365 ngày × mấy gian hàng sẽ vượt sức chứa của trình duyệt — và

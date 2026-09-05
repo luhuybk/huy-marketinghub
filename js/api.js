@@ -224,12 +224,14 @@ const Server = (() => {
   const remind  = (list, dir) => call('remind_set', {tasks:list, products:dir || []});
 
   const users     = ()  => call('users_list');
+  /* Chỉ tên, ai đăng nhập cũng gọi được — cần để giao việc cho một người. */
+  const userNames = ()  => call('user_names');
   const userSave  = u   => call('user_save', u);
   const userDel   = id  => call('user_del', {id});
 
   return {probe, login, logout, logoutAll, pull, push, pushBeacon, stats,
           tgGet, tgSave, tgTest, tgReport, tgHook, remind,
-          users, userSave, userDel, takeWhoChanged, notePerms,
+          users, userNames, userSave, userDel, takeWhoChanged, notePerms,
           available, authed, state, role, isOwner, name, perms, may, call};
 })();
 window.Server = Server;
