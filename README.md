@@ -887,6 +887,50 @@ App nhắc "chưa nạp file ngày hôm qua" theo **từng gian hàng**, và ch�
 đã từng nạp file ngày — shop chưa dùng tới nếp làm việc này mà nhắc mỗi sáng thì
 phiền vô ích.
 
+### Vì sao đổi — chẩn đoán khúc gãy trong phễu
+
+Doanh số là kết quả cuối của một cái phễu: **hiển thị → bấm vào → mua**. Gãy ở
+khúc nào thì cách chữa khác hẳn nhau, mà nhìn mỗi con số doanh số thì không biết
+khúc nào gãy.
+
+`adDiagnose()` so hai kỳ rồi đọc xem chỉ số nào chuyển động mạnh nhất (ngưỡng
+15%), trả về một câu bằng lời. Nó xuất hiện ở hai chỗ:
+
+* **Trang một chiến dịch** — so tháng gần nhất với tháng trước đó, đặt ngay dưới
+  bốn ô số và **trước cả biểu đồ**: người mở trang này đang muốn biết *nên làm
+  gì*, mà biểu đồ chỉ trả lời *đã xảy ra chuyện gì*.
+* **Thẻ báo cáo ngày** — so cả gian hàng hôm qua với mức trung bình ngày.
+
+Thứ tự xét là thứ tự ưu tiên, đi từ đầu phễu xuống, vì khúc sớm hơn kéo theo mọi
+thứ phía sau:
+
+| Dấu hiệu | Kết luận |
+|---|---|
+| hiển thị ↓ *và* chi phí ↓ | giảm ngân sách hoặc hạ giá thầu |
+| hiển thị giữ, CTR ↓ | gãy ở ảnh bìa và tiêu đề |
+| CVR ↓ | gãy ở trang sản phẩm — giá, tồn kho, đánh giá |
+| CPC ↑ *và* click ↓ | đấu giá đắt lên |
+| chi phí ↓ | chiến dịch bị tắt hoặc hết ngân sách |
+
+Đây là **gợi ý đọc từ số liệu, không phải kết luận** — dòng chữ đó in ngay trong
+thẻ, để không ai đọc nó như một phán quyết.
+
+### Một chiến dịch, hai kho, hai id
+
+Cùng một chiến dịch có một bản ghi trong `adcamps` (tháng) và nhiều bản ghi trong
+`addays` (ngày), mỗi bản một `id` riêng. Trang chi tiết vì thế phải tìm ở **cả
+hai** kho — `adcampFind()`. Bản đầu chỉ tìm trong kho tháng, nên bấm vào một dòng
+ở báo cáo ngày là ra "không tìm thấy chiến dịch này".
+
+Thứ nối hai kho lại là **khoá**: `adcampKey()` và `adDayKey()` tính giống hệt
+nhau (`shop | mã sản phẩm`), nên một dòng ngày và một dòng tháng của cùng chiến
+dịch cho ra cùng một chuỗi. Trang chi tiết dùng nó để gom cả chuỗi tháng lẫn
+chuỗi ngày: biểu đồ tháng cho biết xu hướng dài, biểu đồ ngày cho biết nó vừa
+gãy hôm nào.
+
+Chiến dịch mới chỉ xuất hiện trong file ngày, chưa có tháng nào, vẫn mở được
+trang — chỉ là chưa có phần theo tháng.
+
 ### Vì sao adcamps và addays không nằm trong "Cần bạn duyệt"
 
 Chúng vào bằng đường nạp file: một lần nạp là trăm rưỡi dòng, mà "Cần bạn duyệt"

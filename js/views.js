@@ -846,6 +846,16 @@ function viewAdDay(shopId){
     </div>
 
     <div class="explain" style="margin-top:12px">${esc(adDayVerdict(rp))}</div>
+    ${(() => {
+      /* Chẩn đoán cho cả gian hàng: hôm qua lệch so mức thường vì khúc nào
+         trong phễu đổi. Một dòng, vì thẻ này còn phải chụp vừa màn hình. */
+      if (!rp.nen) return '';
+      const dx = adDiagnose(rp.nen.total, rp.sum);
+      if (!dx || dx.tag === 'Đứng yên') return '';
+      return `<div class="dxbox ${dx.cls}" style="margin-top:10px;padding-left:11px">
+        <div class="dx-hd"><span class="chip ${dx.cls}">${esc(dx.tag)}</span></div>
+        <div class="dx-tx">${esc(dx.text)}</div></div>`;
+    })()}
 
     ${AD_DAY_FLAG_IDS.filter(k => rp.byFlag[k].length).map(k => {
       const F = AD_DAY_FLAGS[k], list = rp.byFlag[k].slice(0, 5);
@@ -1025,14 +1035,20 @@ function viewAdMonth(){
    MỘT CHIẾN DỊCH ĐI QUA TỪNG THÁNG
    ============================================================ */
 function viewAdcamp(id){
-  const c = adcamps().find(x => x.id === id);
+  /* Tìm ở cả hai kho: cùng một chiến dịch có một bản ghi tháng và nhiều bản
+     ghi ngày, mỗi bản một id. Bấm từ báo cáo ngày thì id đưa vào là id của
+     dòng ngày. */
+  const c = adcampFind(id);
   if (!c) return emptyBox('Không tìm thấy chiến dịch này', 'Có thể đã bị xoá hoặc nạp đè.');
   const chuoi = adcampSeries(c);
-  const nay   = chuoi[chuoi.length - 1];
+  const ngayS = adDaySeries(c);
+  /* Chiến dịch chỉ mới xuất hiện trong file ngày, chưa có tháng nào: vẫn phải
+     mở được trang. Lấy chính dòng ngày mới nhất làm bản ghi hiện tại. */
+  const nay   = chuoi.length ? chuoi[chuoi.length - 1] : ngayS[ngayS.length - 1];
   const m     = adMetrics(nay);
   const truoc = chuoi.length > 1 ? adMetrics(chuoi[chuoi.length - 2]) : null;
   const p     = adcampProduct(nay);
-  const issues = adcampIssues(nay);
+  const issues = chuoi.length ? adcampIssues(nay) : [];
   const d = (cur, tr) => tr && cur != null ? (cur - tr) / tr * 100 : null;
 
   let h = `<div class="toolbar">
@@ -1051,17 +1067,31 @@ function viewAdcamp(id){
   </div>`;
 
   h += `<div class="tiles" style="margin-top:12px">
-    ${tile('Chi phí ' + monthLabel(nay.ym), moneyShort(m.cost),
-           truoc ? deltaChip(d(m.cost, truoc.cost), null) + ' so tháng trước' : 'tháng đầu tiên')}
+    ${tile('Chi phí ' + (nay.ym ? monthLabel(nay.ym) : 'ngày ' + fmtShort(nay.date)), moneyShort(m.cost),
+           truoc ? deltaChip(d(m.cost, truoc.cost), null) + ' so tháng trước'
+                 : chuoi.length ? 'tháng đầu tiên' : 'mới chỉ có số theo ngày')}
     ${tile('Doanh số', moneyShort(m.gmv), num(m.orders) + ' sản phẩm bán ra')}
     ${tile('ROAS', xText(m.roas), truoc ? deltaChip(d(m.roas, truoc.roas), true) + '&nbsp;' : '&nbsp;',
            m.roas == null ? '' : m.roas >= 3 ? 'ok' : m.roas < 1.5 ? 'bad' : '')}
     ${tile('CTR / CVR', pctText(m.ctr, 2) + ' · ' + pctText(m.cvr, 2), num(m.clicks) + ' click')}
   </div>`;
 
+  /* Vì sao đổi — đặt ngay dưới bốn ô số, trước cả biểu đồ: người mở trang này
+     đang muốn biết "nên làm gì", mà biểu đồ chỉ trả lời "đã xảy ra chuyện gì". */
+  const dx = truoc ? adDiagnose(chuoi[chuoi.length - 2], nay) : null;
+  if (dx)
+    h += `<div class="card dxbox ${dx.cls}" style="margin-top:12px">
+      <div class="dx-hd"><span class="chip ${dx.cls}">${esc(dx.tag)}</span>
+        <span class="dim">${esc(monthLabel(chuoi[chuoi.length-2].ym))} → ${esc(monthLabel(nay.ym))}</span></div>
+      <div class="dx-tx">${esc(dx.text)}</div>
+      <div class="dim" style="margin-top:8px">Đây là gợi ý đọc từ số liệu, không phải kết luận chắc chắn.</div>
+    </div>`;
+
   if (chuoi.length < 2){
-    h += `<div class="explain" style="margin-top:12px">Mới có một tháng nên chưa vẽ được đường nào.
-      Nạp thêm file của tháng khác thì phần bên dưới sẽ thành biểu đồ so sánh.</div>`;
+    h += `<div class="explain" style="margin-top:12px">${chuoi.length
+      ? 'Mới có một tháng nên chưa vẽ được đường theo tháng.'
+      : 'Chiến dịch này mới chỉ xuất hiện trong file ngày, chưa có tháng nào.'}
+      Nạp thêm file của tháng khác thì phần theo tháng sẽ thành biểu đồ so sánh.</div>`;
   } else {
     const rows = chuoi.map(x => {
       const mm = adMetrics(x);
@@ -1089,6 +1119,7 @@ function viewAdcamp(id){
       trong trang sản phẩm, ở giá hoặc ở đánh giá.</div>`;
   }
 
+  if (chuoi.length){
   h += sectionTitle('Từng tháng');
   h += `<div class="tblwrap"><table class="tbl sm"><thead><tr><th>Tháng</th>
     <th class="r">Chi phí</th><th class="r">Doanh số</th><th class="r">ROAS</th>
@@ -1103,6 +1134,29 @@ function viewAdcamp(id){
         <td class="r nw">${pctText(mm.ctr, 2)}</td><td class="r nw">${pctText(mm.cvr, 2)}</td>
         <td class="r nw">${num(mm.orders)}</td></tr>`;
     }).join('') + `</tbody></table></div>`;
+  }
+
+  /* ---- chuỗi theo NGÀY của chính chiến dịch này ----
+     Đây là chỗ hai kho gặp nhau: biểu đồ tháng cho biết xu hướng dài, biểu đồ
+     ngày cho biết nó vừa gãy hôm nào. */
+  if (ngayS.length){
+    const rows = ngayS.map(x => {
+      const mm = adMetrics(x);
+      return {label: fmtShort(x.date), cost:mm.cost, gmv:mm.gmv, roas:mm.roas};
+    });
+    h += sectionTitle('Theo ngày', `<span class="dim">${ngayS.length} ngày đã nạp</span>`);
+    h += ngayS.length > 1
+      ? `<div class="card pad0">` + Chart.combo({
+          rows,
+          bars: [{key:'cost', label:'Chi phí', color:'var(--bad)'},
+                 {key:'gmv', label:'Doanh số', color:'var(--ok)'}],
+          lines:[{key:'roas', label:'ROAS', color:'var(--acc)'}],
+          fmtBar: moneyShort, fmtLine: xText
+        }) + `</div>`
+      : `<div class="card dim">Mới có một ngày (${esc(fmtDate(ngayS[0].date))}) — chi
+          ${moneyShort(ngayS[0].cost)}, doanh số ${moneyShort(ngayS[0].gmv)}.
+          Nạp thêm vài ngày nữa là có đường để nhìn.</div>`;
+  }
 
   if (!p && c.sku)
     h += `<div class="explain" style="margin-top:12px">Chiến dịch này chưa nối với sản phẩm nào trong

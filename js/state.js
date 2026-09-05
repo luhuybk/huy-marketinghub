@@ -1773,6 +1773,19 @@ function adcampSeries(c){
   const k = adcampKey(c);
   return adcamps().filter(x => adcampKey(x) === k).sort((a,b) => a.ym.localeCompare(b.ym));
 }
+/* Mọi NGÀY của cùng chiến dịch đó. adcampKey và adDayKey tính giống hệt nhau
+   nên một bản ghi ngày và một bản ghi tháng của cùng chiến dịch cho ra cùng
+   một khoá — đó chính là thứ nối hai kho lại với nhau. */
+function adDaySeries(c){
+  const k = adcampKey(c);
+  return addays().filter(x => adDayKey(x) === k).sort((a,b) => a.date.localeCompare(b.date));
+}
+/* Tìm một chiến dịch theo id ở CẢ HAI kho.
+   Trang chi tiết trước đây chỉ tìm trong kho tháng, nên bấm vào một dòng ở
+   báo cáo ngày là ra "không tìm thấy chiến dịch này" — dòng đó nằm ở kho
+   ngày, mang id khác. Cùng một chiến dịch, hai bản ghi, hai id. */
+const adcampFind = id => adcamps().find(x => x.id === id) ||
+                         addays().find(x => x.id === id) || null;
 
 /* Bốn dấu hiệu cần soi. Trả về mảng mã, có thể nhiều cái cùng lúc. */
 function adcampIssues(c){
@@ -1951,6 +1964,87 @@ function adDayVerdict(rp){
   const n = rp.bad.length;
   t.push(n ? n + ' chiến dịch cần xem lại.' : 'Không chiến dịch nào bất thường.');
   return t.join(' ');
+}
+
+/* ============================================================
+   CHẨN ĐOÁN: VÌ SAO DOANH SỐ ĐỔI
+
+   Chuyển từ file phân tích rời mà bạn dùng trước đây sang. Ý tưởng của nó:
+   doanh số là kết quả cuối của một cái phễu — hiển thị → bấm vào → mua. Đổi
+   ở khúc nào thì cách chữa khác hẳn nhau, mà nhìn mỗi con số doanh số thì
+   không biết khúc nào gãy.
+
+   Đây là GỢI Ý dựa trên số, không phải kết luận. Thứ tự xét là thứ tự ưu
+   tiên: nguyên nhân nào nằm sớm hơn trong phễu thì xét trước, vì nó kéo theo
+   mọi thứ phía sau.
+   ============================================================ */
+const AD_DX_SIG = 15;          // đổi từ 15% trở lên mới coi là có chuyển động
+
+function adDiagnose(truoc, nay){
+  if (!truoc || !nay) return null;
+  const d = (a, b) => a ? (b - a) / a * 100 : (b > 0 ? 100 : 0);
+  const p = v => Math.abs(v).toFixed(0) + '%';
+  const gmv = d(truoc.gmv, nay.gmv), roas = d(truoc.roas, nay.roas);
+  const imp = d(truoc.impressions, nay.impressions), clk = d(truoc.clicks, nay.clicks);
+  const ctr = d(truoc.ctr, nay.ctr), cpc = d(truoc.cpc, nay.cpc);
+  const cvr = d(truoc.cvr, nay.cvr), cost = d(truoc.cost, nay.cost);
+  const S = AD_DX_SIG;
+
+  if (Math.abs(gmv) < S){
+    if (Math.abs(roas) >= S)
+      /* Doanh số đứng yên mà ROAS đổi thì chi phí là thứ đã đổi — suy ra được
+         từ chính định nghĩa ROAS, không phải phỏng đoán. Chỉ nhắc tới giá mỗi
+         click khi nó thật sự có chuyển động; câu "thường do CPC tăng 0%" vừa
+         thừa vừa mâu thuẫn với chính vế trước. */
+      return {cls: roas > 0 ? 'ok' : 'warn',
+              tag: roas > 0 ? 'Tiêu hiệu quả hơn' : 'Tiêu kém hiệu quả hơn',
+              text: 'Doanh số gần như không đổi nhưng ROAS ' + (roas > 0 ? 'tăng ' : 'giảm ') + p(roas) +
+                    ' — vẫn ra ngần ấy hàng mà tiêu ' + (roas > 0 ? 'ít' : 'nhiều') + ' tiền hơn.' +
+                    (Math.abs(cpc) >= S
+                      ? ' Giá mỗi click ' + (cpc > 0 ? 'tăng ' : 'giảm ') + p(cpc) + '.'
+                      : '')};
+    return {cls:'', tag:'Đứng yên', text:'Doanh số và ROAS đều gần như không đổi.'};
+  }
+
+  if (gmv >= S){
+    if (roas >= S)
+      return {cls:'ok', tag:'Lên nhờ hiệu quả',
+              text:'Doanh số tăng ' + p(gmv) + ' mà ROAS cũng tăng ' + p(roas) +
+                   ' — tiền bỏ ra đang sinh lời hơn trước. Đây là con đáng bơm thêm ngân sách.'};
+    if (cost >= S)
+      return {cls:'', tag:'Lên nhờ tiêu nhiều hơn',
+              text:'Doanh số tăng ' + p(gmv) + ' chủ yếu vì chi phí tăng ' + p(cost) +
+                   ' (ROAS đổi ' + p(roas) + '). Lên nhờ quy mô, không phải nhờ hiệu quả — ' +
+                   'bơm tiếp thì doanh số lên tiếp nhưng lãi thì chưa chắc.'};
+    return {cls:'ok', tag:'Lên', text:'Doanh số tăng ' + p(gmv) + ', các khúc trong phễu không đổi mấy.'};
+  }
+
+  /* Doanh số giảm — dò xem gãy ở khúc nào, xét từ đầu phễu xuống. */
+  if (imp <= -S && cost <= -S)
+    return {cls:'warn', tag:'Do giảm tiền hoặc hạ giá thầu',
+            text:'Lượt hiển thị giảm ' + p(imp) + ' cùng lúc chi phí giảm ' + p(cost) +
+                 ' — quảng cáo ra ít hơn nên doanh số giảm ' + p(gmv) +
+                 '. Xem lại ngân sách và ROAS mục tiêu, khả năng cao là bị hạ.'};
+  if (imp > -S && ctr <= -S)
+    return {cls:'warn', tag:'Gãy ở ảnh bìa và tiêu đề',
+            text:'Vẫn hiển thị bình thường nhưng tỉ lệ bấm vào giảm ' + p(ctr) +
+                 ' — người ta lướt qua mà không buồn bấm. Ảnh bìa, tiêu đề, giá hiển thị ' +
+                 'hoặc khuyến mãi đang kém hấp dẫn hơn đối thủ.'};
+  if (cvr <= -S)
+    return {cls:'warn', tag:'Gãy ở trang sản phẩm',
+            text:'Vẫn có người bấm vào nhưng tỉ lệ mua giảm ' + p(cvr) +
+                 ' — vào rồi mới bỏ đi. Thường là giá, hết hàng, hoặc đánh giá sản phẩm.'};
+  if (cpc >= S && clk <= -S)
+    return {cls:'warn', tag:'Đấu giá đắt lên',
+            text:'Giá mỗi click tăng ' + p(cpc) + ' trong khi số click giảm ' + p(clk) +
+                 ' — đang phải trả đắt hơn cho cùng một chỗ hiển thị. Cùng số tiền mua được ít khách hơn.'};
+  if (cost <= -S)
+    return {cls:'warn', tag:'Chi phí tụt',
+            text:'Chi phí giảm ' + p(cost) + ' — kiểm tra chiến dịch có bị tắt, hết ngân sách, ' +
+                 'hoặc hạ giá thầu không.'};
+  return {cls:'', tag:'Chưa rõ nguyên nhân',
+          text:'Doanh số giảm ' + p(gmv) + ' nhưng hiển thị, tỉ lệ bấm, tỉ lệ mua và chi phí ' +
+               'đều không đổi rõ rệt — khả năng nằm ngoài quảng cáo: hết hàng, đổi giá, hoặc mùa vụ.'};
 }
 
 /* Dọn dữ liệu ngày quá cũ. Giữ tất thì 157 chiến dịch × 365 ngày × mấy shop

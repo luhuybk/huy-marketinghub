@@ -2211,6 +2211,10 @@ async function sendDayReport(date){
   dong.push('Đơn: ' + num(rp.sum.orders) + d(rp.dOrders));
   dong.push('');
   dong.push(adDayVerdict(rp));
+  if (rp.nen){
+    const dx = adDiagnose(rp.nen.total, rp.sum);
+    if (dx && dx.tag !== 'Đứng yên'){ dong.push(''); dong.push(dx.tag + ': ' + dx.text); }
+  }
 
   AD_DAY_FLAG_IDS.filter(k => rp.byFlag[k].length).forEach(k => {
     const F = AD_DAY_FLAGS[k];

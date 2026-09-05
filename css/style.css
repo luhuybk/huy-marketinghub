@@ -730,3 +730,10 @@ a.plnk:hover{border-color:var(--acc);background:var(--bg4)}
 .rpt-grp{margin-top:12px;padding-top:11px;border-top:1px solid var(--bd)}
 .rpt-gh{display:flex;gap:8px;align-items:center;margin-bottom:7px}
 .rpt-li{display:flex;gap:10px;align-items:baseline;padding:4px 0;font-size:12.5px}
+
+/* ---- khối chẩn đoán "vì sao đổi" ---- */
+.dxbox{border-left:3px solid var(--bd)}
+.dxbox.ok{border-left-color:var(--ok)}
+.dxbox.warn{border-left-color:var(--warn)}
+.dx-hd{display:flex;gap:9px;align-items:center;margin-bottom:7px}
+.dx-tx{font-size:13.5px;line-height:1.6}
