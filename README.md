@@ -931,6 +931,65 @@ gãy hôm nào.
 Chiến dịch mới chỉ xuất hiện trong file ngày, chưa có tháng nào, vẫn mở được
 trang — chỉ là chưa có phần theo tháng.
 
+## Khung giờ mua hàng
+
+Mục con thứ ba của tab Báo cáo Ads. Đọc từ **bản xuất đơn hàng** (Kênh Người
+Bán › Đơn hàng › Xuất dữ liệu), không phải báo cáo quảng cáo — đây là hành vi
+của người mua. Để chung tab vì cùng là "nạp file rồi đọc số", và vì câu trả lời
+của nó dùng để quyết định giờ đẩy quảng cáo.
+
+Trang trả lời bốn câu: **khung giờ vàng** của cả shop · **giờ nào hay bị huỷ
+đơn** · **thứ nào trong tuần đông nhất** · và **giờ đỉnh của từng sản phẩm** —
+thứ mà con số toàn shop che mất, vì sáp vuốt tóc và gôm xịt tóc không bán chạy
+cùng một khung giờ.
+
+### Một cửa nạp cho cả ba loại tệp
+
+`ShopeeFiles.read()` đọc tệp ra trước, nhìn tiêu đề rồi mới quyết định là báo
+cáo quảng cáo tháng, báo cáo quảng cáo ngày, hay bản xuất đơn hàng. Không có ô
+nào để người nạp chọn loại — mỗi ô là một chỗ để thả nhầm, mà thả nhầm thì số
+của tháng này chảy vào tháng khác.
+
+Thả được **nhiều tệp một lượt**, vì bản xuất đơn hàng của Shopee hay bị chia
+thành `part_1_of_2`, `part_2_of_2`. Nạp lẻ từng phần thì phần sau ghi đè phần
+trước và tháng đó tự nhiên ít đơn hẳn đi mà không có lỗi nào. Ngược lại, hai tệp
+báo cáo quảng cáo cùng lúc thì app **từ chối**: mỗi tệp mang một "Khoảng thời
+gian" riêng ở đầu, gộp lại là số của tệp sau chảy vào tháng của tệp trước.
+
+### Ba cái bẫy trong tệp đơn hàng
+
+**1. Dấu tiếng Việt viết rời.** Tiêu đề `Giá ưu đãi` trong tệp dùng chữ `a` cộng
+dấu sắc rời (U+0301), không phải chữ `á` liền một mã. So chuỗi thẳng với `'Giá ưu
+đãi'` mình tự gõ là **không khớp**, dù nhìn giống hệt nhau — cột đó lặng lẽ thành
+0 và mọi con số tiền theo giờ bằng 0 mà không có lỗi nào. Bản đầu mình viết đúng
+kiểu đó và bảng ra toàn số 0. Chữa bằng cách khớp qua `norm()`, thứ bỏ hết dấu.
+
+**2. Một đơn nhiều dòng.** Tháng 5/2026 có 5.950 trong 7.073 đơn từ hai dòng trở
+lên — mỗi sản phẩm một dòng. Cột `Tổng giá trị đơn hàng` lặp y nguyên trên từng
+dòng, nên cộng theo dòng là nhân đôi nhân ba. Đếm đơn phải theo mã đơn duy nhất;
+chỉ phần theo sản phẩm mới cộng theo dòng.
+
+**3. Trạng thái không phải một tập cố định.** Ngoài `Hoàn thành` và `Đã hủy` còn
+hàng chục biến thể kiểu *"Người mua xác nhận đã nhận được hàng, tuy nhiên… tới
+ngày 2026-06-11"* — mỗi ngày một chuỗi khác. Nên chỉ dò chữ "huỷ", còn lại coi là
+đơn thật.
+
+### Lưu bản đã cộng sẵn, không lưu từng đơn
+
+Tệp một tháng một shop đã 17.050 dòng. Giữ nguyên thì vài tháng là đầy chỗ chứa
+của trình duyệt, mà cũng chẳng để làm gì: câu hỏi cần trả lời là *"giờ nào
+đông"*, không phải *"đơn số 2605017SJCW7YM đặt lúc mấy giờ"*.
+
+Nên mỗi shop mỗi tháng là **một bản ghi** chứa: tổng đơn/số lượng/tiền, mảng 24
+giờ, mảng 7 thứ, và top 25 sản phẩm kèm phân bố 24 giờ của riêng nó. Tháng
+5/2026 ra đúng **6,7 KB** — từ hai tệp gốc nặng 4,8 MB.
+
+### Tệp đơn hàng không ghi gian hàng
+
+Báo cáo quảng cáo có *Mã Người bán* ở đầu tệp nên app tự nhận ra shop. Tệp đơn
+hàng thì không có gì cả — nên đây là chỗ **duy nhất** app phải hỏi, và nó hỏi
+thật chứ không đoán: đoán sai là số của shop này chảy sang shop kia.
+
 ### Vì sao adcamps và addays không nằm trong "Cần bạn duyệt"
 
 Chúng vào bằng đường nạp file: một lần nạp là trăm rưỡi dòng, mà "Cần bạn duyệt"

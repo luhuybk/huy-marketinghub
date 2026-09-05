@@ -483,6 +483,9 @@ function parseX(v){
   const n = parseFloat(String(v).replace(/[^\d.,]/g,'').replace(',','.'));
   return isFinite(n) && n > 0 ? Math.round(n*100)/100 : 0;
 }
+/* Số đếm viết đủ chữ số. num() rút gọn thành "6,1K" — hợp cho nhãn biểu đồ,
+   nhưng ở ô tổng kết thì 6.123 đơn và 6.149 đơn không được phép nhìn giống nhau. */
+const dem = n => Math.round(n || 0).toLocaleString('vi-VN');
 const money = n => Math.round(n||0).toLocaleString('vi-VN') + '₫';
 function moneyShort(n){
   n = Math.round(n || 0); const a = Math.abs(n), s = n < 0 ? '-' : '';
@@ -678,12 +681,14 @@ const DEFAULT_POST_TARGETS = {fb:0, tt:0};
 /* ---------------- kho dữ liệu ---------------- */
 const KEY = 'kolhub.v1';
 const COLLECTIONS = ['kols','bookings','clips','products','adperiods','actions','brands','statuses',
-                     'templates','spweeks','impacts','ideas','posts','adcamps','shops','addays'];
+                     'templates','spweeks','impacts','ideas','posts','adcamps','shops','addays',
+                     'orderstats'];
 
 function blank(){
   return {
     kols:[], bookings:[], clips:[], products:[], adperiods:[], actions:[], brands:[], statuses:[],
     templates:[], spweeks:[], impacts:[], ideas:[], posts:[], adcamps:[], shops:[], addays:[],
+    orderstats:[],
     settings:{
       theme:'dark',
       myName:'',
@@ -910,6 +915,27 @@ function ensure(){
     });
     ['impressions','clicks','orders'].forEach(f => c[f] = parseCount(c[f]));
     ['cost','gmv'].forEach(f => c[f] = parseMoney(c[f]));
+  });
+  db.orderstats.forEach(o => {
+    if (!/^\d{4}-\d{2}$/.test(o.ym || '')) o.ym = String(o.from || today()).slice(0,7);
+    if (typeof o.shopId !== 'string') o.shopId = String(o.shopId == null ? '' : o.shopId);
+    ['orders','units','gmv','huyOrders','huyGmv','spTong']
+      .forEach(f => o[f] = Math.max(0, Math.round(+o[f] || 0)));
+    /* Ba mảng này vẽ thẳng ra biểu đồ nên độ dài phải đúng — một mảng 23 phần
+       tử sẽ vẽ ra một cái cột thiếu mà không báo lỗi gì. */
+    o.gio = Array.from({length:24}, (_, h) => {
+      const x = (o.gio && o.gio[h]) || {};
+      return {orders:+x.orders||0, units:+x.units||0, gmv:+x.gmv||0, huy:+x.huy||0};
+    });
+    o.thu = Array.from({length:7}, (_, d) => {
+      const x = (o.thu && o.thu[d]) || {};
+      return {orders:+x.orders||0, gmv:+x.gmv||0};
+    });
+    o.sp = (Array.isArray(o.sp) ? o.sp : []).map(x => ({
+      name: String(x.name || ''), sku: String(x.sku || ''),
+      units: +x.units||0, gmv: +x.gmv||0,
+      gio: Array.from({length:24}, (_, h) => +((x.gio||[])[h]) || 0)
+    }));
   });
   db.actions.forEach(a => {
     if (!ACTION_TYPES[a.type]) a.type = 'other';
@@ -2045,6 +2071,77 @@ function adDiagnose(truoc, nay){
   return {cls:'', tag:'Chưa rõ nguyên nhân',
           text:'Doanh số giảm ' + p(gmv) + ' nhưng hiển thị, tỉ lệ bấm, tỉ lệ mua và chi phí ' +
                'đều không đổi rõ rệt — khả năng nằm ngoài quảng cáo: hết hàng, đổi giá, hoặc mùa vụ.'};
+}
+
+/* ============================================================
+   KHUNG GIỜ MUA HÀNG (orderstats)
+
+   Một bản ghi cho mỗi gian hàng mỗi tháng, và nó là bản ĐÃ CỘNG SẴN chứ
+   không phải dữ liệu thô. Tệp đơn hàng tháng 5 có 17.050 dòng cho một
+   tháng một shop — giữ nguyên thì vài tháng là đầy chỗ chứa của trình
+   duyệt, mà cũng chẳng để làm gì: câu hỏi cần trả lời chỉ là "giờ nào
+   đông", không phải "đơn số 2605017SJCW7YM đặt lúc mấy giờ".
+   ============================================================ */
+const orderstats   = () => alive(db.orderstats);
+const ostatsOfShop = shopId => shopId ? orderstats().filter(o => o.shopId === shopId) : orderstats();
+const ostatMonths  = shopId => Array.from(new Set(ostatsOfShop(shopId).map(o => o.ym)))
+                                    .sort().reverse();
+const ostatOf = (ym, shopId) => ostatsOfShop(shopId).filter(o => o.ym === ym);
+
+/* Gộp nhiều shop lại thành một bản để vẽ. Cộng theo từng giờ, từng thứ; phần
+   sản phẩm gộp theo tên rồi lấy lại top. */
+function ostatSum(list){
+  if (!list.length) return null;
+  if (list.length === 1) return list[0];
+  const t = {ym:list[0].ym, shopId:'', from:'', to:'', orders:0, units:0, gmv:0,
+             huyOrders:0, huyGmv:0, spTong:0,
+             gio: Array.from({length:24}, () => ({orders:0, units:0, gmv:0, huy:0})),
+             thu: Array.from({length:7},  () => ({orders:0, gmv:0})), sp: []};
+  const sp = {};
+  list.forEach(o => {
+    ['orders','units','gmv','huyOrders','huyGmv','spTong'].forEach(f => t[f] += o[f] || 0);
+    if (!t.from || (o.from && o.from < t.from)) t.from = o.from;
+    if (!t.to   || (o.to   && o.to   > t.to))   t.to   = o.to;
+    o.gio.forEach((g, h) => { t.gio[h].orders += g.orders; t.gio[h].units += g.units;
+                              t.gio[h].gmv += g.gmv; t.gio[h].huy += g.huy; });
+    o.thu.forEach((d, i) => { t.thu[i].orders += d.orders; t.thu[i].gmv += d.gmv; });
+    o.sp.forEach(x => {
+      if (!sp[x.name]) sp[x.name] = {name:x.name, sku:x.sku, units:0, gmv:0, gio:new Array(24).fill(0)};
+      sp[x.name].units += x.units; sp[x.name].gmv += x.gmv;
+      x.gio.forEach((v, h) => sp[x.name].gio[h] += v);
+    });
+  });
+  t.sp = Object.values(sp).sort((a,b) => b.gmv - a.gmv).slice(0, 25);
+  return t;
+}
+
+/* Khung giờ vàng: gom các giờ nhiều đơn nhất cho tới khi đủ `phan` phần trăm
+   tổng đơn. Trả về mảng giờ đã xếp lại theo thứ tự trong ngày, vì "21h, 22h,
+   0h" đọc dễ hơn "0h, 21h, 22h" khi ba giờ đó dính liền nhau qua nửa đêm. */
+function ostatPeak(o, phan){
+  const tong = o.gio.reduce((s, g) => s + g.orders, 0);
+  if (!tong) return {gio:[], phan:0, tong:0};
+  const xep = o.gio.map((g, h) => ({h, n:g.orders})).sort((a,b) => b.n - a.n);
+  const lay = [];
+  let cum = 0;
+  for (const x of xep){
+    if (cum >= tong * (phan || 0.3) && lay.length >= 3) break;
+    lay.push(x); cum += x.n;
+  }
+  return {gio: lay.map(x => x.h).sort((a,b) => a - b), phan: cum / tong * 100, tong};
+}
+const gioLabel = h => String(h).padStart(2,'0') + 'h';
+const THU_VI = ['Chủ nhật','Thứ 2','Thứ 3','Thứ 4','Thứ 5','Thứ 6','Thứ 7'];
+const THU_NGAN = ['CN','T2','T3','T4','T5','T6','T7'];
+
+/* Tháng đơn hàng gần nhất chưa nạp. Chỉ nhắc shop đã từng nạp. */
+function ostatMissingShops(){
+  const truoc = shiftMonth(thisMonth(), -1);
+  if (+today().slice(8,10) < 3) return [];
+  return adcampShopIds().filter(id => {
+    const co = ostatMonths(id);
+    return co.length && !co.includes(truoc);
+  }).map(id => ({shopId:id, ym:truoc}));
 }
 
 /* Dọn dữ liệu ngày quá cũ. Giữ tất thì 157 chiến dịch × 365 ngày × mấy shop

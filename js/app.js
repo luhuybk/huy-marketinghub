@@ -2005,16 +2005,17 @@ function judgeImpactModal(id){
    ============================================================ */
 function adImportModal(){
   const body = `
-    <div class="explain">Lấy file ở <b>Kênh Người Bán › Kênh Marketing › Quảng cáo Shopee ›
-      Báo cáo</b> rồi tải về. App đọc được cả .csv lẫn .xlsx, và <b>tự nhận ra bạn đang nạp
-      file tháng hay file một ngày</b> theo khoảng thời gian ghi trong tệp — không phải khai.
-      <br>· Chọn <b>trọn một tháng</b> → làm mốc để so.
-      <br>· Chọn <b>đúng một ngày</b> → báo cáo ngày, so ngay với mốc đó.
-      <br>Nạp lại cùng một tháng hay cùng một ngày thì ghi đè, không nhân đôi.</div>
+    <div class="explain">Thả tệp vào đây, <b>app tự nhận ra là tệp gì</b> — không phải chọn ô nào cả.
+      Đọc được cả .csv lẫn .xlsx.
+      <br>· <b>Báo cáo quảng cáo trọn một tháng</b> → làm mốc để so.
+      <br>· <b>Báo cáo quảng cáo đúng một ngày</b> → báo cáo ngày, so ngay với mốc đó.
+      <br>· <b>Bản xuất đơn hàng</b> (Kênh Người Bán › Đơn hàng › Xuất dữ liệu) → khung giờ mua hàng.
+      Tệp bị chia thành nhiều phần thì <b>thả cả vào một lượt</b>.
+      <br>Nạp lại cùng một tháng, một ngày thì ghi đè, không nhân đôi.</div>
     <div class="drop" id="dz">
       <div class="drop-ic">📥</div>
-      <div><b>Kéo file báo cáo vào đây</b><div class="dim">hoặc bấm để chọn file</div></div>
-      <input type="file" id="dzf" accept=".csv,.xlsx" hidden>
+      <div><b>Kéo tệp vào đây</b><div class="dim">hoặc bấm để chọn — chọn được nhiều tệp một lúc</div></div>
+      <input type="file" id="dzf" accept=".csv,.xlsx" multiple hidden>
     </div>
     <div id="ires"></div>`;
 
@@ -2126,23 +2127,112 @@ function adImportModal(){
     btnGo.disabled = false;
   }
 
-  async function readFile(f){
-    if (!f) return;
-    res.innerHTML = `<div class="dim" style="padding:12px">Đang đọc ${esc(f.name)}…</div>`;
-    try { show(await ShopeeAds.parseFile(f)); }
+  /* ---- xem trước tệp ĐƠN HÀNG ----
+     Tệp đơn hàng KHÔNG ghi gian hàng nào ở trong (báo cáo quảng cáo thì có Mã
+     Người bán). Nên đây là chỗ duy nhất phải hỏi — và phải hỏi thật, không
+     đoán: đoán sai là số của shop này chảy sang shop kia. */
+  function showOrders(got){
+    const d = got.data;
+    const shopIds = adcampShopIds().filter(Boolean);
+    const dsShop = shops();
+    const cu = ostatOf(d.ym, ui.adShop).length;
+    const dinh = ostatPeak(d, 0.3);
+    plan = {orders: d, ten: got.ten};
+
+    res.innerHTML = `
+      ${d.warn.map(w => `<div class="explain warn">⚠︎ ${esc(w)}</div>`).join('')}
+      <div class="explain">Tệp này là <b>bản xuất ĐƠN HÀNG</b> — ${esc(got.ten.length)} tệp,
+        ${num(d.orders + d.huyOrders)} đơn, ${esc(fmtDate(d.from))} – ${esc(fmtDate(d.to))}.
+        App chỉ lưu phần đã cộng sẵn theo giờ, theo thứ và top ${d.sp.length} sản phẩm;
+        từng đơn một thì không giữ.</div>
+
+      ${dsShop.length
+        ? `<div class="fld"><label>Đơn của gian hàng nào?</label>
+             <select class="inp" id="oshop">${dsShop.map(sh =>
+               `<option value="${sh.id}" ${sh.id === ui.adShop ? 'selected' : ''}>${esc(sh.name)}</option>`
+             ).join('')}</select>
+             <div class="hint">Tệp đơn hàng không ghi gian hàng ở trong, nên phải tự chọn.
+               Chọn nhầm là số của hai shop trộn vào nhau.</div></div>`
+        : `<div class="fld"><label>Tên gian hàng</label>
+             <input class="inp" id="oshopnew" placeholder="vd Waxshop">
+             <div class="hint">Chưa có gian hàng nào trong app. Nạp một tệp báo cáo quảng cáo thì
+               app tự nhận ra shop từ Mã Người bán; còn ở đây thì đặt tên tay.</div></div>`}
+
+      ${sectionTitle(monthLabel(d.ym), '', true)}
+      <div class="tiles">
+        ${tile('Đơn đã đặt', dem(d.orders), dem(d.huyOrders) + ' đơn huỷ')}
+        ${tile('Sản phẩm bán ra', dem(d.units), 'trên ' + dem(d.spTong) + ' mã')}
+        ${tile('Tiền hàng', moneyShort(d.gmv), 'giá bán × số lượng')}
+        ${tile('Khung giờ vàng', dinh.gio.map(gioLabel).join(' · '), pctText(dinh.phan, 0) + ' số đơn')}
+      </div>
+      ${cu ? `<div class="explain warn">⚠︎ Gian hàng này đã có số liệu ${esc(monthLabel(d.ym))} —
+        nạp tiếp sẽ ghi đè.</div>` : ''}
+      <div class="tblwrap" style="margin-top:10px"><table class="tbl sm"><thead><tr>
+        <th>Bán chạy nhất trong tệp</th><th class="r">Tiền hàng</th><th class="r">Giờ đỉnh</th>
+      </tr></thead><tbody>` +
+      d.sp.slice(0, 6).map(x => `<tr>
+        <td class="ell" style="max-width:280px" title="${esc(x.name)}">${esc(x.name)}</td>
+        <td class="r">${moneyShort(x.gmv)}</td>
+        <td class="r nw">${esc(gioLabel(x.gio.indexOf(Math.max(...x.gio))))}</td></tr>`).join('') +
+      `</tbody></table></div>`;
+    btnGo.disabled = false;
+  }
+
+  async function readFile(files){
+    const list = Array.from(files || []);
+    if (!list.length) return;
+    res.innerHTML = `<div class="dim" style="padding:12px">Đang đọc ${
+      list.length > 1 ? list.length + ' tệp' : esc(list[0].name)}…</div>`;
+    try {
+      const got = await ShopeeFiles.read(list);
+      if (got.kieu === 'orders') showOrders(got);
+      else show(got.data);
+    }
     catch(err){ fail(err.message); }
   }
 
   dz.addEventListener('click', () => fi.click());
-  fi.addEventListener('change', () => readFile(fi.files[0]));
+  fi.addEventListener('change', () => readFile(fi.files));
   ['dragenter','dragover'].forEach(ev => dz.addEventListener(ev, e => {
     e.preventDefault(); dz.classList.add('on'); }));
   ['dragleave','drop'].forEach(ev => dz.addEventListener(ev, e => {
     e.preventDefault(); dz.classList.remove('on'); }));
-  dz.addEventListener('drop', e => readFile(e.dataTransfer.files[0]));
+  dz.addEventListener('drop', e => readFile(e.dataTransfer.files));
 
   btnGo.addEventListener('click', () => {
     if (!plan) return;
+
+    /* ---- tệp đơn hàng ---- */
+    if (plan.orders){
+      const d = plan.orders;
+      const sel = el.querySelector('#oshop'), moi = el.querySelector('#oshopnew');
+      let shopId = sel ? sel.value : '';
+      if (!shopId){
+        const ten = moi ? moi.value.trim() : '';
+        if (!ten){ toast('Chưa đặt tên gian hàng'); if (moi) moi.focus(); return; }
+        const sh = stamp({name: ten, code:'', note:'', archived:false});
+        db.shops.push(sh); shopId = sh.id;
+      }
+      const cu = db.orderstats.find(x => !x.deleted && x.shopId === shopId && x.ym === d.ym);
+      const rec = cu || stamp({});
+      Object.assign(rec, {
+        shopId, ym:d.ym, from:d.from, to:d.to,
+        orders:d.orders, units:d.units, gmv:d.gmv,
+        huyOrders:d.huyOrders, huyGmv:d.huyGmv, spTong:d.spTong,
+        gio:d.gio, thu:d.thu, sp:d.sp
+      });
+      stamp(rec);
+      if (!cu) db.orderstats.push(rec);
+      ensure(); save();
+      ui.adShop = shopId; ui.adTab = 'gio'; ui.adGioYm = d.ym;
+      closeModal();
+      go('adreport', '');
+      const dinh = ostatPeak(d, 0.3);
+      toast(`${shopName(shopId)} · ${monthLabel(d.ym)}: ${num(d.orders)} đơn` +
+            (cu ? ' (ghi đè)' : '') + ' · giờ vàng ' + dinh.gio.map(gioLabel).join(', '));
+      return;
+    }
+
     let shopId = plan.shop.id;
     if (!shopId){
       const sh = stamp({name: plan.shop.name, code: plan.parsed.shopCode || '', note:'', archived:false});
@@ -2700,8 +2790,9 @@ const ACTIONS = {
   admonth:     id => { ui.adYm = id; ui.adIssue = ''; ui.adOnlyBad = false; render(); },
   adissue:     id => { ui.adIssue = id || ''; ui.adOnlyBad = false; render(); },
   adonlybad:  (id) => { ui.adOnlyBad = id ? id === 'on' : !ui.adOnlyBad; ui.adIssue = ''; render(); },
-  adtab:       id => { ui.adTab = id === 'month' ? 'month' : 'day'; ui.adQ = '';
+  adtab:       id => { ui.adTab = ['month','gio','day'].includes(id) ? id : 'day'; ui.adQ = '';
                        ui.adIssue = ''; ui.adOnlyBad = false; render(); },
+  adgioym:     id => { ui.adGioYm = id; render(); },
   addate:      id => { ui.adDate = id; render(); },
   adtg:        id => sendDayReport(id),
   adshop:      id => { ui.adShop = id || ''; ui.adYm = ''; ui.adIssue = '';

@@ -543,3 +543,234 @@ const ShopeeAds = (() => {
 
   return {parse, parseText, parseFile, csvRows};
 })();
+
+
+/* ============================================================
+   ĐỌC FILE ĐƠN HÀNG — "Order.all.order_creation_date.…"
+
+   Ba cái bẫy trong tệp này, cái nào cũng cho ra một bảng số trông rất hợp lý:
+
+   1. DẤU TIẾNG VIỆT VIẾT RỜI. Tiêu đề "Giá ưu đãi" trong tệp dùng chữ a
+      thường cộng dấu sắc rời (U+0301), không phải chữ á liền một mã. Đem so
+      chuỗi thẳng với "Giá ưu đãi" mình tự gõ là KHÔNG khớp, dù nhìn giống hệt
+      nhau. Cột đó sẽ lặng lẽ thành 0 và mọi con số tiền theo giờ bằng 0 mà
+      không có lỗi nào. Vì vậy phải khớp qua norm(), thứ bỏ hết dấu đi.
+
+   2. MỘT ĐƠN NHIỀU DÒNG. 5.950 trong 7.073 đơn của tháng 5 có từ hai dòng trở
+      lên — mỗi sản phẩm một dòng. Cột "Tổng giá trị đơn hàng" lặp lại y nguyên
+      trên từng dòng, nên cộng theo dòng là nhân đôi, nhân ba. Đếm đơn phải
+      theo mã đơn duy nhất.
+
+   3. TRẠNG THÁI KHÔNG PHẢI MỘT TẬP CỐ ĐỊNH. Ngoài "Hoàn thành" và "Đã hủy"
+      còn có hàng chục biến thể kiểu "Người mua xác nhận đã nhận được hàng,
+      tuy nhiên… tới ngày 2026-06-11" — mỗi ngày một chuỗi khác. Nên chỉ dò
+      chữ "huỷ", còn lại coi là đơn thật.
+   ============================================================ */
+const ShopeeOrders = (() => {
+
+  const key = s => norm(s).replace(/\s+/g, ' ');
+  const COLS = {
+    'ma don hang':                'id',
+    'ngay dat hang':              'at',
+    'trang thai don hang':        'status',
+    'ten san pham':               'name',
+    'sku san pham':               'sku',
+    'so luong':                   'qty',
+    'gia uu dai':                 'price',
+    'tong gia tri don hang (vnd)':'orderGmv'
+  };
+  /* Số của tệp này viết kiểu Mỹ: "279000.00". Không dùng lại spNum() bên trên
+     — bộ đó hiểu dấu chấm là ngăn nghìn, đem sang đây là 279000.00 thành
+     hai mươi bảy triệu. */
+  function oNum(v){
+    if (v == null) return 0;
+    if (typeof v === 'number') return isFinite(v) ? v : 0;
+    const s = String(v).replace(/[₫đ\s]|vnd|vnđ/gi, '').replace(/,/g, '').trim();
+    if (!s || s === '-') return 0;
+    const n = parseFloat(s);
+    return isFinite(n) ? n : 0;
+  }
+  const laHuy = s => /\bhuy\b|huy don|da huy/.test(key(s));
+
+  /* "2026-05-01 00:06" hoặc "01/05/2026 00:06" đều đọc được. */
+  function parseAt(v){
+    const s = String(v == null ? '' : v).trim();
+    let m = s.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})/);
+    if (m) return {date: `${m[1]}-${m[2]}-${m[3]}`, hour: +m[4]};
+    m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})[ T](\d{1,2}):(\d{2})/);
+    if (m) return {date: `${m[3]}-${String(m[2]).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`,
+                   hour: +m[4]};
+    return null;
+  }
+
+  const isHeader = row => {
+    const ks = row.map(key);
+    return ks.includes('ma don hang') && ks.includes('ngay dat hang');
+  };
+
+  const TOP_SP = 25;   // giữ bấy nhiêu sản phẩm, đủ để nhìn mà không phình dữ liệu
+
+  /* rowsList: mảng các mảng-dòng, gộp từ mọi tệp người dùng thả vào. */
+  function parse(rowsList){
+    const warn = [];
+    let hdr = null, data = [];
+    rowsList.forEach(rows => {
+      const hi = rows.findIndex(isHeader);
+      if (hi < 0) return;
+      if (!hdr) hdr = rows[hi];
+      data = data.concat(rows.slice(hi + 1));
+    });
+    if (!hdr)
+      throw new Error('Không thấy bảng đơn hàng trong tệp. Cần file xuất từ ' +
+        'Kênh Người Bán › Đơn hàng › Xuất dữ liệu — tệp tên kiểu ' +
+        '"Order.all.order_creation_date.…". Tệp chia làm nhiều phần thì thả cả vào một lượt.');
+
+    const map = {};
+    hdr.forEach((h, i) => { const f = COLS[key(h)]; if (f && map[f] === undefined) map[f] = i; });
+    ['id','at'].forEach(f => {
+      if (map[f] === undefined)
+        throw new Error('Tệp thiếu cột bắt buộc — không thấy cột ' +
+          (f === 'id' ? '"Mã đơn hàng"' : '"Ngày đặt hàng"') + '.');
+    });
+
+    const gio = Array.from({length:24}, () => ({orders:0, units:0, gmv:0, huy:0}));
+    const thu = Array.from({length:7},  () => ({orders:0, gmv:0}));
+    const sp  = {};
+    const donDaTinh = new Set();
+    let orders = 0, units = 0, gmv = 0, huyOrders = 0, huyGmv = 0;
+    let boNgay = 0, min = '', max = '';
+    const thangDem = {};
+
+    data.forEach(row => {
+      const g = f => map[f] === undefined ? '' : row[map[f]];
+      const id = String(g('id') || '').trim();
+      if (!id) return;
+      const at = parseAt(g('at'));
+      if (!at){ boNgay++; return; }
+      if (!min || at.date < min) min = at.date;
+      if (!max || at.date > max) max = at.date;
+      thangDem[at.date.slice(0,7)] = (thangDem[at.date.slice(0,7)] || 0) + 1;
+
+      const huy  = laHuy(g('status'));
+      const qty  = Math.round(oNum(g('qty'))) || 0;
+      const tien = oNum(g('price')) * qty;
+
+      /* Phần theo ĐƠN chỉ tính một lần cho mỗi mã đơn. */
+      if (!donDaTinh.has(id)){
+        donDaTinh.add(id);
+        if (huy){ huyOrders++; huyGmv += oNum(g('orderGmv')); gio[at.hour].huy++; }
+        else {
+          orders++;
+          gio[at.hour].orders++;
+          const d = new Date(at.date + 'T00:00:00');
+          thu[d.getDay()].orders++;
+        }
+      }
+      if (huy) return;
+
+      /* Phần theo DÒNG cộng bình thường — mỗi dòng là một sản phẩm khác nhau. */
+      units += qty; gmv += tien;
+      gio[at.hour].units += qty; gio[at.hour].gmv += tien;
+      const d = new Date(at.date + 'T00:00:00');
+      thu[d.getDay()].gmv += tien;
+
+      const ten = String(g('name') || '').trim();
+      if (ten){
+        if (!sp[ten]) sp[ten] = {name: ten, sku: String(g('sku') || '').trim(),
+                                 units: 0, gmv: 0, gio: new Array(24).fill(0)};
+        sp[ten].units += qty; sp[ten].gmv += tien; sp[ten].gio[at.hour] += qty;
+      }
+    });
+
+    if (!donDaTinh.size) throw new Error('Không đọc được đơn nào trong tệp.');
+    if (boNgay) warn.push(`${boNgay} dòng không đọc được "Ngày đặt hàng" nên bị bỏ qua.`);
+
+    const thangs = Object.keys(thangDem).sort((a,b) => thangDem[b] - thangDem[a]);
+    const ym = thangs[0];
+    if (thangs.length > 1)
+      warn.push(`Tệp trải qua ${thangs.length} tháng (${thangs.join(', ')}). App xếp cả vào ` +
+                `${ym} vì phần lớn đơn thuộc tháng đó — nên xuất trọn từng tháng một.`);
+
+    const top = Object.values(sp).sort((a,b) => b.gmv - a.gmv).slice(0, TOP_SP);
+    return {
+      ym, from: min, to: max, warn,
+      orders, units, gmv: Math.round(gmv),
+      huyOrders, huyGmv: Math.round(huyGmv),
+      gio: gio.map(x => ({orders:x.orders, units:x.units, gmv:Math.round(x.gmv), huy:x.huy})),
+      thu: thu.map(x => ({orders:x.orders, gmv:Math.round(x.gmv)})),
+      sp: top.map(x => ({name:x.name, sku:x.sku, units:x.units, gmv:Math.round(x.gmv), gio:x.gio})),
+      spTong: Object.keys(sp).length
+    };
+  }
+
+  /* Nhận NHIỀU tệp một lượt: bản xuất của Shopee bị chia thành part_1_of_2,
+     part_2_of_2… Nạp lẻ từng phần thì mỗi lần ghi đè lần trước, và người nạp
+     không thấy gì sai cả — chỉ là tháng đó tự nhiên ít đơn hẳn đi. */
+  async function parseFiles(files){
+    const list = [];
+    for (const f of files){
+      const nm = String(f.name || '').toLowerCase();
+      if (nm.endsWith('.csv')){
+        list.push(ShopeeAds.csvRows(await f.text()));
+      } else {
+        if (!Xlsx.supported())
+          throw new Error('Trình duyệt này chưa đọc được .xlsx. Hãy dùng Chrome/Safari bản mới.');
+        const sheets = await Xlsx.read(await f.arrayBuffer());
+        sheets.forEach(sh => list.push(sh.rows));
+      }
+    }
+    return parse(list);
+  }
+
+  return {parse, parseFiles, parseAt};
+})();
+
+
+/* ============================================================
+   MỘT CỬA NẠP CHO CẢ BA LOẠI TỆP
+
+   Người nạp file không nên phải biết mình đang nạp "loại nào" rồi chọn đúng
+   ô — mỗi ô là một chỗ để thả nhầm, mà thả nhầm thì số của tháng này chảy
+   vào tháng khác. Ở đây đọc tệp ra trước, nhìn tiêu đề rồi mới quyết định.
+   ============================================================ */
+const ShopeeFiles = (() => {
+
+  async function toRows(file){
+    const nm = String(file.name || '').toLowerCase();
+    if (nm.endsWith('.csv')) return [ShopeeAds.csvRows(await file.text())];
+    if (!Xlsx.supported())
+      throw new Error('Trình duyệt này chưa đọc được .xlsx. Hãy tải file dạng .csv, ' +
+                      'hoặc mở app bằng Chrome/Safari bản mới.');
+    return (await Xlsx.read(await file.arrayBuffer())).map(sh => sh.rows);
+  }
+
+  const key = s => norm(s).replace(/\s+/g, ' ');
+  const laDonHang = rows => rows.some(r => {
+    const ks = (r || []).map(key);
+    return ks.includes('ma don hang') && ks.includes('ngay dat hang');
+  });
+
+  async function read(files){
+    const list = Array.from(files || []);
+    if (!list.length) throw new Error('Chưa chọn tệp nào.');
+
+    const khoi = [];
+    for (const f of list) (await toRows(f)).forEach(r => khoi.push(r));
+
+    if (khoi.some(laDonHang))
+      return {kieu:'orders', ten: list.map(f => f.name),
+              data: ShopeeOrders.parse(khoi.filter(laDonHang))};
+
+    /* Báo cáo quảng cáo: mỗi lần một tệp. Gộp hai tệp quảng cáo lại thì phần
+       "Khoảng thời gian" ở đầu tệp thứ hai bị bỏ qua và toàn bộ số của nó
+       chảy vào tháng của tệp thứ nhất. */
+    if (list.length > 1)
+      throw new Error('Mỗi lần chỉ nạp được một tệp báo cáo quảng cáo. ' +
+        '(Thả nhiều tệp một lượt chỉ dùng cho tệp đơn hàng bị chia thành nhiều phần.)');
+
+    const parsed = ShopeeAds.parse(khoi.reduce((a, r) => a.concat(r), []));
+    return {kieu: parsed.kieu === 'day' ? 'adday' : 'admonth', ten:[list[0].name], data: parsed};
+  }
+
+  return {read};
+})();

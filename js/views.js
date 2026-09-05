@@ -14,7 +14,7 @@ const ui = {
   pipeBrand:'', pipeQ:'',
   clipQ:'', clipSort:'date', clipKol:'',
   postQ:'', postFlow:'', postState:'', postMonthOnly:false,
-  adYm:'', adQ:'', adIssue:'', adOnlyBad:false, adShop:'', adTab:'day', adDate:'',
+  adYm:'', adQ:'', adIssue:'', adOnlyBad:false, adShop:'', adTab:'day', adDate:'', adGioYm:'',
   resTab:'brands', resQ:'',
   cmpFrom:'', cmpTo:'',
   todayAhead:0,
@@ -757,19 +757,145 @@ function shopBar(ids, dang){
 function viewAdReport(){
   const shopIds = adcampShopIds();
   const shopId  = shopIds.includes(ui.adShop) ? ui.adShop : '';
-  const tab = ui.adTab === 'month' ? 'month' : 'day';
+  const tab = ['month','gio'].includes(ui.adTab) ? ui.adTab : 'day';
 
   let h = `<div class="toolbar">
     <div class="tabs">
       <button class="tab ${tab === 'day' ? 'on' : ''}" data-act="adtab" data-id="day">Hôm qua</button>
       <button class="tab ${tab === 'month' ? 'on' : ''}" data-act="adtab" data-id="month">Theo tháng</button>
+      <button class="tab ${tab === 'gio' ? 'on' : ''}" data-act="adtab" data-id="gio">Khung giờ</button>
     </div>
     <div class="grow"></div>
     <button class="btn pri" data-act="adimport">Nạp file</button>
   </div>`;
 
   h += shopBar(shopIds, shopId);
-  return h + (tab === 'day' ? viewAdDay(shopId) : viewAdMonth());
+  return h + (tab === 'gio'   ? viewAdHours(shopId)
+            : tab === 'month' ? viewAdMonth()
+                              : viewAdDay(shopId));
+}
+
+/* ============================================================
+   KHUNG GIỜ MUA HÀNG
+
+   Đọc từ bản xuất ĐƠN HÀNG, không phải báo cáo quảng cáo — đây là hành vi
+   của người mua, không phải hiệu quả của quảng cáo. Nhưng để chung một tab
+   vì cùng là "nạp file rồi đọc số", và vì câu trả lời của nó dùng để quyết
+   định giờ đẩy quảng cáo.
+   ============================================================ */
+function viewAdHours(shopId){
+  const shopIds = adcampShopIds();
+  const months = ostatMonths(shopId);
+
+  if (!months.length)
+    return emptyBox('Chưa nạp tệp đơn hàng nào',
+      'Lấy ở Kênh Người Bán › Đơn hàng › Xuất dữ liệu, chọn trọn một tháng. Shopee hay chia ' +
+      'tệp thành nhiều phần (part_1_of_2, part_2_of_2…) — thả cả vào một lượt, app tự gộp. ' +
+      'Nạp lẻ từng phần thì phần sau ghi đè phần trước và tháng đó tự nhiên ít đơn hẳn đi.',
+      'adimport', 'Nạp tệp đơn hàng');
+
+  const ym = months.includes(ui.adGioYm) ? ui.adGioYm : months[0];
+  const o = ostatSum(ostatOf(ym, shopId));
+  if (!o) return `<div class="card dim">Không có số liệu cho tháng này.</div>`;
+
+  const tongDon = o.orders + o.huyOrders;
+  const dinh = ostatPeak(o, 0.3);
+  const maxDon = Math.max(...o.gio.map(g => g.orders));
+
+  let h = `<div class="chips" style="margin-bottom:12px">
+    <span class="dim" style="align-self:center;margin-right:2px">Tháng:</span>` +
+    months.slice().reverse().map(m =>
+    `<button class="btn sm ${m === ym ? 'pri' : ''}" data-act="adgioym" data-id="${m}">${
+      esc(monthLabel(m))}</button>`).join('') + `</div>`;
+
+  h += `<div class="tiles">
+    ${tile('Đơn đã đặt', dem(o.orders), esc(fmtShort(o.from)) + ' – ' + esc(fmtShort(o.to)))}
+    ${tile('Sản phẩm bán ra', dem(o.units), 'trên ' + dem(o.spTong) + ' mã khác nhau')}
+    ${tile('Tiền hàng', moneyShort(o.gmv), 'giá bán × số lượng, chưa trừ phí')}
+    ${tile('Đơn huỷ', pctText(tongDon ? o.huyOrders / tongDon * 100 : 0, 1),
+           dem(o.huyOrders) + ' đơn · ' + moneyShort(o.huyGmv),
+           tongDon && o.huyOrders / tongDon > 0.15 ? 'bad' : '')}
+  </div>`;
+
+  /* ---- khung giờ vàng: câu trả lời, đặt trước biểu đồ ---- */
+  h += `<div class="card" style="margin-top:12px">
+    <div class="dim">Khung giờ vàng</div>
+    <div class="bignum">${dinh.gio.map(gioLabel).join(' · ')}</div>
+    <div class="explain" style="margin-top:10px">${dinh.gio.length} giờ này gom
+      <b>${pctText(dinh.phan, 0)}</b> số đơn cả tháng, trong khi chúng chỉ chiếm
+      ${pctText(dinh.gio.length / 24 * 100, 0)} thời gian trong ngày. Đây là lúc đáng đẩy
+      giá thầu lên và đáng canh tin nhắn khách.</div>
+  </div>`;
+
+  /* ---- biểu đồ theo giờ ---- */
+  h += sectionTitle('Đơn theo giờ trong ngày');
+  h += `<div class="card pad0">` + Chart.combo({
+    rows: o.gio.map((g, hh) => ({label: gioLabel(hh), don: g.orders, tien: g.gmv})),
+    bars: [{key:'don', label:'Số đơn', color:'var(--acc)'}],
+    lines:[{key:'tien', label:'Tiền hàng', color:'var(--ok)'}],
+    fmtBar: v => num(v), fmtLine: moneyShort
+  }) + `</div>`;
+
+  /* ---- tỉ lệ huỷ theo giờ ----
+     Giờ đông đơn chưa chắc là giờ đáng đổ tiền: đơn đặt lúc nửa đêm có thể
+     huỷ nhiều hơn hẳn. Không tách ra thì con số "giờ vàng" đang nói dối. */
+  /* Chặn hai kiểu kết luận ẩu: giờ ít đơn quá thì tỉ lệ nhảy loạn (4h chỉ có
+     hơn bốn chục đơn, 18% với 13% ở cỡ mẫu đó chưa nói lên gì), và lệch vài
+     phần trăm cũng chưa phải chuyện. Nên đòi cả hai: đủ đơn, và lệch đủ xa. */
+  const huyGio = o.gio.map((g, hh) => {
+    const t = g.orders + g.huy;
+    return {h: hh, t, tyle: t ? g.huy / t * 100 : 0};
+  }).filter(x => x.t >= 50);
+  const chungHuy = tongDon ? o.huyOrders / tongDon * 100 : 0;
+  const xauHuy = huyGio.filter(x => x.tyle > chungHuy * 1.3 && x.tyle > chungHuy + 3)
+                       .sort((a,b) => b.tyle - a.tyle).slice(0,4);
+  if (xauHuy.length)
+    h += `<div class="explain warn" style="margin-top:10px">⚠︎ Mấy giờ này huỷ nhiều hơn hẳn mức
+      chung ${pctText(chungHuy, 1)}: ${xauHuy.map(x => '<b>' + gioLabel(x.h) + '</b> ' +
+      pctText(x.tyle, 1)).join(' · ')}. Đơn đặt trong khung đó có vẻ dễ bỏ hơn — cân nhắc
+      trước khi dồn tiền quảng cáo vào đúng những giờ ấy.</div>`;
+
+  /* ---- theo thứ trong tuần ---- */
+  const maxThu = Math.max(...o.thu.map(t => t.orders));
+  h += sectionTitle('Đơn theo thứ trong tuần');
+  h += `<div class="card"><div class="dowbars">` + o.thu.map((t, i) => `
+    <div class="dow">
+      <div class="dow-b"><i style="height:${maxThu ? Math.round(t.orders / maxThu * 100) : 0}%"></i></div>
+      <div class="dow-n">${dem(t.orders)}</div>
+      <div class="dow-l ${t.orders === maxThu ? 'ok' : ''}">${THU_NGAN[i]}</div>
+    </div>`).join('') + `</div></div>`;
+
+  /* ---- từng sản phẩm ---- */
+  h += sectionTitle('Giờ đỉnh của từng sản phẩm',
+    `<span class="dim">top ${o.sp.length} theo tiền hàng</span>`);
+  if (!o.sp.length)
+    h += `<div class="card dim">Không đọc được sản phẩm nào.</div>`;
+  else
+    h += `<div class="tblwrap"><table class="tbl sm ptbl"><thead><tr>
+      <th>Sản phẩm</th><th class="r">Tiền hàng</th><th class="r">Số lượng</th>
+      <th class="r">Giờ đỉnh</th><th>Rải trong ngày</th></tr></thead><tbody>` +
+      o.sp.map(x => {
+        const mx = Math.max(...x.gio);
+        const dinhSp = x.gio.map((v, hh) => ({hh, v})).sort((a,b) => b.v - a.v).slice(0,2)
+                        .filter(z => z.v > 0).map(z => gioLabel(z.hh)).join(' · ');
+        return `<tr>
+          <td class="ell" style="max-width:250px" title="${esc(x.name)}">${esc(x.name)}</td>
+          <td class="r nw">${moneyShort(x.gmv)}</td>
+          <td class="r nw">${dem(x.units)}</td>
+          <td class="r nw"><b>${esc(dinhSp || '—')}</b></td>
+          <td><div class="hrs">${x.gio.map((v, hh) =>
+            `<i style="opacity:${mx ? (0.12 + 0.88 * v / mx).toFixed(2) : 0.12}"
+                title="${gioLabel(hh)}: ${v} cái"></i>`).join('')}</div></td>
+        </tr>`;
+      }).join('') + `</tbody></table></div>
+    <div class="dim" style="margin-top:6px">Dải ô bên phải là 24 giờ trong ngày, ô càng đậm càng
+      nhiều hàng bán ra giờ đó. Sản phẩm khác nhau có giờ đỉnh khác nhau — thứ mà con số toàn shop
+      ở trên che mất.</div>`;
+
+  h += `<div class="dim" style="margin-top:10px">App chỉ giữ phần đã cộng sẵn theo giờ, theo thứ và
+    top ${o.sp.length} sản phẩm — không giữ từng đơn. Tệp gốc một tháng đã hơn mười bảy nghìn dòng,
+    giữ nguyên thì vài tháng là đầy chỗ chứa của trình duyệt.</div>`;
+  return h;
 }
 
 /* ============================================================
