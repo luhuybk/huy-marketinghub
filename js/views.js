@@ -718,6 +718,7 @@ function adcampRow(r, hienShop){
   const d = (cur, truoc) => truoc && cur != null ? (cur - truoc) / truoc * 100 : null;
   const dRoas = d(m.roas, pm && pm.roas), dCost = d(m.cost, pm && pm.cost);
   const dCtr  = d(m.ctr,  pm && pm.ctr),  dCvr  = d(m.cvr,  pm && pm.cvr);
+  const dImp  = d(m.impressions, pm && pm.impressions);
   const sub = v => v == null ? '' : `<div class="dim">${v}</div>`;
   return `<tr class="${r.issues.length ? 'rowwarn' : ''}" data-act="adcamp" data-id="${c.id}">
     <td class="ell" style="max-width:260px" title="${esc(c.name)}">
@@ -727,6 +728,7 @@ function adcampRow(r, hienShop){
         adcampRunning(c) ? '' : ' · <span class="bad">đã dừng</span>'}${
         p ? ' · ' + esc(p.name) : ''}</div>
       ${r.issues.length ? `<div class="chips">${r.issues.map(issueChip).join('')}</div>` : ''}</td>
+    <td class="r nw">${dem(m.impressions)}${sub(dImp != null ? deltaChip(dImp, null) : null)}</td>
     <td class="r nw">${moneyShort(m.cost)}${sub(dCost != null ? deltaChip(dCost, null) : null)}</td>
     <td class="r nw">${moneyShort(m.gmv)}${sub(num(m.orders) + ' đơn')}</td>
     <td class="r nw"><b class="${m.roas == null ? '' : tt ? (m.roas >= tt ? 'ok' : 'bad')
@@ -876,7 +878,8 @@ function viewAdNow(shopId){
         <div class="rpt-gh"><span class="chip ${F.cls}">${F.icon} ${esc(F.label)}</span>
           <span class="dim">${rp.byFlag[k].length} chiến dịch</span></div>` +
         list.map(r => `<div class="rpt-li">
-          <span class="ell grow" title="${esc(r.c.name)}">${esc(r.c.name)}</span>
+          <span class="ell grow" title="${esc(r.c.name)}">${esc(r.c.name)}${
+            r.dx ? ` <span class="chip ${r.dx.cls}" title="${esc(r.dx.text)}">${esc(r.dx.tag)}</span>` : ''}</span>
           <span class="nw dim">${r.vang ? 'chưa chạy' : moneyShort(r.m.cost)}${
             r.b ? ' / đáng lẽ ' + moneyShort(r.b.cost) : ''} · ROAS ${xText(r.m.roas)}${
             r.bm && r.bm.roas ? ' / ' + xText(r.bm.roas) : ''}</span>
@@ -902,16 +905,16 @@ function viewAdNow(shopId){
   if (q) rows = rows.filter(r => norm(r.c.name).includes(q) || norm(r.c.sku).includes(q));
 
   h += sectionTitle('Từng chiến dịch tới giờ này',
-    `<span class="dim">${rows.length}/${rp.rows.length} dòng</span>`);
+    `<span class="dim">${rows.length}/${rp.rows.length} dòng${
+      rp.nen ? ' · so với ' + esc(rp.nen.nhan) : ''}</span>`);
   h += `<div class="toolbar">
     <input class="inp grow" placeholder="Tìm theo tên hoặc mã sản phẩm…" data-inp="adQ" value="${esc(ui.adQ)}">
     <button class="btn sm ${!ui.adOnlyBad ? 'pri' : ''}" data-act="adonlybad" data-id="off">Tất cả</button>
     <button class="btn sm ${ui.adOnlyBad ? 'pri' : ''}" data-act="adonlybad" data-id="on">Chỉ con có cờ</button>
   </div>`;
   h += rows.length
-    ? `<div class="tblwrap"><table class="tbl sm ptbl"><thead><tr><th>Chiến dịch</th>
-        <th class="r">Chi phí</th><th class="r">Doanh số</th><th class="r">ROAS</th>
-      </tr></thead><tbody>` + rows.map(adDayRow).join('') + `</tbody></table></div>`
+    ? `<div class="tblwrap"><table class="tbl sm ptbl"><thead>${AD_DAY_HEAD}</thead><tbody>` +
+      rows.map(adDayRow).join('') + `</tbody></table></div>`
     : `<div class="card dim">Không có dòng nào khớp bộ lọc.</div>`;
   return h;
 }
@@ -1112,21 +1115,52 @@ function viewAdHours(shopId){
    phát là thành báo cáo đầy đủ, người nhận không phải hỏi lại "của shop nào,
    ngày nào".
    ============================================================ */
+/* Đầu bảng của bảng ngày. Sáu chỉ số theo đúng thứ tự cái phễu đi: hiển thị
+   → bấm vào → mua → tiền vào → tiền ra → hiệu quả. Đọc ngang một dòng là
+   thấy nó gãy ở khúc nào. */
+const AD_DAY_HEAD = `<tr><th>Chiến dịch</th><th class="r">View</th><th class="r">CTR</th>
+  <th class="r">CVR</th><th class="r">Chi phí</th><th class="r">GMV</th><th class="r">ROAS</th></tr>`;
+
+/* Một dòng: số của hôm đó ở trên, mức lệch so với mốc ở dưới.
+
+   Vì sao bày cả sáu chứ không chỉ chi phí với ROAS như trước: ROAS tụt thì
+   biết là có chuyện, nhưng không biết chuyện gì — hết hiển thị, hết người
+   bấm, hay bấm rồi không mua. Ba cái đó chữa bằng ba cách khác hẳn nhau, mà
+   nhìn mỗi ROAS thì không phân biệt được. */
 function adDayRow(r){
   const {c, m, b, bm} = r;
-  const sub = v => v == null ? '' : `<div class="dim">${v}</div>`;
-  return `<tr class="${r.flags.some(f => f !== 'up') ? 'rowwarn' : ''}"
-              ${r.vang ? '' : `data-act="adcamp" data-id="${c.id}"`}>
-    <td class="ell" style="max-width:230px" title="${esc(c.name)}">
+  const sub = v => v ? `<div class="dim">${v}</div>` : '';
+  const tt = v => v == null ? '' : ` title="thường ${esc(String(v))}"`;
+
+  const ten = `<td class="ell" style="max-width:220px" title="${esc(c.name)}">
       <b>${esc(c.name)}</b>
       <div class="chips" style="margin-top:4px">${r.flags.map(f =>
         `<span class="chip ${AD_DAY_FLAGS[f].cls}" title="${esc(AD_DAY_FLAGS[f].hint)}">${
-          AD_DAY_FLAGS[f].icon} ${esc(AD_DAY_FLAGS[f].label)}</span>`).join('')}</div></td>
-    <td class="r nw">${r.vang ? '<span class="bad">không có trong file</span>' : moneyShort(m.cost)}
-      ${sub(b ? 'thường ' + moneyShort(b.cost) : null)}</td>
-    <td class="r nw">${moneyShort(m.gmv)}${sub(b ? 'thường ' + moneyShort(b.gmv) : null)}</td>
+          AD_DAY_FLAGS[f].icon} ${esc(AD_DAY_FLAGS[f].label)}</span>`).join('')}${
+        r.dx ? `<span class="chip ${r.dx.cls}" title="${esc(r.dx.text)}">${esc(r.dx.tag)}</span>` : ''}</div></td>`;
+
+  /* Chiến dịch tháng trước chạy đều mà hôm đó không có dòng nào trong file:
+     không có số nào để bày ra sáu cột, nên nói thẳng bằng một dòng chữ. */
+  if (r.vang)
+    return `<tr class="rowwarn">${ten}
+      <td class="r dim" colspan="6"><span class="bad">không có trong file</span> · thường
+        ${moneyShort(r.b.cost)}/ngày, ROAS ${xText(r.bm.roas)}</td></tr>`;
+
+  return `<tr class="${r.flags.some(f => f !== 'up') ? 'rowwarn' : ''}"
+              data-act="adcamp" data-id="${c.id}">${ten}
+    <td class="r nw"${tt(b ? dem(Math.round(b.impressions)) : null)}>${dem(m.impressions)}${
+      sub(deltaChip(r.dImp, null))}</td>
+    <td class="r nw"${tt(bm ? pctText(bm.ctr, 2) : null)}>${pctText(m.ctr, 2)}${
+      sub(deltaChip(r.dCtr, true))}</td>
+    <td class="r nw"${tt(bm ? pctText(bm.cvr, 2) : null)}>${pctText(m.cvr, 2)}${
+      sub(deltaChip(r.dCvr, true))}</td>
+    <td class="r nw">${moneyShort(m.cost)}${
+      sub(deltaChip(r.dCost, null) || (b ? 'thường ' + moneyShort(b.cost) : null))}</td>
+    <td class="r nw"${tt(b ? moneyShort(b.gmv) : null)}>${moneyShort(m.gmv)}${
+      sub(deltaChip(r.dGmv, true))}</td>
     <td class="r nw"><b class="${m.roas == null ? '' : m.roas >= 3 ? 'ok' : m.roas < 1.5 ? 'bad' : ''}">${
-      xText(m.roas)}</b>${sub(bm && bm.roas ? 'thường ' + xText(bm.roas) : null)}</td>
+      xText(m.roas)}</b>${
+      sub(deltaChip(r.dRoas, true) || (bm && bm.roas ? 'thường ' + xText(bm.roas) : null))}</td>
   </tr>`;
 }
 
@@ -1147,7 +1181,12 @@ function viewAdDay(shopId){
      đầy đủ — sai theo một hướng cố định nên nhìn mãi vẫn thấy hợp lý. */
   const dangDo = adDaysIn(date, shopId).filter(x => x.partial);
   const gioChup = dangDo.length ? Math.max(...dangDo.map(x => x.atHour)) : null;
-  const rp = adDayReport(shopId, date);
+  /* Mốc của báo cáo ngày là THÁNG GẦN NHẤT, không phải trung bình mọi tháng
+     đã nạp. "Hôm qua con này chạy khác thường không" phải so với nhịp gần
+     đây nhất của chính nó; gộp cả tháng cũ vào thì một tháng tốt hồi xưa kéo
+     mốc lên mãi và ngày nào cũng thấy đỏ vì chuyện đã hết thời sự. Trang Hôm
+     nay thì ngược lại — giữa ngày số ít và nhiễu nên mốc rộng mới đỡ lệch. */
+  const rp = adDayReport(shopId, date, null, 'gan');
   const cham = v => v == null ? '' : deltaChip(v, null);
 
   let h = '';
@@ -1189,7 +1228,11 @@ function viewAdDay(shopId){
              deltaChip(rp.dCtr, true) + ' · thường ' + pctText(rp.nen.total.ctr, 2))}
       ${tile('CVR', pctText(rp.sum.cvr, 2),
              deltaChip(rp.dCvr, true) + ' · thường ' + pctText(rp.nen.total.cvr, 2))}
-    </div>` : ''}
+    </div>
+    <div class="dim" style="margin-top:8px">Mốc là <b>trung bình một ngày của
+      ${esc(monthLabel(rp.nen.ym))}</b> — tháng đầy đủ gần nhất đã nạp. Từng chiến dịch ở bảng
+      dưới cũng so với chính nó trong tháng đó, nên đọc ngang một dòng là biết con nào hỏng ở
+      khúc nào.</div>` : ''}
 
     ${gioChup != null ? `<div class="explain warn" style="margin-top:12px">⚠︎ Số của ngày này là
       <b>ảnh chụp lúc ${esc(gioLabel(gioChup))}</b>, chưa trọn 24 giờ — mọi con số dưới đây đều
@@ -1212,7 +1255,8 @@ function viewAdDay(shopId){
         <div class="rpt-gh"><span class="chip ${F.cls}">${F.icon} ${esc(F.label)}</span>
           <span class="dim">${rp.byFlag[k].length} chiến dịch</span></div>` +
         list.map(r => `<div class="rpt-li">
-          <span class="ell grow" title="${esc(r.c.name)}">${esc(r.c.name)}</span>
+          <span class="ell grow" title="${esc(r.c.name)}">${esc(r.c.name)}${
+            r.dx ? ` <span class="chip ${r.dx.cls}" title="${esc(r.dx.text)}">${esc(r.dx.tag)}</span>` : ''}</span>
           <span class="nw dim">${r.vang ? 'không chạy' : moneyShort(r.m.cost)}${
             r.b ? ' / thường ' + moneyShort(r.b.cost) : ''} · ROAS ${xText(r.m.roas)}${
             r.bm && r.bm.roas ? ' / ' + xText(r.bm.roas) : ''}</span>
@@ -1253,17 +1297,22 @@ function viewAdDay(shopId){
   if (q) rows = rows.filter(r => norm(r.c.name).includes(q) || norm(r.c.sku).includes(q));
 
   h += sectionTitle('Từng chiến dịch trong ngày',
-    `<span class="dim">${rows.length}/${rp.rows.length} dòng</span>`);
+    `<span class="dim">${rows.length}/${rp.rows.length} dòng${
+      rp.nen ? ' · so với ' + esc(monthLabel(rp.nen.ym)) : ''}</span>`);
   h += `<div class="toolbar">
     <input class="inp grow" placeholder="Tìm theo tên hoặc mã sản phẩm…" data-inp="adQ" value="${esc(ui.adQ)}">
     <button class="btn sm ${!ui.adOnlyBad ? 'pri' : ''}" data-act="adonlybad" data-id="off">Tất cả</button>
     <button class="btn sm ${ui.adOnlyBad ? 'pri' : ''}" data-act="adonlybad" data-id="on">Chỉ con có cờ</button>
   </div>`;
   h += rows.length
-    ? `<div class="tblwrap"><table class="tbl sm ptbl"><thead><tr><th>Chiến dịch</th>
-        <th class="r">Chi phí</th><th class="r">Doanh số</th><th class="r">ROAS</th>
-      </tr></thead><tbody>` + rows.map(adDayRow).join('') + `</tbody></table></div>`
+    ? `<div class="tblwrap"><table class="tbl sm ptbl"><thead>${AD_DAY_HEAD}</thead><tbody>` +
+      rows.map(adDayRow).join('') + `</tbody></table></div>`
     : `<div class="card dim">Không có dòng nào khớp bộ lọc.</div>`;
+
+  h += `<div class="dim" style="margin-top:8px">Dòng nhỏ dưới mỗi con số là mức lệch so với
+    trung bình một ngày của chính chiến dịch đó tháng trước. View tụt mà CTR giữ: bị hạ hiển thị,
+    xem ngân sách và ROAS mục tiêu. View giữ mà CTR tụt: hỏng ở ảnh bìa, tiêu đề, giá hiển thị.
+    CTR giữ mà CVR tụt: người ta bấm vào rồi mới bỏ đi — giá, tồn kho, hoặc đánh giá.</div>`;
 
   h += `<div class="dim" style="margin-top:8px">Chi tiết theo ngày chỉ giữ
     ${Math.max(7, +(db.settings.adRules || DEFAULT_AD_RULES).dayKeep || 45)} ngày gần nhất rồi tự dọn —
@@ -1297,8 +1346,13 @@ function viewAdMonth(){
     `<button class="btn sm ${m === ym ? 'pri' : ''}" data-act="admonth" data-id="${m}">${
       esc(monthLabel(m))}</button>`).join('') + `</div>`;
 
-  const dCost = cu && cu.cost ? (rp.sum.cost - cu.cost) / cu.cost * 100 : null;
-  const dRoas = cu && cu.roas && rp.sum.roas ? (rp.sum.roas - cu.roas) / cu.roas * 100 : null;
+  /* So tháng với tháng là so TỔNG, không chia cho số ngày: hai tháng đều là
+     một tháng trọn, đem chia ra ngày rồi so lại thì chỉ khác nhau ở chỗ
+     tháng 30 hay 31 ngày — một chi tiết không nói lên điều gì về quảng cáo.
+     Chia theo ngày chỉ cần khi so MỘT NGÀY với một tháng. */
+  const dM = (cur, tr) => tr && cur != null ? (cur - tr) / tr * 100 : null;
+  const dCost = dM(rp.sum.cost, cu && cu.cost);
+  const dRoas = dM(rp.sum.roas, cu && cu.roas);
   h += `<div class="tiles">
     ${tile('Tổng chi', moneyShort(rp.sum.cost), cu ? deltaChip(dCost, null) + ' so ' + monthLabel(rp.prevYm) : rp.rows.length + ' chiến dịch')}
     ${tile('Doanh số', moneyShort(rp.sum.gmv), num(rp.sum.orders) + ' sản phẩm bán ra')}
@@ -1306,6 +1360,21 @@ function viewAdMonth(){
            rp.sum.roas >= 3 ? 'ok' : rp.sum.roas < 1.5 ? 'bad' : '')}
     ${tile('Cần xem lại', String(rp.bad.length), rp.waste ? moneyShort(rp.waste) + ' đốt không ra doanh số' : 'trên ' + rp.rows.length + ' chiến dịch',
            rp.bad.length ? 'bad' : 'ok')}
+  </div>`;
+
+  /* Ba chỉ số đầu phễu, cũng lấy tổng. View là tổng lượt hiển thị của mọi
+     chiến dịch trong tháng — một tháng ra ít hiển thị hẳn thì mọi thứ phía
+     sau đều nhỏ theo, mà nhìn chi phí với doanh số thì không thấy được. */
+  h += `<div class="tiles" style="margin-top:8px">
+    ${tile('View — lượt hiển thị', dem(rp.sum.impressions),
+           cu ? deltaChip(dM(rp.sum.impressions, cu.impressions), null) + ' so ' + monthLabel(rp.prevYm)
+              : dem(rp.sum.clicks) + ' lượt bấm')}
+    ${tile('CTR', pctText(rp.sum.ctr, 2),
+           cu ? deltaChip(dM(rp.sum.ctr, cu.ctr), true) + ' so tháng trước' : dem(rp.sum.clicks) + ' lượt bấm')}
+    ${tile('CVR', pctText(rp.sum.cvr, 2),
+           cu ? deltaChip(dM(rp.sum.cvr, cu.cvr), true) + ' so tháng trước' : dem(rp.sum.orders) + ' sản phẩm bán ra')}
+    ${tile('Đơn', dem(rp.sum.orders),
+           cu ? deltaChip(dM(rp.sum.orders, cu.orders), true) + ' so tháng trước' : '&nbsp;')}
   </div>`;
 
   h += `<div class="dim" style="margin:8px 0 14px">
@@ -1325,6 +1394,34 @@ function viewAdMonth(){
       lines:[{key:'roas', label:'ROAS', color:'var(--acc)', showValue:true}],
       fmtBar: moneyShort, fmtLine: xText
     }) + `</div>`;
+
+    /* Bảng tổng từng tháng, đủ sáu chỉ số. Biểu đồ trả lời "đang đi lên hay
+       đi xuống", bảng này trả lời "lệch bao nhiêu ở chỗ nào" — hai câu khác
+       nhau, và câu thứ hai thì phải đọc số chứ không ước lượng bằng mắt. */
+    const bang = months.slice().reverse().map(m => ({m, t: adSum(adcampsIn(m, shopId))}));
+    h += sectionTitle('So tháng với tháng', `<span class="dim">tổng cả tháng, không chia theo ngày</span>`);
+    h += `<div class="tblwrap"><table class="tbl sm ptbl"><thead><tr><th>Tháng</th>
+      <th class="r">View</th><th class="r">CTR</th><th class="r">CVR</th>
+      <th class="r">Chi phí</th><th class="r">GMV</th><th class="r">ROAS</th>
+      <th class="r">Đơn</th></tr></thead><tbody>` +
+      bang.map((x, i) => {
+        const tr = i ? bang[i-1].t : null;
+        const o = (v, td, goodUp, f) => `<td class="r nw">${f(v)}${
+          tr ? `<div class="dim">${deltaChip(dM(v, td), goodUp)}</div>` : ''}</td>`;
+        return `<tr class="${x.m === ym ? 'rowon' : ''}" data-act="admonth" data-id="${x.m}">
+          <td class="nw"><b>${esc(monthLabel(x.m))}</b>${
+            tr ? '<div class="dim">so tháng trước</div>' : '<div class="dim">tháng đầu</div>'}</td>
+          ${o(x.t.impressions, tr && tr.impressions, null, v => dem(v))}
+          ${o(x.t.ctr, tr && tr.ctr, true, v => pctText(v, 2))}
+          ${o(x.t.cvr, tr && tr.cvr, true, v => pctText(v, 2))}
+          ${o(x.t.cost, tr && tr.cost, null, moneyShort)}
+          ${o(x.t.gmv, tr && tr.gmv, true, moneyShort)}
+          ${o(x.t.roas, tr && tr.roas, true, xText)}
+          ${o(x.t.orders, tr && tr.orders, true, v => dem(v))}
+        </tr>`;
+      }).join('') + `</tbody></table></div>
+    <div class="dim" style="margin-top:6px">Mỗi ô là tổng của cả tháng, cộng hết mọi chiến dịch
+      trong file. Bấm một dòng để mở tháng đó ở phần dưới.</div>`;
   }
 
   /* ---- các nhóm có vấn đề ---- */
@@ -1368,8 +1465,8 @@ function viewAdMonth(){
     h += `<div class="card dim">Không có dòng nào khớp bộ lọc.</div>`;
   else
     h += `<div class="tblwrap"><table class="tbl sm ptbl"><thead><tr>
-      <th>Chiến dịch</th><th class="r">Chi phí</th><th class="r">Doanh số</th>
-      <th class="r">ROAS</th><th class="r">CTR</th><th class="r">CVR</th>
+      <th>Chiến dịch</th><th class="r">View</th><th class="r">Chi phí</th>
+      <th class="r">Doanh số</th><th class="r">ROAS</th><th class="r">CTR</th><th class="r">CVR</th>
     </tr></thead><tbody>` + rows.map(r => adcampRow(r, !shopId && shopIds.length > 1)).join('') +
     `</tbody></table></div>
     <div class="dim" style="margin-top:6px">Bấm một dòng để xem chiến dịch đó đi qua từng tháng.</div>`;
@@ -1445,7 +1542,7 @@ function viewAdcamp(id){
     const rows = chuoi.map(x => {
       const mm = adMetrics(x);
       return {label: monthLabel(x.ym).replace('Tháng ','T'), cost:mm.cost, gmv:mm.gmv,
-              roas:mm.roas, ctr:mm.ctr, cvr:mm.cvr};
+              roas:mm.roas, ctr:mm.ctr, cvr:mm.cvr, view:mm.impressions};
     });
     h += sectionTitle('Tiền vào và tiền ra');
     h += `<div class="card pad0">` + Chart.combo({
@@ -1455,15 +1552,19 @@ function viewAdcamp(id){
       fmtBar: moneyShort, fmtLine: xText
     }) + `</div>`;
 
-    h += sectionTitle('Người ta có bấm vào, và bấm vào rồi có mua không');
+    /* View là cột, hai tỉ lệ là đường. Ba thứ này phải nằm chung một khung:
+       CTR giữ nguyên mà View tụt một nửa thì số người bấm vào cũng tụt một
+       nửa — nhìn riêng đường CTR thì tưởng không có chuyện gì. */
+    h += sectionTitle('Ra được bao nhiêu mắt, và trong đó bao nhiêu người bấm rồi mua');
     h += `<div class="card pad0">` + Chart.combo({
       rows,
-      bars: [],
+      bars: [{key:'view', label:'View — lượt hiển thị', color:'var(--tx2)'}],
       lines:[{key:'ctr', label:'CTR — tỉ lệ bấm vào', color:'var(--acc)', showValue:true},
              {key:'cvr', label:'CVR — bấm rồi mua', color:'var(--ok)', showValue:true}],
-      fmtLine: v => pctText(v, 2)
+      fmtBar: v => dem(v), fmtLine: v => pctText(v, 2)
     }) + `</div>
-    <div class="dim" style="margin-top:6px">CTR tụt mà CVR giữ nguyên: vấn đề ở ảnh bìa và tiêu đề,
+    <div class="dim" style="margin-top:6px">View tụt mà hai tỉ lệ giữ nguyên: quảng cáo bị ra ít
+      hơn — xem ngân sách và ROAS mục tiêu. CTR tụt mà CVR giữ nguyên: vấn đề ở ảnh bìa và tiêu đề,
       người ta lướt qua không buồn bấm. CTR giữ mà CVR tụt: bấm vào rồi mới bỏ đi — vấn đề nằm
       trong trang sản phẩm, ở giá hoặc ở đánh giá.</div>`;
   }
@@ -1471,13 +1572,15 @@ function viewAdcamp(id){
   if (chuoi.length){
   h += sectionTitle('Từng tháng');
   h += `<div class="tblwrap"><table class="tbl sm"><thead><tr><th>Tháng</th>
-    <th class="r">Chi phí</th><th class="r">Doanh số</th><th class="r">ROAS</th>
-    <th class="r">CTR</th><th class="r">CVR</th><th class="r">Đơn</th></tr></thead><tbody>` +
+    <th class="r">View</th><th class="r">Chi phí</th><th class="r">Doanh số</th>
+    <th class="r">ROAS</th><th class="r">CTR</th><th class="r">CVR</th>
+    <th class="r">Đơn</th></tr></thead><tbody>` +
     chuoi.map(x => {
       const mm = adMetrics(x);
       const co = adcampIssues(x);
       return `<tr><td class="nw"><b>${esc(monthLabel(x.ym))}</b>${
         co.length ? `<div class="dim">${co.map(k => AD_ISSUES[k].icon).join(' ')}</div>` : ''}</td>
+        <td class="r nw">${dem(mm.impressions)}</td>
         <td class="r nw">${moneyShort(mm.cost)}</td><td class="r nw">${moneyShort(mm.gmv)}</td>
         <td class="r nw"><b class="${mm.roas == null ? '' : mm.roas >= 3 ? 'ok' : mm.roas < 1.5 ? 'bad' : ''}">${xText(mm.roas)}</b></td>
         <td class="r nw">${pctText(mm.ctr, 2)}</td><td class="r nw">${pctText(mm.cvr, 2)}</td>

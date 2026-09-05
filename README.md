@@ -813,6 +813,19 @@ khi làm bất cứ việc gì, mà chôn trong form thì phải biết là có 
 App dùng chính nó để gắn cờ 📉, và so với ROAS thực tế tháng gần nhất để nói
 thẳng nên nâng hay nên hạ giá thầu.
 
+### So tháng với tháng thì lấy TỔNG
+
+Bảng **So tháng với tháng** ở tab Theo tháng bày tổng cả tháng của sáu chỉ số,
+không chia cho số ngày. Hai tháng đều là một tháng trọn; đem chia ra ngày rồi
+so lại thì chỉ khác nhau ở chỗ tháng 30 hay 31 ngày — một chi tiết không nói
+lên điều gì về quảng cáo. Chia theo ngày chỉ cần khi so **một ngày** với một
+tháng.
+
+View ở đây là tổng lượt hiển thị của mọi chiến dịch trong file. Một tháng ra ít
+hiển thị hẳn thì mọi thứ phía sau đều nhỏ theo, mà nhìn chi phí với doanh số
+thì không thấy được — nên nó có mặt ở cả ô số đầu trang, bảng so tháng, bảng
+chiến dịch và biểu đồ của từng chiến dịch.
+
 ## Hôm nay — ads đang chạy có gì bất thường chưa
 
 Mục con đầu tiên. Nạp tệp quảng cáo với khoảng **đúng ngày hôm nay**, xem ngay
@@ -828,11 +841,15 @@ mãi vẫn thấy hợp lý. Nên trang chia làm hai phần rõ ràng:
 * **Số tuyệt đối** (chi phí, doanh số, đơn) so với mốc **đã co lại** theo đúng
   phần ngày đã trôi qua.
 
-### Mốc là trung bình ngày của MỌI tháng đã nạp
+### Mốc của tab này là trung bình ngày của MỌI tháng đã nạp
 
 Nạp T7 và T8 thì mốc là trung bình ngày của hai tháng đó. Nạp thêm T6 thì mốc
 tự tính lại gồm cả ba. Không phải chọn gì cả — cứ nạp thêm tháng cũ là mốc dày
 thêm.
+
+Vì sao chỗ này lấy mốc rộng mà báo cáo ngày lại chỉ lấy một tháng: giữa ngày số
+còn ít nên nhiễu mạnh, mốc rộng thì một tháng bất thường không kéo lệch được
+kết luận.
 
 Sáu chỉ số được so: **View · CTR · CVR · Chi phí · GMV · ROAS** (kèm số đơn).
 
@@ -868,6 +885,24 @@ theo giờ mới.
 
 Mỗi sáng, người phụ trách xuất báo cáo quảng cáo của **ngày hôm trước** rồi kéo
 vào mục **Hôm qua**. App so ngay, ra một thẻ gọn để chụp màn hình gửi đi.
+
+### Mốc của báo cáo ngày là tháng gần nhất
+
+Khác tab **Hôm nay**: ở đây mốc chỉ lấy **một tháng đầy đủ gần nhất đã nạp**,
+không gộp trung bình mọi tháng. Câu hỏi của trang này là "hôm qua con này chạy
+khác thường không", mà "thường" của một chiến dịch là nhịp gần đây nhất của
+chính nó. Gộp cả tháng cũ vào thì một tháng tốt hồi xưa kéo mốc lên mãi, và
+ngày nào cũng thấy đỏ vì một lý do đã hết thời sự.
+
+Từng chiến dịch cũng so với **chính nó** trong tháng đó, đủ sáu chỉ số
+**View · CTR · CVR · Chi phí · GMV · ROAS** — mỗi con số kèm mức lệch ngay
+dưới. ROAS tụt thì biết là có chuyện, nhưng không biết chuyện gì: hết hiển thị,
+hết người bấm, hay bấm rồi không mua. Ba cái đó chữa bằng ba cách khác hẳn
+nhau. Mỗi dòng còn mang một thẻ kết luận ngắn ("Gãy ở trang sản phẩm", "Do giảm
+tiền hoặc hạ giá thầu") đọc ra từ chính sáu con số đó.
+
+Nút **Gửi Telegram** đi theo tab đang mở, không theo ngày — tin nhắn luôn là
+đúng tấm thẻ người bấm vừa đọc.
 
 ### Mốc so sánh lấy từ file tháng, không phải từ 30 file ngày
 

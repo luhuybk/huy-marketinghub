@@ -1925,14 +1925,28 @@ const adDaysIn      = (date, shopId) => addaysOfShop(shopId).filter(c => c.date 
    dòng ngày sang dòng tháng của chính nó. */
 const adDayKey = adcampKey;
 
-/* ---- mốc so sánh: trung bình một ngày của tháng gần nhất đã nạp ----
+/* ---- mốc so sánh: trung bình MỘT NGÀY của những tháng đã nạp ----
    Nhận `date` chứ không mặc định tháng trước của hôm nay: nạp bù file của
    một ngày cách đây hai tuần thì mốc phải là tháng trước của NGÀY ĐÓ, không
-   phải tháng trước của hôm nay. */
-function adBaseline(shopId, date, tyLe){
+   phải tháng trước của hôm nay.
+
+   `che` chọn lấy bao nhiêu tháng làm mốc — hai màn hình hỏi hai câu khác nhau
+   nên không dùng chung được một mốc:
+
+   · 'gan' — CHỈ tháng gần nhất. Báo cáo một ngày dùng kiểu này. Câu hỏi ở đó
+     là "hôm qua con này chạy khác thường không", mà "thường" của một chiến
+     dịch là nhịp gần đây nhất của chính nó. Gộp cả tháng cũ vào thì một
+     tháng tốt hồi xưa sẽ kéo mốc lên mãi, và ngày nào cũng thấy đỏ vì một
+     lý do đã hết thời sự.
+
+   · 'moi' (mặc định) — trung bình mọi tháng đã nạp. Trang Hôm nay dùng kiểu
+     này: giữa ngày số còn ít và nhiễu, mốc rộng thì đỡ bị một tháng bất
+     thường làm lệch. */
+function adBaseline(shopId, date, tyLe, che){
   const ym = String(date || today()).slice(0,7);
-  const co = adcampMonths(shopId).filter(m => m < ym).sort();   // mọi tháng đã nạp trước đó
+  let co = adcampMonths(shopId).filter(m => m < ym).sort();   // mọi tháng đã nạp trước đó
   if (!co.length) return null;
+  if (che === 'gan') co = [co[co.length - 1]];
 
   /* tyLe < 1 khi so với một tệp chụp giữa ngày: mốc phải co lại theo đúng
      phần ngày đã trôi qua. Nhân đều mọi chỉ số nên các TỈ LỆ (ROAS, CTR, CVR)
@@ -1970,6 +1984,7 @@ function adBaseline(shopId, date, tyLe){
   const h = co_ / (tongNgay || 1);
   return {
     ym: co[co.length-1], thangs: co, ngay: tongNgay, byKey, tyLe: co_,
+    che: che === 'gan' ? 'gan' : 'moi',
     nhan: co.length === 1 ? monthLabel(co[0])
           : co.map(m => monthLabel(m).replace('Tháng ','T')).join(' · '),
     total: {impressions: t.impressions*h, clicks: t.clicks*h, orders: t.orders*h,
@@ -1998,9 +2013,9 @@ function ostatDayShare(shopId, hour){
 }
 
 /* ---- báo cáo của một ngày ---- */
-function adDayReport(shopId, date, tyLe){
+function adDayReport(shopId, date, tyLe, che){
   const R  = db.settings.adRules || DEFAULT_AD_RULES;
-  const nen = adBaseline(shopId, date, tyLe);
+  const nen = adBaseline(shopId, date, tyLe, che);
   const list = adDaysIn(date, shopId);
   const sum = adSum(list);
 
@@ -2010,8 +2025,17 @@ function adDayReport(shopId, date, tyLe){
     const bm = b ? adMetrics(b) : null;
     const flags = [];
     const duLon = m.cost >= (+R.dayMinCost || 0);
-    const dCost = b && b.cost ? (m.cost - b.cost) / b.cost * 100 : null;
-    const dRoas = bm && bm.roas && m.roas != null ? (m.roas - bm.roas) / bm.roas * 100 : null;
+    /* Đủ sáu chỉ số, không chỉ chi phí và ROAS. ROAS tụt thì biết là có
+       chuyện, nhưng không biết chuyện gì: hết hiển thị, hết người bấm, hay
+       bấm rồi không mua — ba cái đó chữa bằng ba cách khác hẳn nhau. */
+    const dd = (cur, tr) => tr && cur != null ? (cur - tr) / tr * 100 : null;
+    const dCost = dd(m.cost, b && b.cost);
+    const dRoas = dd(m.roas, bm && bm.roas);
+    const dImp  = dd(m.impressions, b && b.impressions);
+    const dCtr  = dd(m.ctr, bm && bm.ctr);
+    const dCvr  = dd(m.cvr, bm && bm.cvr);
+    const dGmv  = dd(m.gmv, b && b.gmv);
+    const dOrders = dd(m.orders, b && b.orders);
 
     if (duLon && !m.gmv) flags.push('nosale');
     if (duLon && dCost != null && dCost >= (+R.dayCostUp || 0) &&
@@ -2023,7 +2047,11 @@ function adDayReport(shopId, date, tyLe){
         m.cost <= b.cost * (1 - (+R.dayQuiet || 0) / 100)) flags.push('quiet');
     if (duLon && dRoas != null && dRoas >= (+R.dayRoasDrop || 0)) flags.push('up');
 
-    return {c, m, b, bm, dCost, dRoas, flags};
+    /* Một câu "gãy ở khúc nào" cho riêng chiến dịch này, tính sẵn ở đây để
+       chỗ nào cần cũng dùng được cùng một kết luận. */
+    const dx = bm && duLon ? adDiagnose(bm, m) : null;
+    return {c, m, b, bm, dCost, dRoas, dImp, dCtr, dCvr, dGmv, dOrders,
+            dx: dx && dx.tag !== 'Đứng yên' ? dx : null, flags};
   });
 
   const byFlag = {};
@@ -2064,8 +2092,8 @@ function adDayReport(shopId, date, tyLe){
 /* Một câu kết luận bằng lời, để người xem ảnh chụp không phải tự đọc số. */
 function adDayVerdict(rp){
   if (!rp.nen) return 'Chưa nạp file tháng nào trước ngày này nên chưa có mốc để so. ' +
-                      'Nạp file tháng vào tab Theo tháng là báo cáo ngày sẽ có mốc — ' +
-                      'nạp được bao nhiêu tháng thì mốc lấy trung bình bấy nhiêu tháng.';
+                      'Nạp file tháng vào tab Theo tháng là báo cáo ngày có mốc ngay, ' +
+                      'không phải chờ gom đủ ba mươi ngày.';
   const t = [];
   const noi = (v, tang, giam) => v == null ? '' : v >= 8 ? tang : v <= -8 ? giam : 'ngang mức thường';
   t.push('Hôm đó tiêu ' + moneyShort(rp.sum.cost) + ' — ' +

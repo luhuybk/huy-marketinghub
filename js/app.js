@@ -2081,7 +2081,12 @@ function adImportModal(){
     const nhan = ngay ? 'ngày ' + fmtDate(parsed.date) : monthLabel(parsed.ym);
     /* Mốc để so, tính đúng theo NGÀY của tệp chứ không theo hôm nay: nạp bù
        file của hai tuần trước thì mốc phải là tháng trước của ngày đó. */
-    const nen = ngay && shop.id ? adBaseline(shop.id, parsed.date) : null;
+    /* Cùng kiểu mốc với màn hình sẽ mở ra ngay sau khi nạp, nếu không thì
+       con số ở bản xem trước và con số ở trang báo cáo lệch nhau mà không ai
+       hiểu vì sao. Tệp của hôm nay mở trang Hôm nay (mốc rộng, trung bình
+       mọi tháng), tệp của ngày đã qua mở báo cáo ngày (mốc là tháng gần nhất). */
+    const nen = ngay && shop.id
+      ? adBaseline(shop.id, parsed.date, null, parsed.date === today() ? 'moi' : 'gan') : null;
 
     /* Bày mấy dòng đốt nhiều tiền nhất chứ không bày cả trăm dòng: xem trước
        là để biết mình đang nạp đúng tháng đúng shop, không phải để duyệt
@@ -2285,7 +2290,8 @@ function adImportModal(){
                            : `đã cập nhật ${de} chiến dịch`;
     if (plan.ngay){
       const chiaNay = giuaNgay ? ostatDayShare(shopId, new Date().getHours()) : null;
-      const rp = adDayReport(shopId, plan.parsed.date, chiaNay ? chiaNay.tyLe : null);
+      const rp = adDayReport(shopId, plan.parsed.date, chiaNay ? chiaNay.tyLe : null,
+                             giuaNgay ? 'moi' : 'gan');
       toast(`${shopName(shopId)} · ngày ${fmtDate(plan.parsed.date)}${giuaNgay ? ' (giữa ngày)' : ''}: ${dem}` +
             (rp.bad.length ? ` · ${rp.bad.length} con cần xem lại` : ' · không có gì bất thường') +
             (don ? ` · đã dọn ${don} dòng ngày cũ` : ''));
@@ -2311,9 +2317,15 @@ async function sendDayReport(date){
   const shopId  = shopIds.includes(ui.adShop) ? ui.adShop : '';
   /* Báo cáo giữa ngày phải co mốc lại y như trên màn hình — gửi số nửa ngày
      kèm mốc cả ngày là mỗi sáng chủ nhận một tin nhắn báo động giả. */
-  const nay = date === today() ? adNowOf(shopId) : null;
+  /* Đi theo TAB đang mở, không theo ngày: nút này nằm dưới một tấm thẻ mà
+     người bấm vừa đọc xong, nên tin nhắn phải là đúng tấm thẻ đó. Tab Hôm nay
+     co mốc theo giờ và lấy trung bình mọi tháng; tab Hôm qua so với tháng gần
+     nhất, cả ngày. Quyết định theo ngày thì mở tab Hôm qua xem tệp của hôm
+     nay sẽ gửi đi một bộ số khác hẳn thứ đang hiện trên màn hình. */
+  const laNow = ui.adTab === 'now';
+  const nay = laNow && date === today() ? adNowOf(shopId) : null;
   const chia = nay && nay.partial ? ostatDayShare(shopId, nay.atHour) : null;
-  const rp = adDayReport(shopId, date, chia ? chia.tyLe : null);
+  const rp = adDayReport(shopId, date, chia ? chia.tyLe : null, laNow ? 'moi' : 'gan');
   const ten = shopId ? shopName(shopId) : shopIds.length > 1 ? 'Tất cả gian hàng' : shopName(shopIds[0] || '');
 
   const d = v => v == null ? '' : (v > 0 ? ' (+' : ' (') + v.toFixed(0) + '%)';
@@ -2342,10 +2354,12 @@ async function sendDayReport(date){
     dong.push('');
     dong.push(F.icon + ' ' + F.label + ' — ' + rp.byFlag[k].length + ' chiến dịch:');
     rp.byFlag[k].slice(0, 4).forEach(r => {
+      /* Kèm luôn "gãy ở khúc nào" — người đọc tin nhắn này trên điện thoại
+         không mở app ra dò từng chỉ số được. */
       dong.push('· ' + r.c.name.slice(0, 60) +
         ' — ' + (r.vang ? 'không chạy' : moneyShort(r.m.cost)) +
         (r.b ? ' / thường ' + moneyShort(r.b.cost) : '') +
-        ' · ROAS ' + xText(r.m.roas));
+        ' · ROAS ' + xText(r.m.roas) + (r.dx ? ' · ' + r.dx.tag : ''));
     });
     if (rp.byFlag[k].length > 4) dong.push('· …và ' + (rp.byFlag[k].length - 4) + ' con nữa');
   });
