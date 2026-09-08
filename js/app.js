@@ -2486,8 +2486,14 @@ async function adFixForm(campId, fixId){
          việc cũ lại — hai thay đổi chồng nhau thì tới ngày đo không tách
          được cái nào có tác dụng. */
       if (isNew)
-        adFixesOf(key).forEach(x => { if (!x.done){ x.done = true; x.verdict = x.verdict || 'same';
-                                                    x.verdictNote = 'khép lại vì có việc mới'; stamp(x); } });
+        adFixesOf(key).forEach(x => {
+          if (x.done) return;
+          /* Khép lại nhưng KHÔNG chấm hộ: gán đại "Không đổi" là bịa ra một
+             kết luận chưa ai đo, mà bảng nhật ký sau này đọc nó như thật. */
+          x.done = true;
+          x.verdictNote = (x.verdictNote ? x.verdictNote + ' · ' : '') + 'khép lại vì có việc mới';
+          stamp(x);
+        });
       stamp(rec);
       if (isNew) db.adfixes.push(rec);
       ensure(); save();
@@ -3033,6 +3039,7 @@ const ACTIONS = {
   adshop:      id => { ui.adShop = id || ''; ui.adYm = ''; ui.adIssue = '';
                        ui.adOnlyBad = false; ui.adSoSanh = ''; render(); },
   adcamp:      id => go('adcamp', id),
+  adgon:       () => { ui.adGon = !ui.adGon; render(); window.scrollTo(0, 0); },
   adfix:       id => adFixForm(id, ''),
   adfixedit:   id => adFixForm('', id),
   adfixjudge:  id => adFixJudge(id),

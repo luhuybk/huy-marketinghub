@@ -15,7 +15,7 @@ const ui = {
   clipQ:'', clipSort:'date', clipKol:'',
   postQ:'', postFlow:'', postState:'', postMonthOnly:false,
   adYm:'', adQ:'', adIssue:'', adOnlyBad:false, adShop:'', adTab:'day', adDate:'', adGioYm:'',
-  adGioQ:'', adGioSp:'', adSoSanh:'',
+  adGioQ:'', adGioSp:'', adSoSanh:'', adGon:false,
   resTab:'brands', resQ:'',
   cmpFrom:'', cmpTo:'',
   todayAhead:0,
@@ -799,6 +799,24 @@ const AD_SS = [
   {k:'roas',        l:'ROAS',    p:'gmv ÷ chi phí',  tot:true,  f: xText}
 ];
 
+/* Bản gọn của phần "có gì hỏng": mỗi loại cờ một chip đếm số, thay cho ba
+   khối liệt kê tên chiến dịch.
+
+   Vì sao cần: tấm thẻ này sinh ra để CHỤP gửi đi, mà bản đầy đủ cao 1480px
+   trên điện thoại — gần hai màn hình, không chụp một phát được. Bản gọn còn
+   khoảng một màn hình, vẫn nói đủ hôm nay tiêu bao nhiêu, hiệu quả ra sao,
+   gãy ở khúc nào và có mấy con mỗi loại. Ai cần tên từng con thì mở app. */
+function flagChips(rp){
+  const c = AD_DAY_FLAG_IDS.filter(k => rp.byFlag[k].length).map(k =>
+    `<span class="chip ${AD_DAY_FLAGS[k].cls}">${AD_DAY_FLAGS[k].icon} ${rp.byFlag[k].length} ${
+      esc(AD_DAY_FLAGS[k].label.toLowerCase())}</span>`);
+  if (rp.dangXuLy.length) c.push(`<span class="chip acc">🛠 ${rp.dangXuLy.length} đang xử lý</span>`);
+  return c.length ? `<div class="chips" style="margin-top:12px">${c.join('')}</div>`
+                  : `<div class="dim" style="margin-top:12px">Không chiến dịch nào bất thường.</div>`;
+}
+const gonBtn = () => `<button class="btn ${ui.adGon ? 'pri' : ''}" data-act="adgon">${
+  ui.adGon ? '↔ Xem đầy đủ' : '📸 Gọn để chụp'}</button>`;
+
 /* Những con đã có người nhận. Vẫn hiện, nhưng tách hẳn khỏi "cần xem lại":
    một danh sách phải-động-tay mà lẫn cả việc đang chờ tới ngày đo thì con số
    của nó không bao giờ về 0, và một con số không bao giờ về 0 thì không ai
@@ -854,7 +872,7 @@ function adCompareBlock(rp, o){
     return a && b != null && isFinite(a) ? (b - a) / a * 100 : null;
   };
 
-  h += `<div class="tblwrap"><table class="tbl sm ptbl"><thead><tr><th class="nw">Chỉ số</th>` +
+  h += `<div class="tblwrap"><table class="tbl sm ptbl stick"><thead><tr><th class="nw">Chỉ số</th>` +
     AD_SS.map(x => `<th class="r">${x.l}<div class="dim" style="font-weight:400">${x.p}</div></th>`).join('') +
     `</tr></thead><tbody>
       <tr><td class="nw"><b>Mức thường</b><div class="dim">trung bình ngày ${esc(o.nhanBau)}${
@@ -875,7 +893,8 @@ function adCompareBlock(rp, o){
     h += `<div class="card pad0" style="margin-top:10px">` + Chart.combo({
       rows: qd,
       bars: [{key:'bau', label:'Mức thường = 100', color:'var(--tx3)'},
-             {key:'nay', label:esc(o.nhanNay), color:'var(--acc)'}],
+             /* Chart tự escape nhãn, đưa vào bản đã escape sẵn là ra "&amp;" */
+             {key:'nay', label:o.nhanNay, color:'var(--acc)'}],
       fmtBar: v => Math.round(v)
     }) + `</div>`;
 
@@ -972,7 +991,7 @@ function viewAdNow(shopId){
       để làm mốc. Nạp tệp quảng cáo tháng gần nhất ở mục <b>Theo tháng</b> là có mốc ngay.</div>` : `
 
     <div class="sechd">Tỉ lệ — so thẳng được, không phụ thuộc giờ giấc</div>
-    <div class="tiles">
+    <div class="tiles ${ui.adGon ? 'mini' : ''}">
       ${tile('ROAS', xText(rp.sum.roas),
              deltaChip(rp.dRoas, true) + ' · thường ' + xText(rp.nen.total.roas),
              rp.sum.roas == null ? '' : rp.sum.roas >= 3 ? 'ok' : rp.sum.roas < 1.5 ? 'bad' : '')}
@@ -980,10 +999,12 @@ function viewAdNow(shopId){
              deltaChip(rp.dCtr, true) + ' · thường ' + pctText(rp.nen.total.ctr, 2))}
       ${tile('CVR', pctText(rp.sum.cvr, 2),
              deltaChip(rp.dCvr, true) + ' · thường ' + pctText(rp.nen.total.cvr, 2))}
+      ${tile('CPC — tiền mỗi click', dem(Math.round(rp.sum.cpc || 0)),
+             deltaChip(rp.dCpc, false) + ' · thường ' + dem(Math.round(rp.nen.total.cpc || 0)))}
     </div>
 
     <div class="sechd">Số đã chạy — so với mốc đã co theo phần ngày đã qua</div>
-    <div class="tiles">
+    <div class="tiles ${ui.adGon ? 'mini' : ''}">
       ${tile('View — lượt hiển thị', dem(rp.sum.impressions),
              cham(rp.dImp) + ' · đáng lẽ ' + dem(Math.round(rp.nen.total.impressions)))}
       ${tile('Chi phí', moneyShort(rp.sum.cost),
@@ -994,10 +1015,10 @@ function viewAdNow(shopId){
              deltaChip(rp.dOrders, true) + ' · đáng lẽ ' + dem(Math.round(rp.nen.total.orders)))}
     </div>
 
-    <div class="dim" style="margin-top:8px">Mốc là <b>trung bình một ngày</b> của
+    ${ui.adGon ? '' : `<div class="dim" style="margin-top:8px">Mốc là <b>trung bình một ngày</b> của
       ${esc(rp.nen.thangs.length)} tháng đã nạp (${esc(rp.nen.nhan)}). Nạp thêm tháng cũ hơn thì
       mốc tự tính lại gồm cả tháng đó. Mỗi chiến dịch chỉ chia cho số ngày của đúng những tháng
-      nó có mặt, nên con mới mở tháng rồi không bị mốc kéo thấp xuống một cách oan uổng.</div>
+      nó có mặt, nên con mới mở tháng rồi không bị mốc kéo thấp xuống một cách oan uổng.</div>`}
 
     <div class="explain" style="margin-top:12px">${esc(adDayVerdict(rp))}</div>
     ${(() => {
@@ -1008,7 +1029,7 @@ function viewAdNow(shopId){
         <div class="dx-tx">${esc(dx.text)}</div></div>`;
     })()}
 
-    ${AD_DAY_FLAG_IDS.filter(k => rp.byFlag[k].length).map(k => {
+    ${ui.adGon ? flagChips(rp) : AD_DAY_FLAG_IDS.filter(k => rp.byFlag[k].length).map(k => {
       const F = AD_DAY_FLAGS[k], list = rp.byFlag[k].slice(0, 5);
       return `<div class="rpt-grp">
         <div class="rpt-gh"><span class="chip ${F.cls}">${F.icon} ${esc(F.label)}</span>
@@ -1024,13 +1045,14 @@ function viewAdNow(shopId){
           ? `<div class="rpt-li dim">…và ${rp.byFlag[k].length - list.length} chiến dịch nữa</div>` : '') +
       `</div>`;
     }).join('')}
-    ${fixGroup(rp.dangXuLy)}
-    ${!rp.bad.length ? `<div class="rpt-grp"><div class="dim">${rp.dangXuLy.length
+    ${ui.adGon ? '' : fixGroup(rp.dangXuLy)}
+    ${!rp.bad.length && !ui.adGon ? `<div class="rpt-grp"><div class="dim">${rp.dangXuLy.length
       ? 'Ngoài mấy con đang xử lý ở trên, mọi chiến dịch khác chạy quanh mức thường ngày.'
       : 'Tới giờ này mọi chiến dịch chạy quanh mức thường ngày. Không có gì phải động vào.'}</div></div>` : ''}`}
   </div>`;
 
   h += `<div class="btns" style="margin-top:10px">
+    ${gonBtn()}
     <button class="btn" data-act="adimport">Nạp lại tệp mới hơn</button>
     <button class="btn" data-act="adtg" data-id="${nay.date}">Gửi tóm tắt vào Telegram</button>
     <span class="dim" style="align-self:center">Nạp lại giữa ngày lúc nào cũng được — mỗi lần
@@ -1058,7 +1080,7 @@ function viewAdNow(shopId){
     <button class="btn sm ${ui.adOnlyBad ? 'pri' : ''}" data-act="adonlybad" data-id="on">Chỉ con có cờ</button>
   </div>`;
   h += rows.length
-    ? `<div class="tblwrap"><table class="tbl sm ptbl"><thead>${AD_DAY_HEAD}</thead><tbody>` +
+    ? `<div class="tblwrap"><table class="tbl sm ptbl stick"><thead>${AD_DAY_HEAD}</thead><tbody>` +
       rows.map(adDayRow).join('') + `</tbody></table></div>`
     : `<div class="card dim">Không có dòng nào khớp bộ lọc.</div>`;
   return h;
@@ -1356,7 +1378,7 @@ function viewAdDay(shopId){
         rp.bad.length ? rp.bad.length + ' cần xem lại' : 'không có gì bất thường'}</span>
     </div>
 
-    <div class="tiles" style="margin-top:12px">
+    <div class="tiles ${ui.adGon ? 'mini' : ''}" style="margin-top:12px">
       ${tile('Chi phí', moneyShort(rp.sum.cost),
              rp.nen ? cham(rp.dCost) + ' · thường ' + moneyShort(rp.nen.total.cost) : '&nbsp;')}
       ${tile('GMV — doanh số', moneyShort(rp.sum.gmv),
@@ -1367,18 +1389,20 @@ function viewAdDay(shopId){
       ${tile('Đơn', dem(rp.sum.orders),
              rp.nen ? deltaChip(rp.dOrders, true) + ' · thường ' + dem(Math.round(rp.nen.total.orders)) : '&nbsp;')}
     </div>
-    ${rp.nen ? `<div class="tiles" style="margin-top:8px">
+    ${rp.nen ? `<div class="tiles ${ui.adGon ? 'mini' : ''}" style="margin-top:8px">
       ${tile('View — lượt hiển thị', dem(rp.sum.impressions),
              cham(rp.dImp) + ' · thường ' + dem(Math.round(rp.nen.total.impressions)))}
       ${tile('CTR', pctText(rp.sum.ctr, 2),
              deltaChip(rp.dCtr, true) + ' · thường ' + pctText(rp.nen.total.ctr, 2))}
       ${tile('CVR', pctText(rp.sum.cvr, 2),
              deltaChip(rp.dCvr, true) + ' · thường ' + pctText(rp.nen.total.cvr, 2))}
+      ${tile('CPC — tiền mỗi click', dem(Math.round(rp.sum.cpc || 0)),
+             deltaChip(rp.dCpc, false) + ' · thường ' + dem(Math.round(rp.nen.total.cpc || 0)))}
     </div>
-    <div class="dim" style="margin-top:8px">Mốc là <b>trung bình một ngày của
+    ${ui.adGon ? '' : `<div class="dim" style="margin-top:8px">Mốc là <b>trung bình một ngày của
       ${esc(monthLabel(rp.nen.ym))}</b> — tháng đầy đủ gần nhất đã nạp. Từng chiến dịch ở bảng
       dưới cũng so với chính nó trong tháng đó, nên đọc ngang một dòng là biết con nào hỏng ở
-      khúc nào.</div>` : ''}
+      khúc nào.</div>`}` : ''}
 
     ${gioChup != null ? `<div class="explain warn" style="margin-top:12px">⚠︎ Số của ngày này là
       <b>ảnh chụp lúc ${esc(gioLabel(gioChup))}</b>, chưa trọn 24 giờ — mọi con số dưới đây đều
@@ -1395,7 +1419,7 @@ function viewAdDay(shopId){
         <div class="dx-tx">${esc(dx.text)}</div></div>`;
     })()}
 
-    ${AD_DAY_FLAG_IDS.filter(k => rp.byFlag[k].length).map(k => {
+    ${ui.adGon ? flagChips(rp) : AD_DAY_FLAG_IDS.filter(k => rp.byFlag[k].length).map(k => {
       const F = AD_DAY_FLAGS[k], list = rp.byFlag[k].slice(0, 5);
       return `<div class="rpt-grp">
         <div class="rpt-gh"><span class="chip ${F.cls}">${F.icon} ${esc(F.label)}</span>
@@ -1412,13 +1436,14 @@ function viewAdDay(shopId){
       `</div>`;
     }).join('')}
 
-    ${fixGroup(rp.dangXuLy)}
-    ${!rp.bad.length ? `<div class="rpt-grp"><div class="dim">${rp.dangXuLy.length
+    ${ui.adGon ? '' : fixGroup(rp.dangXuLy)}
+    ${!rp.bad.length && !ui.adGon ? `<div class="rpt-grp"><div class="dim">${rp.dangXuLy.length
       ? 'Ngoài mấy con đang xử lý ở trên, mọi chiến dịch khác chạy quanh mức thường ngày.'
       : 'Mọi chiến dịch chạy quanh mức thường ngày. Không có gì phải làm hôm nay.'}</div></div>` : ''}
   </div>`;
 
   h += `<div class="btns" style="margin-top:10px">
+    ${gonBtn()}
     <button class="btn" data-act="adtg" data-id="${date}">Gửi tóm tắt vào Telegram</button>
     <span class="dim" style="align-self:center">hoặc chụp màn hình thẻ ở trên — trong ảnh đã có
       sẵn tên gian hàng và ngày.</span></div>`;
@@ -1464,7 +1489,7 @@ function viewAdDay(shopId){
     <button class="btn sm ${ui.adOnlyBad ? 'pri' : ''}" data-act="adonlybad" data-id="on">Chỉ con có cờ</button>
   </div>`;
   h += rows.length
-    ? `<div class="tblwrap"><table class="tbl sm ptbl"><thead>${AD_DAY_HEAD}</thead><tbody>` +
+    ? `<div class="tblwrap"><table class="tbl sm ptbl stick"><thead>${AD_DAY_HEAD}</thead><tbody>` +
       rows.map(adDayRow).join('') + `</tbody></table></div>`
     : `<div class="card dim">Không có dòng nào khớp bộ lọc.</div>`;
 
@@ -1559,7 +1584,7 @@ function viewAdMonth(){
        nhau, và câu thứ hai thì phải đọc số chứ không ước lượng bằng mắt. */
     const bang = months.slice().reverse().map(m => ({m, t: adSum(adcampsIn(m, shopId))}));
     h += sectionTitle('So tháng với tháng', `<span class="dim">tổng cả tháng, không chia theo ngày</span>`);
-    h += `<div class="tblwrap"><table class="tbl sm ptbl"><thead><tr><th>Tháng</th>
+    h += `<div class="tblwrap"><table class="tbl sm ptbl stick"><thead><tr><th>Tháng</th>
       <th class="r">View</th><th class="r">CTR</th><th class="r">CVR</th>
       <th class="r">Chi phí</th><th class="r">GMV</th><th class="r">ROAS</th>
       <th class="r">Đơn</th></tr></thead><tbody>` +
@@ -1636,7 +1661,7 @@ function viewAdMonth(){
   if (!rows.length)
     h += `<div class="card dim">Không có dòng nào khớp bộ lọc.</div>`;
   else
-    h += `<div class="tblwrap"><table class="tbl sm ptbl"><thead><tr>
+    h += `<div class="tblwrap"><table class="tbl sm ptbl stick"><thead><tr>
       <th>Chiến dịch</th><th class="r">View</th><th class="r">Chi phí</th>
       <th class="r">Doanh số</th><th class="r">ROAS</th><th class="r">CTR</th><th class="r">CVR</th>
     </tr></thead><tbody>` + rows.map(r => adcampRow(r, !shopId && shopIds.length > 1)).join('') +
@@ -1785,7 +1810,7 @@ function viewAdcamp(id){
 
   if (chuoi.length){
   h += sectionTitle('Từng tháng');
-  h += `<div class="tblwrap"><table class="tbl sm"><thead><tr><th>Tháng</th>
+  h += `<div class="tblwrap"><table class="tbl sm stick"><thead><tr><th>Tháng</th>
     <th class="r">View</th><th class="r">Chi phí</th><th class="r">Doanh số</th>
     <th class="r">ROAS</th><th class="r">CTR</th><th class="r">CVR</th>
     <th class="r">Đơn</th></tr></thead><tbody>` +

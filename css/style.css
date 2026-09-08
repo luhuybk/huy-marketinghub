@@ -168,6 +168,16 @@ select.inp{appearance:none;padding-right:26px;
 .t-l{font-size:11px;color:var(--tx3);font-weight:600;letter-spacing:.2px}
 .t-v{font-size:21px;font-weight:750;letter-spacing:-.6px;margin:3px 0 1px}
 .t-s{font-size:11px;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Bản gọn của ô số, dùng cho thẻ báo cáo lúc bật "gọn để chụp": bốn cột kể
+   cả trên điện thoại, chữ nhỏ hơn, viền mảnh hơn. Tám chỉ số vốn chiếm bốn
+   hàng trên màn hình dọc, gom lại còn hai — đủ để cả tấm thẻ lọt một khung
+   ảnh chụp. */
+.tiles.mini{gap:6px;margin-bottom:6px}
+.tiles.mini .tile{padding:7px 9px;border-radius:9px;min-width:0}
+.tiles.mini .t-l{font-size:10px;letter-spacing:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tiles.mini .t-v{font-size:17px;margin:1px 0 0;letter-spacing:-.3px}
+.tiles.mini .t-s{font-size:10px}
+.tiles.mini .chip{padding:0 5px;font-size:10px}
 
 /* ---------------- danh sách ---------------- */
 .li{display:flex;align-items:center;gap:11px;padding:11px 14px;cursor:pointer;
@@ -272,6 +282,21 @@ select.inp{appearance:none;padding-right:26px;
 .tbl tfoot th{border-top:1px solid var(--line);border-bottom:0;color:var(--tx2);font-size:12px;text-transform:none;letter-spacing:0}
 .tbl .dim{font-size:10.5px;font-weight:400}
 .tbl .win{background:color-mix(in srgb,var(--ok) 13%,transparent)}
+/* Cột đầu dính lại khi bảng trượt ngang.
+
+   Bảng chỉ số quảng cáo rộng gần 1000px mà màn hình điện thoại có 345px —
+   trượt sang phải là tên chiến dịch biến mất, còn lại một hàng số không biết
+   của con nào. Nền phải ĐỤC (không dùng transparent) vì phần bảng bên dưới
+   trượt qua ngay sau lưng ô này. */
+.tbl.stick th:first-child,
+.tbl.stick td:first-child{position:sticky;left:0;z-index:1;background:var(--bg2)}
+.tbl.stick thead th:first-child{z-index:2}
+.tbl.stick tbody tr:hover td:first-child{background:var(--bg3)}
+.tbl.stick .rowon td:first-child{background:color-mix(in srgb,var(--acc) 14%,var(--bg2))}
+/* Vệt sáng bên phải cột dính, để mắt biết chỗ nào là mép trượt */
+.tbl.stick th:first-child::after,
+.tbl.stick td:first-child::after{content:'';position:absolute;top:0;right:0;bottom:0;width:1px;
+  background:var(--line)}
 .tbl .rowbad{opacity:.55}
 .cmp .grpk{background:color-mix(in srgb,var(--acc) 10%,transparent);color:var(--acc)}
 .cmp .grpa{background:color-mix(in srgb,var(--ok) 10%,transparent);color:var(--ok)}

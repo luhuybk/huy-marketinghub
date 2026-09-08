@@ -1934,7 +1934,10 @@ function adFixMap(){
 }
 const adFixOpenAll = () => Object.values(adFixMap())
   .sort((a,b) => (a.reviewAt || '9999').localeCompare(b.reviewAt || '9999'));
-const adFixDue = () => adFixOpenAll().filter(f => !f.mute && f.reviewAt && f.reviewAt <= today());
+/* Một việc đã tới hạn chấm chưa. Việc đánh dấu "cố ý để vậy" không có hạn
+   nên không bao giờ tới hạn. */
+const adFixDued = f => !!f && !f.mute && !!f.reviewAt && f.reviewAt <= today();
+const adFixDue  = () => adFixOpenAll().filter(adFixDued);
 /* Chiến dịch của một việc, tìm ở cả hai kho — dùng để mở trang chi tiết từ
    cảnh báo, và để lấy số hiện tại lúc chấm kết quả. */
 function adFixCamp(f){
@@ -1989,7 +1992,7 @@ function adcampReport(ym, shopId){
      động nữa. Đếm cả những con đang chờ tới ngày đo thì con số ấy không bao
      giờ về 0, và một con số không bao giờ về 0 thì không ai nhìn. */
   const bad = rows.filter(r => r.issues.length && !r.fix);
-  const dangXuLy = rows.filter(r => r.issues.length && r.fix);
+  const dangXuLy = rows.filter(r => r.fix && (r.issues.length || adFixDued(r.fix)));
   const waste = rows.filter(r => r.issues.includes('waste'))
                     .reduce((t, r) => t + r.m.cost, 0);
   /* Bao nhiêu chiến dịch gánh 80% chi phí — con số này quyết định bạn nên
@@ -2188,7 +2191,10 @@ function adDayReport(shopId, date, tyLe, che){
   const coCo = r => r.flags.some(f => f !== 'up');
   const bad = rows.filter(r => coCo(r) && !r.fix)
                   .concat(byFlag.quiet.filter(r => r.vang));
-  const dangXuLy = rows.filter(r => r.fix)
+  /* Chỉ bày con còn đang có chuyện, hoặc đã tới ngày phải chấm. Một chiến
+     dịch đánh dấu "cố ý để vậy" mà giờ chạy ngon lành thì không có lý do gì
+     chiếm chỗ trong báo cáo mỗi sáng — nó vẫn nằm trong bảng đầy đủ. */
+  const dangXuLy = rows.filter(r => r.fix && (coCo(r) || adFixDued(r.fix)))
                        .sort((a,b) => (a.fix.reviewAt || '9999').localeCompare(b.fix.reviewAt || '9999'));
   const d = (cur, tr) => tr && cur != null ? (cur - tr) / tr * 100 : null;
   return {

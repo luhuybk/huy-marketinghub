@@ -984,6 +984,24 @@ trọng hơn của câu hỏi.
 Mỗi chiến dịch chỉ giữ **một** việc đang mở. Ghi việc mới thì việc cũ tự khép —
 hai thay đổi chồng lên nhau thì tới ngày đo không tách được cái nào có tác dụng.
 
+### Thẻ báo cáo có hai cỡ
+
+Tấm thẻ sinh ra để **chụp gửi đi**, mà bản đầy đủ cao 1480px trên điện thoại —
+gần hai màn hình, không chụp một phát được. Nút **📸 Gọn để chụp** rút nó còn
+khoảng **780–890px**: giữ đủ tám ô số, câu kết luận và khối chẩn đoán, thay ba
+khối liệt kê tên chiến dịch bằng một hàng chip đếm số (🔥 2 · 😴 46 · 🚀 3).
+
+Ai cần tên từng con thì bấm **↔ Xem đầy đủ** hoặc kéo xuống bảng bên dưới —
+bảng không bao giờ bị rút gọn.
+
+### Cột đầu dính lại khi bảng trượt ngang
+
+Bảng chỉ số quảng cáo rộng gần 1000px, màn hình điện thoại có 345px. Trượt sang
+phải là tên chiến dịch biến mất, còn lại một hàng số không biết của con nào.
+Cột đầu của bốn bảng rộng (`.tbl.stick`) nay dính lại ở mép trái. Nền của ô
+dính phải **đục**, không dùng `transparent`: phần bảng bên dưới trượt qua ngay
+sau lưng nó.
+
 ### Giao việc cần biết trong nhà có những ai
 
 `users_list` chỉ chủ mới gọi được, vì nó kèm quyền, vai trò và số máy đang đăng
