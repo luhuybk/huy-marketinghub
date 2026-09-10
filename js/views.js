@@ -19,7 +19,8 @@ const ui = {
   resTab:'brands', resQ:'',
   cmpFrom:'', cmpTo:'',
   todayAhead:0,
-  ideaQ:'', ideaShowDead:false
+  ideaQ:'', ideaShowDead:false,
+  kwQ:'', kwShowDead:false
 };
 
 /* Cấu hình Telegram nằm ở máy chủ, không phải trong db — mã bot không bao
@@ -215,8 +216,8 @@ function viewDash(){
     h += sectionTitle('Cần xử lý', al.length > 6 ? `<span class="dim">còn ${al.length-6} việc nữa</span>` : '');
     h += `<div class="alerts">` + show.map(a => `
       <div class="al al-${a.level}" data-act="${a.bookingId ? 'booking' : a.clipId ? 'clip' :
-             a.campId ? 'adcamp' : a.page ? 'nav' : a.productId ? 'product' : ''}"
-           data-id="${a.bookingId || a.clipId || a.campId || a.page || a.productId || ''}">
+             a.campId ? 'adcamp' : a.kwId ? 'kwgo' : a.page ? 'nav' : a.productId ? 'product' : ''}"
+           data-id="${a.bookingId || a.clipId || a.campId || a.kwId || a.page || a.productId || ''}">
         <span class="al-dot"></span>
         <div class="grow"><div class="al-t">${esc(a.title)}</div><div class="al-s">${esc(a.sub)}</div></div>
         <span class="al-go">›</span>
@@ -3029,6 +3030,281 @@ function postFlowCard(m){
         : 'reup sau ~' + Math.round(m.lagTB) + ' ngày'}</span>` : ''}
     </div>
   </div>`;
+}
+
+/* ============================================================
+   DỰ ÁN ĐÁNH TỪ KHOÁ
+
+   Mỗi từ khoá là một thẻ; bấm vào mở ra trang dự án. Trang đó xếp cạnh nhau
+   ba con đang đứng đầu (chép tay từ Metric) và ba con của mình (nối vào
+   chiến dịch quảng cáo đã có số), rồi trừ ra khoảng cách còn lại.
+
+   Không có chỗ nào ở đây tự lấy số về được: Shopee không mở cổng dữ liệu và
+   chặn đọc tự động, Metric cũng vậy. Nên việc còn lại là làm cho phần gõ
+   tay ngắn nhất có thể — lượt tìm gõ một lần, bảng top gõ khi nó đổi, hạng
+   mỗi tuần một con số.
+   ============================================================ */
+function viewKeywords(){
+  const q = norm(ui.kwQ);
+  const all = keywords().filter(k => !q || norm([k.name, k.source, k.note,
+    (k.tops || []).map(t => t.name).join(' '),
+    (k.mine || []).map(m => m.name).join(' ')].join(' ')).includes(q));
+
+  let h = `<div class="toolbar">
+    <input class="inp sm" data-inp="kwQ" value="${esc(ui.kwQ)}"
+           placeholder="Tìm từ khoá…" style="max-width:240px">
+    <div class="grow"></div>
+    <button class="btn pri" data-act="newkw">+ Từ khoá mới</button>
+  </div>`;
+
+  if (!keywords().length)
+    return h + `<div class="empty"><b>Chưa có từ khoá nào</b>
+      Mỗi từ khoá ở đây là một dự án: ba con đang đứng đầu chép từ Metric, ba con của mình đưa
+      vào đánh, và khoảng cách còn lại tính bằng số đơn một tháng. Cứ tuần một lần ghi lại mình
+      đang đứng hạng mấy — đó là bảng điểm duy nhất không ai đoán được.
+      <div style="margin-top:14px" class="btns center">
+        <button class="btn pri" data-act="newkw">+ Thêm từ khoá đầu tiên</button></div></div>`;
+
+  /* ---- tới hạn việc kế tiếp ---- */
+  const due = kwDue().filter(k => all.includes(k));
+  if (due.length){
+    h += `<div class="mod">` + moduleHead('🎯', 'Tới hạn việc kế tiếp',
+      due.length + ' dự án đang đợi một việc cụ thể');
+    h += `<div class="alerts">` + due.map(k => {
+      const d = -dayDiff(k.nextAt);
+      return `<div class="al al-${d > 7 ? 'warn' : 'info'}" data-act="kwgo" data-id="${k.id}">
+        <span class="al-dot"></span>
+        <div class="grow"><div class="al-t">${esc(k.name)} — ${esc(k.nextNote || 'chưa ghi việc gì')}</div>
+          <div class="al-s">${esc(KW_STAGE[k.stage].label)}${
+            k.whoName ? ' · ' + esc(k.whoName) : ''} · hẹn ${esc(fmtDate(k.nextAt))}${
+            d > 0 ? ' · trễ ' + d + ' ngày' : ''}</div></div>
+        <span class="chip acc">Mở →</span>
+      </div>`;
+    }).join('') + `</div></div>`;
+  }
+
+  /* ---- từng chặng ---- */
+  KW_STAGES.filter(s => s.live).forEach(s => {
+    const g = all.filter(k => k.stage === s.id)
+                 .sort((a,b) => (kwScore(b) || -1) - (kwScore(a) || -1));
+    if (!g.length) return;
+    h += `<div class="mod">` + moduleHead(s.icon, s.label,
+      g.length + ' từ khoá · xếp theo khe hở, con dễ chen nhất lên trước');
+    h += `<div class="ideag">` + g.map(kwCard).join('') + `</div></div>`;
+  });
+
+  /* ---- đã xong / đã bỏ ---- */
+  const dead = all.filter(k => !KW_LIVE.includes(k.stage));
+  if (dead.length){
+    h += `<div class="mod">` + moduleHead('🗄', 'Đã vào top · đã bỏ qua',
+      dead.length + ' từ khoá đã đóng',
+      `<button class="btn sm ${ui.kwShowDead ? 'pri' : ''}" data-act="kwdead">${
+        ui.kwShowDead ? 'Thu lại' : 'Xem'}</button>`);
+    if (ui.kwShowDead)
+      h += `<div class="card list">` + dead.map(k => {
+        const S = KW_STAGE[k.stage];
+        return `<div class="li" data-act="kwgo" data-id="${k.id}">
+          <span class="pf" style="background:color-mix(in srgb,${S.color} 20%,transparent);
+            color:${S.color}">${S.icon}</span>
+          <div class="grow"><div class="li-t">${esc(k.name)}</div>
+            <div class="li-s">${esc(S.label)}${k.volume ? ' · ' + dem(k.volume) + ' lượt tìm' : ''}${
+              k.dropReason ? ' · ' + esc(k.dropReason) : ''}</div></div>
+        </div>`;
+      }).join('') + `</div>`;
+    h += `</div>`;
+  }
+  return h;
+}
+
+function kwCard(k){
+  const S = KW_STAGE[k.stage];
+  const bar = kwBar(k), g = kwGap(k), diem = kwScore(k);
+  const nTop = (k.tops || []).filter(t => t.name).length;
+  const nCon = (k.mine || []).filter(m => m.name || m.campKey).length;
+  const luot = k.turn ? kwSlotOf(k, k.turn) : null;
+  const dueD = k.nextAt ? dayDiff(k.nextAt) : null;
+  return `<div class="icard" data-act="kwgo" data-id="${k.id}">
+    <div class="ic-hd">
+      <b class="grow ell">${esc(k.name)}</b>
+      ${k.volume
+        ? `<span class="chip ${k.volume >= KW_MIN_VOL ? 'acc' : ''}"
+             title="${k.volume >= KW_MIN_VOL ? 'trên ngưỡng bạn tự đặt' : 'dưới ngưỡng ' + dem(KW_MIN_VOL)}">${
+             dem(k.volume)} lượt</span>`
+        : `<span class="chip">chưa tra lượt</span>`}
+    </div>
+    <div class="ic-sub">${esc(k.source || 'chưa ghi tra ở đâu')}${
+      k.topAt ? ' · bảng top chụp ' + esc(fmtDate(k.topAt)) : ' · chưa chụp bảng top'}</div>
+
+    <div class="ic-money">
+      <div><span class="dim">Ngưỡng vào top</span><b>${bar ? dem(bar) + ' đơn/th' : '—'}</b></div>
+      <div><span class="dim">Con mạnh nhất</span><b>${g ? dem(g.ours) + ' đơn/th' : '—'}</b></div>
+      <div><span class="dim">Còn thiếu</span><b class="${g ? (g.trong ? 'ok' : 'bad') : ''}">${
+        g ? (g.trong ? 'đã vào top' : dem(g.thieu) + ' đơn/th') : '—'}</b></div>
+      <div><span class="dim">Khe hở</span><b title="lượt tìm chia cho số đơn còn thiếu — càng cao càng đáng đánh trước">${
+        diem != null ? dem(diem) : '—'}</b></div>
+    </div>
+
+    <div class="ic-ft">
+      <span class="chip" style="background:color-mix(in srgb,${S.color} 18%,transparent);color:${S.color}">${
+        S.icon} ${esc(S.label)}</span>
+      <span class="chip ${nTop === KW_SLOTS ? 'ok' : ''}">${nTop}/${KW_SLOTS} đối thủ</span>
+      <span class="chip ${nCon === KW_SLOTS ? 'ok' : ''}">${nCon}/${KW_SLOTS} con của mình</span>
+      ${luot ? `<span class="chip warn">🔥 đang đánh ${esc(luot.name || 'ô ' + luot.sid)}</span>` : ''}
+      ${dueD != null ? `<span class="chip ${dueD < 0 ? 'bad' : dueD === 0 ? 'warn' : ''}">⏰ ${
+        esc(dueText(k.nextAt))}</span>` : ''}
+    </div>
+    ${k.nextNote ? `<div class="ic-next">▸ ${esc(k.nextNote)}</div>` : ''}
+  </div>`;
+}
+
+/* ---------------- trang một dự án ---------------- */
+function viewKw(id){
+  const k = keywordOf(id);
+  if (!k) return emptyBox('Không tìm thấy từ khoá này', 'Có thể đã bị xoá.');
+  const S = KW_STAGE[k.stage];
+  const bar = kwBar(k), g = kwGap(k);
+
+  let h = `<div class="toolbar">
+    <button class="btn" data-act="nav" data-id="keywords">‹ Từ khoá</button>
+    <div class="grow"></div>
+    <button class="btn" data-act="editkw" data-id="${k.id}">Sửa dự án</button>
+  </div>`;
+
+  h += `<div class="card">
+    <h2>${esc(k.name)}</h2>
+    <div class="dim">${S.icon} ${esc(S.label)}${
+      k.volume ? ' · ' + dem(k.volume) + ' lượt tìm/tháng' + (k.source ? ' theo ' + esc(k.source) : '')
+               : ' · chưa tra lượt tìm'}${
+      k.volAt ? ' · tra ngày ' + esc(fmtDate(k.volAt)) : ''}${
+      k.whoName ? ' · phụ trách ' + esc(k.whoName) : ''}</div>
+    ${k.volume && k.volume < KW_MIN_VOL
+      ? `<div class="chips" style="margin-top:9px"><span class="chip warn">dưới ngưỡng ${
+          dem(KW_MIN_VOL)} lượt bạn tự đặt — vẫn đánh được nếu ngưỡng vào top thấp</span></div>` : ''}
+    ${k.nextNote || k.nextAt
+      ? `<div class="ic-next" style="margin-top:11px">▸ ${esc(k.nextNote || 'chưa ghi việc gì')}${
+          k.nextAt ? ' — ' + esc(dueText(k.nextAt)) : ''}</div>` : ''}
+  </div>`;
+
+  h += `<div class="tiles">
+    ${tile('Lượt tìm mỗi tháng', k.volume ? dem(k.volume) : '—',
+           k.volume ? (k.volume >= KW_MIN_VOL ? 'trên ngưỡng' : 'dưới ngưỡng') : 'chưa tra')}
+    ${tile('Ngưỡng vào top', bar ? dem(bar) : '—',
+           bar ? 'đơn/tháng, con thấp nhất' : 'điền bảng top đã')}
+    ${tile('Con mạnh nhất', g ? dem(g.ours) : '—',
+           g ? (g.tay ? 'đơn/tháng, gõ tay' : 'đơn/tháng, từ quảng cáo') : 'chưa ô nào có số')}
+    ${tile('Còn thiếu', g ? (g.trong ? 'đã vào' : dem(g.thieu)) : '—',
+           g ? (g.trong ? 'đã vượt ngưỡng' : 'đơn/tháng nữa') : '')}
+  </div>`;
+
+  if (g && !g.trong){
+    h += `<div class="explain">Để chen vào top của từ khoá này,
+      <b>${esc(g.best.slot.name || 'con mạnh nhất của mình')}</b> cần thêm
+      <b>${dem(g.thieu)} đơn mỗi tháng</b>.${g.cpo
+        ? ` Bù hoàn toàn bằng quảng cáo với giá ${dem(Math.round(g.cpo))}đ một đơn thì tốn khoảng
+            <b>${moneyShort(g.tien)} mỗi tháng</b> — đây là mức <b>trần</b>, không phải dự toán:
+            KOC, giá, khuyến mãi và đánh giá cũng đẩy đơn lên mà không tốn thêm đồng quảng cáo nào.`
+        : ` Chưa nối ô nào vào chiến dịch quảng cáo nên chưa tính được tốn bao nhiêu.`}${
+      g.tay ? '' : ` <b>Lưu ý:</b> số đơn của mình đang lấy từ quảng cáo, tức là thiếu phần đơn
+        tự nhiên, trong khi bảng của Metric đếm tổng — gõ số đơn thật vào ô của con đó thì khoảng
+        cách này mới so đúng.`}</div>`;
+  } else if (g && g.trong){
+    h += `<div class="explain">Con <b>${esc(g.best.slot.name || 'mạnh nhất của mình')}</b> đang bán
+      <b>${dem(g.ours)} đơn/tháng</b>, vượt ngưỡng ${dem(bar)} của top — tức là đã đủ sức đứng trong đó.
+      Việc còn lại là <b>giữ</b>: tra hạng đều tay, và đừng cắt quảng cáo đột ngột. Nếu tra ra vẫn chưa
+      thấy mình trong top thì rào cản không nằm ở số đơn nữa mà ở <b>đánh giá</b>, <b>giá</b> hoặc
+      <b>từ khoá trong tiêu đề</b> — ba thứ đó xem trong bảng đối thủ phía trên.</div>`;
+  } else if (!bar){
+    h += `<div class="explain">Điền <b>số đơn một tháng</b> của ba con trong bảng top bên dưới thì app
+      mới tính được ngưỡng phải vượt. Đó là con số duy nhất biến "đánh top" thành một mục tiêu đo được.</div>`;
+  }
+
+  /* ---- ba con đang đứng đầu ---- */
+  h += `<div class="mod">` + moduleHead('🥇', 'Ba con đang đứng đầu từ khoá',
+    'chép tay từ Metric' + (k.topAt ? ' · bảng chụp ngày ' + fmtDate(k.topAt) : ' · chưa ghi ngày chụp'));
+  h += `<div class="tblwrap"><table class="tbl sm ptbl stick"><thead><tr>
+    <th class="nw">Sản phẩm</th><th>Shop</th><th class="r">Giá</th><th class="r">Đơn/tháng</th>
+    <th class="r">Doanh số/tháng</th><th class="r">Đánh giá</th><th></th></tr></thead><tbody>` +
+    (k.tops || []).map((t, i) => {
+      const ds = t.revenue || (t.price && t.orders ? t.price * t.orders : 0);
+      const thap = bar && t.orders === bar;
+      return `<tr data-act="kwtop" data-id="${k.id}|${i}">
+        <td class="nw"><b>${esc(t.name || '— ô ' + (i+1) + ' còn trống —')}</b>${
+          t.url ? `<div style="margin-top:3px">${postLink(t.url, 'mở trên Shopee')}</div>` : ''}</td>
+        <td>${esc(t.shop || '—')}</td>
+        <td class="r">${t.price ? moneyShort(t.price) : '—'}</td>
+        <td class="r"><b>${t.orders ? dem(t.orders) : '—'}</b>${
+          thap ? ` <span class="chip warn">ngưỡng</span>` : ''}</td>
+        <td class="r">${ds ? moneyShort(ds) : '—'}</td>
+        <td class="r">${t.reviews ? dem(t.reviews) : '—'}</td>
+        <td class="r"><button class="btn sm" data-act="kwtop" data-id="${k.id}|${i}">Sửa</button></td>
+      </tr>`;
+    }).join('') + `</tbody></table></div>
+    <div class="dim" style="margin-top:6px">Ngưỡng để chen vào là con <b>bán ít nhất</b> trong ba con này,
+    không phải trung bình — trung bình là một chỗ không con nào đứng ở đó cả.</div></div>`;
+
+  /* ---- ba con của mình ---- */
+  h += `<div class="mod">` + moduleHead('🎯', 'Ba con của mình đánh vào từ khoá này',
+    'nối vào chiến dịch quảng cáo để lấy số tự động' +
+    (k.turn ? ' · đang tới lượt ' + esc((kwSlotOf(k, k.turn) || {}).name || k.turn) : ' · chưa chọn lượt nào'));
+  h += `<div class="tblwrap"><table class="tbl sm ptbl stick"><thead><tr>
+    <th class="nw">Sản phẩm của mình</th><th>Chiến dịch đang nối</th><th class="r">Đơn/tháng</th>
+    <th class="r">Chi phí</th><th class="r">ROAS</th><th class="r">Tiền/đơn</th>
+    <th class="r">Hạng</th><th></th></tr></thead><tbody>` +
+    (k.mine || []).map(m => {
+      const st = kwSlotStat(m);
+      const o  = kwSlotOrders(m);
+      const r  = kwRankNow(k.id, m.sid);
+      const cu = kwRanksOf(k.id, m.sid)[1] || null;
+      const dR = r && cu && r.rank && cu.rank ? cu.rank - r.rank : null;
+      const trong = o && bar && o.orders >= bar;
+      return `<tr class="${k.turn === m.sid ? 'rowon' : ''}" data-act="kwmine" data-id="${k.id}|${m.sid}">
+        <td class="nw"><b>${esc(m.name || '— ô ' + m.sid.slice(1) + ' còn trống —')}</b>${
+          m.url ? `<div style="margin-top:3px">${postLink(m.url, 'mở trên Shopee')}</div>` : ''}</td>
+        <td>${st ? `<button class="btn sm" data-act="adcamp" data-id="${st.camp.id}">${
+            esc(st.camp.name.slice(0, 34))}${st.camp.name.length > 34 ? '…' : ''} ›</button>`
+          : m.campKey ? `<span class="chip bad">chiến dịch không còn</span>`
+                      : `<span class="dim">chưa nối</span>`}</td>
+        <td class="r">${o ? `<b class="${trong ? 'ok' : ''}">${dem(o.orders)}</b>
+          <div class="dim" style="font-size:10px">${o.tay ? 'gõ tay' : 'từ quảng cáo'}</div>` : '—'}</td>
+        <td class="r">${st && st.m ? moneyShort(st.m.cost) : '—'}${
+          st && st.ym ? `<div class="dim" style="font-size:10px">${esc(monthLabel(st.ym))}${
+            st.dangChay ? ' — đang chạy' : ''}</div>` : ''}</td>
+        <td class="r">${st && st.m && st.m.roas != null ? xText(st.m.roas) : '—'}</td>
+        <td class="r">${st && st.m && st.m.cpo != null ? dem(Math.round(st.m.cpo)) : '—'}</td>
+        <td class="r">${r ? `<b>${r.rank ? '#' + r.rank : 'không thấy'}</b>
+            ${dR ? `<span class="chip ${dR > 0 ? 'ok' : 'bad'}">${dR > 0 ? '▲' : '▼'} ${Math.abs(dR)}</span>` : ''}
+            <div class="dim" style="font-size:10px">${esc(fmtDate(r.date))}</div>`
+          : `<span class="dim">chưa tra</span>`}</td>
+        <td class="r nw">
+          <button class="btn sm" data-act="kwrank" data-id="${k.id}|${m.sid}">Ghi hạng</button>
+          <button class="btn sm ${k.turn === m.sid ? 'pri' : ''}" data-act="kwturn"
+                  data-id="${k.id}|${m.sid}">${k.turn === m.sid ? '🔥 Đang đánh' : 'Tới lượt'}</button>
+        </td>
+      </tr>`;
+    }).join('') + `</tbody></table></div>
+    <div class="dim" style="margin-top:6px">Cùng lúc chỉ đánh <b>một con</b>. Rải tiền ra cả ba thì
+    không con nào đủ sức bật lên, mà tới lúc đo cũng không biết là nhờ con nào.</div></div>`;
+
+  /* ---- hạng theo tuần ---- */
+  const lich = Array.from(new Set(kwRanksOf(k.id).map(r => r.date))).sort().reverse().slice(0, 12);
+  if (lich.length){
+    h += `<div class="mod">` + moduleHead('📈', 'Hạng ghi được qua từng lần tra',
+      lich.length + ' lần gần nhất · số nhỏ là tốt');
+    h += `<div class="tblwrap"><table class="tbl sm ptbl stick"><thead><tr><th class="nw">Ngày tra</th>` +
+      (k.mine || []).map(m => `<th class="r">${esc(m.name ? m.name.slice(0, 20) : 'ô ' + m.sid.slice(1))}</th>`).join('') +
+      `</tr></thead><tbody>` +
+      lich.map(d => `<tr><td class="nw">${esc(fmtDate(d))}</td>` +
+        (k.mine || []).map(m => {
+          const r = kwranks().find(x => x.kwId === k.id && x.sid === m.sid && x.date === d);
+          return `<td class="r">${r ? (r.rank ? '#' + r.rank : '<span class="dim">không thấy</span>') : '—'}</td>`;
+        }).join('') + `</tr>`).join('') +
+      `</tbody></table></div></div>`;
+  }
+
+  if (k.note) h += `<div class="card" style="margin-top:18px">
+    <div class="sec sm">Ghi chú<span class="ln"></span></div>
+    <div class="dim" style="white-space:pre-wrap">${esc(k.note)}</div></div>`;
+  return h;
 }
 
 /* Một trang cho mỗi luồng. Tách hẳn chứ không phải một trang có bộ lọc: hai

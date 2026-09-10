@@ -162,7 +162,12 @@ select.inp{appearance:none;padding-right:26px;
 /* ---------------- ô số liệu ---------------- */
 .tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:9px;margin-bottom:9px}
 @media(min-width:760px){.tiles{grid-template-columns:repeat(4,1fr)}}
-.tile{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:11px 12px}
+/* min-width:0 là bắt buộc, không phải trang trí: ô lưới mặc định min-width:auto,
+   nên dòng phụ .t-s (đặt white-space:nowrap) căng cột rộng ra bằng đúng độ dài
+   câu chữ. Cột không co lại được thì hai ô 1fr cộng lại vượt khung, cả trang
+   trượt ngang trên điện thoại — mà dấu ba chấm của .t-s thì không bao giờ hiện
+   ra vì chẳng có gì bắt nó phải cắt. */
+.tile{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:11px 12px;min-width:0}
 .tile.ok{border-color:color-mix(in srgb,var(--ok) 40%,var(--line))}
 .tile.bad{border-color:color-mix(in srgb,var(--bad) 40%,var(--line))}
 .t-l{font-size:11px;color:var(--tx3);font-weight:600;letter-spacing:.2px}

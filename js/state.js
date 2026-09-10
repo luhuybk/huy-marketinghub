@@ -401,6 +401,39 @@ const AD_FIX_TYPES = {
 const AD_FIX_TYPE_IDS = Object.keys(AD_FIX_TYPES);
 
 /* ============================================================
+   DỰ ÁN ĐÁNH TỪ KHOÁ (keywords · kwranks)
+
+   Một từ khoá ở đây là một DỰ ÁN, không phải một dòng ghi chú. Trong đó:
+     · bảng top — ba con đang đứng đầu từ khoá đó, chép tay từ Metric
+     · ba con của mình — quân đưa vào đánh, nối thẳng vào chiến dịch quảng
+       cáo đã có số, để khỏi gõ lại con nào
+     · khoảng cách — còn thiếu bao nhiêu đơn một tháng thì chen vào được
+
+   Vì sao mốc là SỐ ĐƠN MỘT THÁNG chứ không phải tiền quảng cáo: mọi chiến
+   dịch bên mình đều là GMV Max, loại KHÔNG cho chọn từ khoá — không có nút
+   nào để đổ tiền vào riêng một từ khoá. Thứ quyết định mình đứng đâu trong
+   từ khoá đó là bán được bao nhiêu, nên đó mới là con số phải đuổi theo.
+   ============================================================ */
+/* Ngưỡng bạn tự đặt cho việc chọn từ khoá. Dưới ngưỡng app VẪN cho lưu, chỉ
+   gắn một cái nhãn — từ khoá nhỏ mà dễ vào top nhiều khi đáng đánh hơn từ
+   khoá to mà top ba đã bán mấy nghìn đơn. */
+const KW_MIN_VOL = 10000;
+/* Ba ô cho đối thủ, ba ô cho mình. Cố định chứ không cho thêm bớt: đây là
+   một quy trình để nhân viên làm theo, mà quy trình có số ô co giãn được
+   thì mỗi người sẽ làm một kiểu. */
+const KW_SLOTS = 3;
+const KW_SIDS  = Array.from({length: KW_SLOTS}, (_, i) => 's' + (i + 1));
+const KW_STAGES = [
+  {id:'scan',  label:'Đang dò từ khoá', icon:'🔍', color:'var(--tx3)', live:true},
+  {id:'ready', label:'Đã chọn quân',    icon:'🎯', color:'var(--acc)', live:true},
+  {id:'run',   label:'Đang đánh',       icon:'🔥', color:'var(--warn)',live:true},
+  {id:'won',   label:'Đã vào top',      icon:'🏆', color:'var(--ok)',  live:false},
+  {id:'drop',  label:'Bỏ qua',          icon:'✕',  color:'var(--bad)', live:false}
+];
+const KW_STAGE = Object.fromEntries(KW_STAGES.map(s => [s.id, s]));
+const KW_LIVE  = KW_STAGES.filter(s => s.live).map(s => s.id);
+
+/* ============================================================
    MẪU TIN NHẮN
    Cùng vài nội dung gõ đi gõ lại cho hàng chục người: chào hỏi, gửi
    brief, nhắc hạn, xin số liệu. Mẫu có chỗ trống, app điền sẵn tên và
@@ -707,13 +740,13 @@ const DEFAULT_POST_TARGETS = {fb:0, tt:0};
 const KEY = 'kolhub.v1';
 const COLLECTIONS = ['kols','bookings','clips','products','adperiods','actions','brands','statuses',
                      'templates','spweeks','impacts','ideas','posts','adcamps','shops','addays',
-                     'orderstats','adfixes'];
+                     'orderstats','adfixes','keywords','kwranks'];
 
 function blank(){
   return {
     kols:[], bookings:[], clips:[], products:[], adperiods:[], actions:[], brands:[], statuses:[],
     templates:[], spweeks:[], impacts:[], ideas:[], posts:[], adcamps:[], shops:[], addays:[],
-    orderstats:[], adfixes:[],
+    orderstats:[], adfixes:[], keywords:[], kwranks:[],
     settings:{
       theme:'dark',
       myName:'',
@@ -966,6 +999,57 @@ function ensure(){
     f.reviewAt = f.mute ? '' : (f.reviewAt || addDays(f.date, f.reviewDays));
     if (typeof f.base !== 'object' || !f.base) f.base = null;
     if (f.verdict) f.done = true;
+  });
+  db.keywords.forEach(k => {
+    if (typeof k.name !== 'string') k.name = String(k.name || 'chưa đặt tên');
+    if (!KW_STAGE[k.stage]) k.stage = 'scan';
+    k.volume = parseCount(k.volume);
+    ['source','shopId','note','volAt','topAt','nextAt','nextNote','who','whoName',
+     'turn','dropReason'].forEach(f => { if (typeof k[f] !== 'string') k[f] = String(k[f] == null ? '' : k[f]); });
+    /* Ba ô đối thủ và ba ô của mình LUÔN có mặt, kể cả khi còn trống. Bản ghi
+       cũ thiếu ô thì đắp thêm, thừa thì cắt — nhờ vậy chỗ nào vẽ cũng đọc
+       thẳng k.tops[2] được mà không phải hỏi "có tồn tại không". */
+    if (!Array.isArray(k.tops)) k.tops = [];
+    k.tops = k.tops.slice(0, KW_SLOTS).map(t => ({
+      name:  String(t && t.name  != null ? t.name  : ''),
+      shop:  String(t && t.shop  != null ? t.shop  : ''),
+      url:   String(t && t.url   != null ? t.url   : ''),
+      note:  String(t && t.note  != null ? t.note  : ''),
+      price:   parseMoney(t && t.price),
+      revenue: parseMoney(t && t.revenue),
+      orders:  parseCount(t && t.orders),
+      reviews: parseCount(t && t.reviews)
+    }));
+    while (k.tops.length < KW_SLOTS)
+      k.tops.push({name:'', shop:'', url:'', note:'', price:0, revenue:0, orders:0, reviews:0});
+
+    if (!Array.isArray(k.mine)) k.mine = [];
+    k.mine = k.mine.slice(0, KW_SLOTS).map((m, i) => ({
+      /* sid cố định theo chỗ ngồi ('s1'..'s3'), không sinh ngẫu nhiên: bảng
+         hạng trỏ vào nó, mà ba ô này không bao giờ đổi chỗ cho nhau. */
+      sid:     KW_SIDS[i],
+      name:    String(m && m.name    != null ? m.name    : ''),
+      url:     String(m && m.url     != null ? m.url     : ''),
+      sku:     String(m && m.sku     != null ? m.sku     : ''),
+      campKey: String(m && m.campKey != null ? m.campKey : ''),
+      note:    String(m && m.note    != null ? m.note    : ''),
+      /* Đơn một tháng gõ tay, lấy từ trang bán hàng. Xem kwSlotOrders() để
+         biết vì sao không dùng thẳng số đơn của quảng cáo. */
+      orders:  parseCount(m && m.orders)
+    }));
+    while (k.mine.length < KW_SLOTS)
+      k.mine.push({sid:KW_SIDS[k.mine.length], name:'', url:'', sku:'', campKey:'', note:'', orders:0});
+    /* Lượt đang đánh trỏ vào một ô đã bị xoá trắng thì bỏ lượt, đừng để thẻ
+       khoe "đang đánh" một ô không có gì trong đó. */
+    if (k.turn && !k.mine.some(m => m.sid === k.turn && (m.name || m.campKey))) k.turn = '';
+  });
+  db.kwranks.forEach(r => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(r.date || '')) r.date = today();
+    ['kwId','sid','note'].forEach(f => { if (typeof r[f] !== 'string') r[f] = String(r[f] == null ? '' : r[f]); });
+    /* Hạng 0 = tìm hết mấy trang đầu mà không thấy. Giữ 0 chứ không đổi
+       thành rỗng: "không thấy" là một kết quả, và nó khác hẳn "chưa đi tìm". */
+    r.rank = Math.max(0, Math.round(+r.rank || 0));
+    if (r.kwId && !db.keywords.some(k => k.id === r.kwId && !k.deleted)) r.deleted = true;
   });
   db.orderstats.forEach(o => {
     if (!/^\d{4}-\d{2}$/.test(o.ym || '')) o.ym = String(o.from || today()).slice(0,7);
@@ -1254,6 +1338,7 @@ function missingVars(text){
    soi bằng cờ cảnh báo trong chính báo cáo, đó mới là chỗ đọc được. */
 const REVIEW_KINDS = {
   adfixes:   'Việc làm trên chiến dịch quảng cáo',
+  keywords:  'Dự án đánh từ khoá',
   adperiods: 'Kỳ số liệu quảng cáo',
   spweeks:   'Tuần số liệu Shopee',
   impacts:   'Hành động cải thiện sản phẩm',
@@ -1339,6 +1424,15 @@ function reviewLabel(kind, rec){
                              : rec.reviewAt ? ' · hẹn đo lại ' + fmtDate(rec.reviewAt) : '') +
                    (rec.detail ? ' · ' + rec.detail : ''),
               go: c ? ['adcamp', c.id] : ['adreport', '']};
+    }
+    case 'keywords': {
+      const g = kwGap(rec);
+      return {title: 'Từ khoá ' + rec.name,
+              sub: KW_STAGE[rec.stage].label +
+                   (rec.volume ? ' · ' + dem(rec.volume) + ' lượt tìm/tháng' : '') +
+                   (rec.whoName ? ' · phụ trách ' + rec.whoName : '') +
+                   (g ? (g.trong ? ' · đã trong top' : ' · còn thiếu ' + dem(g.thieu) + ' đơn/tháng') : ''),
+              go: ['kw', rec.id]};
     }
     case 'ideas':
       return {title: rec.name, sub: 'sản phẩm mới · ' + IDEA_STAGE[rec.stage].label,
@@ -1462,6 +1556,17 @@ function reminderTasks(){
              (f.detail ? ' · ' + f.detail : ''),
          ref:{kind:'adfixes', id:f.id},
          doneLabel:'✅ Bỏ qua lần này', doneSet:{done:true}, dueField:'reviewAt'});
+  });
+
+  /* Dự án từ khoá: việc kế tiếp bạn tự hẹn. Đi cùng luồng `ads` vì người đọc
+     báo cáo quảng cáo cũng chính là người đi tra hạng. */
+  kwLive().forEach(k => {
+    if (!k.nextAt) return;
+    add({id:'kw_' + k.id, feed:'ads', due:k.nextAt, icon:KW_STAGE[k.stage].icon,
+         title:'Từ khoá "' + k.name + '": ' + (k.nextNote || 'chưa ghi việc gì'),
+         sub:(k.whoName ? 'phụ trách: ' + k.whoName + ' · ' : '') + KW_STAGE[k.stage].label,
+         ref:{kind:'keywords', id:k.id},
+         doneLabel:'✅ Đã làm', doneSet:{nextAt:'', nextNote:''}, dueField:'nextAt'});
   });
 
   /* Nạp số liệu tuần mới. Không có nút "Xong": cách duy nhất khép việc này là
@@ -1938,15 +2043,126 @@ const adFixOpenAll = () => Object.values(adFixMap())
    nên không bao giờ tới hạn. */
 const adFixDued = f => !!f && !f.mute && !!f.reviewAt && f.reviewAt <= today();
 const adFixDue  = () => adFixOpenAll().filter(adFixDued);
-/* Chiến dịch của một việc, tìm ở cả hai kho — dùng để mở trang chi tiết từ
-   cảnh báo, và để lấy số hiện tại lúc chấm kết quả. */
-function adFixCamp(f){
-  const m = adcamps().filter(c => adcampKey(c) === f.campKey)
+/* Chiến dịch mang một mã định danh, tìm ở CẢ HAI kho — dùng để mở trang chi
+   tiết từ cảnh báo, để lấy số hiện tại lúc chấm kết quả, và để nối một ô
+   trong dự án từ khoá vào đúng con đang chạy. */
+function campOfKey(key){
+  if (!key) return null;
+  const m = adcamps().filter(c => adcampKey(c) === key)
                      .sort((a,b) => a.ym.localeCompare(b.ym));
   if (m.length) return m[m.length - 1];
-  const d = addays().filter(c => adDayKey(c) === f.campKey)
+  const d = addays().filter(c => adDayKey(c) === key)
                     .sort((a,b) => a.date.localeCompare(b.date));
   return d.length ? d[d.length - 1] : null;
+}
+const adFixCamp = f => campOfKey(f && f.campKey);
+
+/* Danh sách chiến dịch cho ô chọn "nối vào chiến dịch nào".
+   Gộp theo mã định danh — một chiến dịch chạy ba tháng chỉ hiện MỘT dòng —
+   rồi xếp theo tổng chi giảm dần: con đang tiêu nhiều là con đang được đánh,
+   và đó gần như luôn là con người ta đi tìm. Tên lấy của tháng mới nhất vì
+   tên trên Shopee có thể đã sửa. */
+function campKeyOptions(){
+  const nhieuShop = adcampShopIds().length > 1;
+  const m = {};
+  adcamps().forEach(c => {
+    const key = adcampKey(c), cu = m[key];
+    if (!cu) m[key] = {key, name:c.name, shopId:c.shopId, ym:c.ym, cost:c.cost || 0};
+    else {
+      cu.cost += c.cost || 0;
+      if (c.ym > cu.ym){ cu.ym = c.ym; cu.name = c.name; }
+    }
+  });
+  return Object.values(m).sort((a,b) => b.cost - a.cost)
+    .map(x => [x.key, (nhieuShop ? shopName(x.shopId) + ' · ' : '') + x.name]);
+}
+
+/* ---- dự án đánh từ khoá ---- */
+const keywords  = () => alive(db.keywords);
+const keywordOf = id => keywords().find(x => x.id === id) || null;
+const kwLive    = () => keywords().filter(k => KW_LIVE.includes(k.stage));
+const kwDue     = () => kwLive().filter(k => k.nextAt && dayDiff(k.nextAt) <= 0)
+                                .sort((a,b) => a.nextAt.localeCompare(b.nextAt));
+const kwSlotOf  = (k, sid) => (k.mine || []).find(m => m.sid === sid) || null;
+
+const kwranks   = () => alive(db.kwranks);
+/* Hạng đã ghi của một ô, mới nhất đứng đầu. */
+const kwRanksOf = (kwId, sid) => kwranks()
+  .filter(r => r.kwId === kwId && (!sid || r.sid === sid))
+  .sort((a,b) => (b.date || '').localeCompare(a.date || ''));
+const kwRankNow = (kwId, sid) => kwRanksOf(kwId, sid)[0] || null;
+
+/* Số quảng cáo của một ô, lấy THÁNG GẦN NHẤT đã nạp.
+   Trả về m = null khi ô đã nối chiến dịch nhưng chiến dịch đó mới chỉ có số
+   ngày chứ chưa có tháng nào — lúc ấy không có gì để đặt cạnh đối thủ, vì
+   bảng top của Metric tính theo tháng. */
+function kwSlotStat(m){
+  if (!m || !m.campKey) return null;
+  const c = campOfKey(m.campKey);
+  if (!c) return null;
+  const chuoi = adcampSeries(c);
+  if (!chuoi.length) return {camp:c, ym:'', m:null, truoc:null, dangChay:false};
+  const nay = chuoi[chuoi.length - 1];
+  return {camp:c, ym:nay.ym, m:adMetrics(nay),
+          truoc: chuoi.length > 1 ? adMetrics(chuoi[chuoi.length - 2]) : null,
+          dangChay: nay.ym === today().slice(0,7)};
+}
+
+/* Ngưỡng chen vào top: con BÁN ÍT NHẤT trong bảng top đang bán bao nhiêu đơn
+   một tháng. Vượt được nó là đẩy được nó ra.
+   Lấy min chứ không lấy trung bình — trung bình của ba con là một mốc không
+   con nào đứng ở đó cả, đuổi theo nó là đuổi theo một chỗ không có thật. */
+function kwBar(k){
+  const o = (k.tops || []).map(t => +t.orders || 0).filter(x => x > 0);
+  return o.length ? Math.min(...o) : 0;
+}
+/* Số đơn một tháng của một ô. Ưu tiên số GÕ TAY.
+   Vì sao không lấy thẳng số của quảng cáo: bảng top của Metric đếm TỔNG đơn
+   của đối thủ, còn quảng cáo chỉ đếm phần đơn do quảng cáo mang về. Đặt hai
+   con số đó cạnh nhau là tự dìm mình — con mình bán 800 đơn/tháng mà quảng
+   cáo chỉ nhận 300 sẽ hiện ra như đang thua xa trong khi thật ra không.
+   Không gõ thì đành lấy số quảng cáo, và mọi chỗ vẽ đều phải nói rõ. */
+function kwSlotOrders(m){
+  const tay = parseCount(m && m.orders);
+  if (tay) return {orders: tay, tay: true};
+  const st = kwSlotStat(m);
+  return st && st.m ? {orders: st.m.orders || 0, tay: false} : null;
+}
+/* Con mạnh nhất trong ba ô của mình, tính theo số đơn một tháng. */
+function kwBest(k){
+  let best = null;
+  (k.mine || []).forEach(m => {
+    const o = kwSlotOrders(m);
+    if (!o) return;
+    if (!best || o.orders > best.o.orders) best = {slot:m, o, st:kwSlotStat(m)};
+  });
+  return best;
+}
+/* Còn thiếu bao nhiêu đơn, và tốn khoảng bao nhiêu tiền quảng cáo nếu bù
+   HOÀN TOÀN bằng quảng cáo với giá mỗi đơn đang có.
+   Con số tiền là mức TRẦN chứ không phải dự toán: KOC, giá, khuyến mãi,
+   đánh giá cũng đẩy đơn lên mà không tốn thêm đồng quảng cáo nào. Nói rõ
+   chỗ này vì một con số tiền để trần trụi sẽ bị đọc thành "phải chi ngần
+   này", rồi từ khoá nào cũng thành quá đắt để đánh. */
+function kwGap(k){
+  const bar = kwBar(k), best = kwBest(k);
+  if (!bar || !best) return null;
+  const ours = best.o.orders;
+  const thieu = Math.max(0, bar - ours);
+  const cpo = best.st && best.st.m ? (best.st.m.cpo || 0) : 0;
+  return {bar, ours, tay: best.o.tay, thieu, cpo, tien: cpo ? thieu * cpo : 0,
+          trong: ours >= bar, best};
+}
+/* Khe hở — từ khoá to mà ngưỡng vào top thấp thì đáng đánh trước.
+   Cố ý KHÔNG xếp theo lượt tìm: từ khoá 100K mà top ba đang bán mấy nghìn
+   đơn một tháng thì to thật, nhưng chen vào không nổi. Vào được rồi thì
+   trả null — nó không còn là cơ hội để so với những con chưa đánh. */
+function kwScore(k){
+  const bar = kwBar(k);
+  if (!k.volume || !bar) return null;
+  const g = kwGap(k);
+  if (g && g.trong) return null;
+  return Math.round(k.volume / Math.max(1, g ? g.thieu : bar));
 }
 
 /* Bốn dấu hiệu cần soi. Trả về mảng mã, có thể nhiều cái cùng lúc. */
@@ -3295,6 +3511,18 @@ function alerts(){
         sort: 175 + tre});
     });
 
+    /* Dự án từ khoá tới hạn việc kế tiếp. Một dự án không có ngày hẹn thì
+       không bao giờ vào đây — đó là chủ ý: chỗ này chỉ nhắc việc đã hẹn với
+       một người, không nhắc "còn mấy từ khoá chưa làm gì". */
+    kwDue().forEach(k => {
+      const tre = -dayDiff(k.nextAt);
+      out.push({level: tre > 7 ? 'warn' : 'info', kind:'kw', page:'keywords', kwId:k.id,
+        title: (k.whoName ? k.whoName + ' — ' : '') + 'từ khoá "' + k.name + '": ' +
+               (k.nextNote || 'tới việc kế tiếp'),
+        sub: KW_STAGE[k.stage].label + (tre > 0 ? ' · trễ ' + tre + ' ngày' : ' · tới hạn hôm nay'),
+        sort: 160 + tre});
+    });
+
     adcampShopIds().forEach(id => {
       const ym = adcampMonths(id)[0];
       if (!ym) return;
@@ -3417,8 +3645,18 @@ function searchAll(q, limit){
       out.push({kind:'idea', id:i.id, title:i.name,
                 sub:'Sản phẩm mới · ' + IDEA_STAGE[i.stage].label});
   });
+  /* Tìm cả theo tên đối thủ và tên con của mình: nhớ được "con X-Men" mà quên
+     mất nó nằm ở từ khoá nào là chuyện thường. */
+  keywords().forEach(k => {
+    if (hit(k.name, k.source, k.note,
+            (k.tops || []).map(t => t.name + ' ' + t.shop).join(' '),
+            (k.mine || []).map(m => m.name + ' ' + m.sku).join(' ')))
+      out.push({kind:'kwgo', id:k.id, title:'Từ khoá ' + k.name,
+                sub:KW_STAGE[k.stage].label +
+                    (k.volume ? ' · ' + dem(k.volume) + ' lượt tìm/tháng' : '')});
+  });
 
   return limit ? out.slice(0, limit) : out;
 }
 const KIND_LABEL = {kol:'KOL/KOC', booking:'Booking', clip:'Clip', product:'Sản phẩm',
-                    idea:'Sản phẩm mới'};
+                    idea:'Sản phẩm mới', kwgo:'Từ khoá'};

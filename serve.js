@@ -83,7 +83,7 @@ const KH_KIND_PERM = {
   kols:['kols','pipeline'], statuses:['kols','pipeline'], templates:['kols','pipeline'],
   bookings:['pipeline','kols','clips'], clips:['clips','pipeline','kols'],
   adperiods:['ads'], actions:['ads'], adcamps:['ads'], addays:['ads'], shops:['ads'],
-  orderstats:['ads'], adfixes:['ads'],
+  orderstats:['ads'], adfixes:['ads'], keywords:['ads'], kwranks:['ads'],
   spweeks:['improve','ads'],
   impacts:['improve'], ideas:['newprod']
 };

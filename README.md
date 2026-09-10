@@ -1211,6 +1211,93 @@ xếp mỗi dòng một mục. Duyệt tay trăm rưỡi dòng số máy móc th
 những thứ đáng duyệt thật — một deal, một clip — sẽ chìm mất trong đó. Số quảng
 cáo được soi bằng cờ cảnh báo trong chính báo cáo, đó mới là chỗ đọc được.
 
+## Đánh top từ khoá
+
+Một từ khoá ở đây là **một dự án**, không phải một dòng ghi chú. Quy trình cố
+định để nhân viên cứ theo mà làm:
+
+```
+1. Nhận từ khoá   → tên · lượt tìm/tháng · tra ở đâu · tra ngày nào
+2. Chụp bảng top  → ba con đang đứng đầu, chép tay từ Metric (có link)
+3. Chọn quân      → ba con của mình, nối vào chiến dịch quảng cáo đã có số
+4. App chốt       → còn thiếu bao nhiêu đơn/tháng · tốn khoảng bao nhiêu
+5. Đánh một con   → bấm "Tới lượt", cả nhà biết đang dồn vào con nào
+6. Tra hạng       → mỗi tuần một con số, app vẽ ra đang lên hay đứng
+```
+
+### Vì sao mốc là số đơn, không phải tiền quảng cáo
+
+Cả 348 chiến dịch trong dữ liệu đều là `Tối đa Doanh thu Tùy chỉnh ROAS` —
+GMV Max. Loại này **không cho chọn từ khoá**: hệ thống tự quyết hiện ở đâu.
+Nên không có nút nào để "đổ tiền vào từ khoá sáp vuốt tóc".
+
+Thứ quyết định mình đứng đâu trong một từ khoá là **từ khoá có trong tiêu đề**,
+**giá**, **số đơn bán được**, **số đánh giá** và **tỉ lệ chốt**. Trong đó số đơn
+là cái nặng nhất và cũng là cái đo được. Vì vậy cả trang xoay quanh một câu hỏi
+duy nhất: *con của mình còn thiếu bao nhiêu đơn một tháng thì chen vào được.*
+
+### Ngưỡng vào top là con BÁN ÍT NHẤT trong ba con, không phải trung bình
+
+Muốn vào top ba thì phải đẩy được con hạng ba ra, nên mốc chính là số đơn của
+con đó. Lấy trung bình của cả ba là đuổi theo một chỗ **không con nào đang đứng
+ở đó cả** — cao hơn mức cần thiết, và mọi từ khoá đều hiện ra như quá sức.
+
+### Xếp theo khe hở, không xếp theo lượt tìm
+
+Ngưỡng "trên 10.000 lượt tìm" chọn ra từ khoá **to**, không phải từ khoá
+**thắng được**. Từ khoá 100K thì top ba thường đã bán mấy nghìn đơn và có hàng
+nghìn đánh giá — chen vào gần như không nổi.
+
+App xếp danh sách theo `lượt tìm ÷ số đơn còn thiếu`. Một từ khoá 15K mà chỉ cần
+thêm 150 đơn sẽ đứng trên một từ khoá 100K cần thêm 2.000 đơn. Dưới ngưỡng
+10.000 app **vẫn cho lưu**, chỉ gắn một cái nhãn.
+
+### Số đơn của mình nên gõ tay
+
+Bảng của Metric đếm **tổng** đơn của đối thủ. Quảng cáo chỉ đếm phần đơn **do
+quảng cáo mang về**. Đặt hai con số đó cạnh nhau là tự dìm mình: một con bán 800
+đơn/tháng mà quảng cáo chỉ nhận 300 sẽ hiện ra như đang thua xa trong khi thật
+ra không.
+
+Nên ô *Đơn mỗi tháng* trong "con của mình" là để gõ tay, lấy từ trang bán hàng.
+Không gõ thì app đành lấy số quảng cáo — và mọi chỗ hiện số đều ghi rõ *"từ
+quảng cáo"* thay vì *"gõ tay"*, kèm một câu nhắc trong khối diễn giải.
+
+### Con số tiền là mức trần, không phải dự toán
+
+Khi đã nối chiến dịch, app biết tiền mỗi đơn (`cpo`) nên tính được: thiếu 1.914
+đơn × 19.167đ ≈ **36,7 triệu/tháng**. Đó là chi phí nếu bù **hoàn toàn** bằng
+quảng cáo. KOC, giá, khuyến mãi và đánh giá cũng đẩy đơn lên mà không tốn thêm
+đồng quảng cáo nào — câu này in thẳng trên màn hình, vì một con số tiền để trần
+trụi sẽ bị đọc thành "phải chi ngần này", rồi từ khoá nào cũng thành quá đắt.
+
+### Cùng lúc chỉ đánh một con
+
+Nút *Tới lượt* đánh dấu con đang được dồn sức. Bấm lại là bỏ lượt. Không có
+"đang đánh cả ba": rải tiền ra ba con thì không con nào đủ sức bật lên, mà tới
+lúc đo cũng không tách được là nhờ con nào. Chọn lượt xong, chặng của dự án tự
+nhảy sang *Đang đánh*.
+
+### Hạng phải tra tay — và đó là chuyện tốt
+
+Shopee không mở cổng dữ liệu và chặn đọc tự động, Metric cũng vậy. Nên lượt tìm,
+bảng top và hạng đều gõ tay. Việc còn lại là làm cho phần gõ tay ngắn nhất có
+thể: lượt tìm gõ một lần, bảng top gõ khi nó đổi, **hạng mỗi tuần một con số**.
+
+Hạng `0` nghĩa là tìm hết mấy trang đầu mà không thấy. App giữ nguyên số 0 chứ
+không đổi thành ô trống: *"không thấy"* là một kết quả, và nó khác hẳn *"chưa đi
+tìm"*. Tra lại trong cùng một ngày thì **đè lên** dòng cũ, không thêm dòng mới —
+hai dòng cùng ngày sẽ hiện ra như hai lần đo khác nhau.
+
+### Ô số co lại được — `min-width:0`
+
+`.tile` là ô lưới, mà ô lưới mặc định `min-width:auto`. Dòng phụ `.t-s` đặt
+`white-space:nowrap`, nên nó căng cột rộng đúng bằng độ dài câu chữ; cột không
+co lại được thì hai ô `1fr` cộng lại vượt khung và **cả trang trượt ngang trên
+điện thoại** — trong khi dấu ba chấm của `.t-s` không bao giờ hiện ra, vì chẳng
+có gì bắt nó phải cắt. Thêm `min-width:0` vào `.tile` là hết, và nó chữa luôn
+lỗi này ở mọi trang khác đang dùng `.tiles`.
+
 ## Bài đăng nội bộ
 
 Phần nhân viên tự đăng, tách hẳn khỏi clip đi booking KOC. Hai luồng, hai

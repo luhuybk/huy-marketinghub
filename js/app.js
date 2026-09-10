@@ -18,6 +18,7 @@ const NAV = [
   {id:'posttt',   icon:'🎬',label:'Bài TikTok',   perm:'posttt'},
   {id:'ads',      icon:'◎', label:'Shopee Ads',   perm:'ads'},
   {id:'adreport', icon:'📊',label:'Báo cáo Ads',  perm:'ads'},
+  {id:'keywords', icon:'🔎',label:'Đánh từ khoá',  perm:'ads'},
   {id:'improve',  icon:'🔻',label:'Cải thiện SP', perm:'improve'},
   {id:'newprod',  icon:'💡',label:'Sản phẩm mới', perm:'newprod'},
   {id:'compare',  icon:'⇄', label:'So sánh kênh', perm:'compare'},
@@ -31,11 +32,11 @@ const TITLES = {today:'Hôm nay', dash:'Tổng quan', pipeline:'Booking', kols:'
                 newprod:'Xây dựng sản phẩm mới', compare:'So sánh kênh', resources:'Tài nguyên',
                 review:'Cần bạn duyệt', settings:'Cài đặt', kol:'Hồ sơ KOC', product:'Sản phẩm',
                 sp:'Sức khoẻ trên Shopee', adreport:'Báo cáo quảng cáo',
-                adcamp:'Chiến dịch'};
+                adcamp:'Chiến dịch', keywords:'Đánh top từ khoá', kw:'Dự án từ khoá'};
 /* Trang chỉ chủ mở được. Nhân viên gõ thẳng đường dẫn cũng bị đưa về Hôm nay. */
 const OWNER_PAGES = ['settings', 'review'];
 /* Trang con mở từ một trang chính — quyền đi theo trang cha. */
-const PAGE_PERM = {kol:'kols', product:'ads', sp:'improve', adcamp:'ads'};
+const PAGE_PERM = {kol:'kols', product:'ads', sp:'improve', adcamp:'ads', kw:'ads'};
 const NAV_PERM  = Object.fromEntries(NAV.filter(n => n.perm).map(n => [n.id, n.perm]));
 const mayPage = id => {
   if (OWNER_PAGES.includes(id)) return isOwner();
@@ -109,6 +110,8 @@ function render(){
       case 'review':   html = viewReview(); break;
       case 'adreport': html = viewAdReport(); break;
       case 'adcamp':   html = viewAdcamp(route.id); break;
+      case 'keywords': html = viewKeywords(); break;
+      case 'kw':       html = viewKw(route.id); break;
       case 'settings': ensureSettingsCfg(); html = viewSettings(); break;
     }
   } catch(e){
@@ -178,7 +181,8 @@ function renderSide(){
   };
   const hot = {dash:1, ads:1, today:1, improve:1, postfb:1, posttt:1};
   const active = route.page === 'kol' ? 'kols' : route.page === 'product' ? 'ads'
-               : route.page === 'sp' ? 'improve' : route.page;
+               : route.page === 'sp' ? 'improve' : route.page === 'kw' ? 'keywords'
+               : route.page;
   const st = Sync.status();
   const dot = st.state === 'syncing' ? 'sync' : st.state === 'error' ? 'bad' : st.state === 'idle' ? 'ok' : '';
 
@@ -212,6 +216,11 @@ function renderBar(){
     const k = kolOf(route.id);
     t.textContent = k ? k.name : 'Hồ sơ KOC';
     s.textContent = k ? tierOf(k).label + ' · ' + num(followers(k)) + ' người theo dõi' : '';
+  } else if (route.page === 'kw'){
+    const k = keywordOf(route.id);
+    t.textContent = k ? k.name : 'Dự án từ khoá';
+    s.textContent = k ? KW_STAGE[k.stage].label +
+      (k.volume ? ' · ' + dem(k.volume) + ' lượt tìm/tháng' : '') : '';
   } else if (route.page === 'product' || route.page === 'sp'){
     const p = productOf(route.id);
     t.textContent = p ? p.name : 'Sản phẩm';
@@ -2964,6 +2973,227 @@ function importJSON(){
 /* ============================================================
    SỰ KIỆN
    ============================================================ */
+/* ============================================================
+   DỰ ÁN ĐÁNH TỪ KHOÁ — các biểu mẫu
+
+   Bốn biểu mẫu nhỏ thay vì một biểu mẫu to: dự án, một ô đối thủ, một ô của
+   mình, một lần ghi hạng. Gộp cả vào một chỗ thì mỗi lần sửa giá của một đối
+   thủ lại phải lướt qua hai chục ô không liên quan — mà đây là thứ nhân viên
+   mở ra mỗi tuần.
+   ============================================================ */
+async function kwForm(k){
+  const isNew = !k;
+
+  await loadNames();
+  const toi = Server.name() || '';
+  const nguoi = nameCfg || [];
+  const macDinh = k ? k.who : ((nguoi.find(u => u.name === toi) || {}).id || '');
+
+  k = k || {stage:'scan', volume:0, volAt: today(), source:'Metric', who: macDinh};
+
+  formModal({
+    title: isNew ? 'Từ khoá mới' : (k.name || 'Sửa dự án'),
+    values: k, wide: true,
+    saveLabel: isNew ? 'Tạo dự án' : 'Lưu',
+    extra: `<div class="explain">Ngưỡng bạn tự đặt là <b>${dem(KW_MIN_VOL)} lượt tìm mỗi tháng</b>.
+      Dưới ngưỡng app vẫn lưu, chỉ gắn một cái nhãn — từ khoá nhỏ mà top ba chỉ bán vài trăm đơn
+      nhiều khi đáng đánh hơn từ khoá 100K mà top ba đã bán mấy nghìn.</div>`,
+    fields: [
+      {k:'name', l:'Từ khoá', t:'text', req:true, ph:'sáp vuốt tóc'},
+      {k:'stage', l:'Đang ở chặng', t:'select', half:true,
+       opts: KW_STAGES.map(s => [s.id, s.icon + ' ' + s.label])},
+      {k:'volume', l:'Lượt tìm mỗi tháng', t:'count', half:true, ph:'100000'},
+      {k:'source', l:'Tra ở đâu', t:'text', half:true, ph:'Metric · Shopee · Google Keyword Planner'},
+      {k:'volAt', l:'Tra ngày nào', t:'date', half:true,
+       hint:'Lượt tìm đổi theo mùa — có ngày mới biết số này còn dùng được không'},
+      nguoi.length
+        ? {k:'who', l:'Ai phụ trách', t:'select',
+           opts: [['', '— chưa giao cho ai —']].concat(nguoi.map(u => [u.id, u.name])),
+           hint:'Tới hạn việc kế tiếp, tên người này hiện trong cảnh báo và trong tin Telegram'}
+        : {k:'whoName', l:'Ai phụ trách', t:'text', ph:'gõ tên người phụ trách',
+           hint:'Không đọc được danh sách tài khoản nên đành gõ tay'},
+      {t:'sec', l:'Việc kế tiếp — không đặt thì dự án này sẽ nằm im'},
+      {k:'nextNote', l:'Việc kế tiếp là gì', t:'text', half:true,
+       ph:'tra lại hạng · đặt 3 KOC cho con Roug · chụp lại bảng top'},
+      {k:'nextAt', l:'Hẹn ngày', t:'date', half:true,
+       hint:'Có ngày này thì app và Telegram mới nhắc được'},
+      {k:'note', l:'Ghi chú', t:'textarea', rows:3,
+       ph:'top ba đều là hàng nội địa giá rẻ · mùa cao điểm tháng 11…'},
+      {k:'dropReason', l:'Nếu bỏ qua thì vì sao', t:'text',
+       ph:'top ba quá mạnh · không có con nào hợp · lời không đủ để đánh'}
+    ],
+    onSave(v){
+      if (!v.name || !v.name.trim()){ toast('Nhập từ khoá đã'); return false; }
+      const rec = isNew ? stamp({}) : db.keywords.find(x => x.id === k.id);
+      if (!rec) return;
+      Object.assign(rec, v);
+      /* Chụp lại TÊN người phụ trách chứ không chỉ giữ id: danh sách tài khoản
+         phải gọi máy chủ mới có, mà cảnh báo thì phải đọc được cả lúc mất mạng. */
+      if (v.who){
+        const u = (nameCfg || []).find(x => x.id === v.who);
+        rec.whoName = u ? u.name : (rec.whoName || '');
+      } else if (!v.whoName) rec.whoName = '';
+      stamp(rec);
+      if (isNew) db.keywords.push(rec);
+      ensure(); save();
+      toast(isNew ? 'Đã tạo dự án' : 'Đã lưu');
+      if (isNew) setTimeout(() => go('kw', rec.id), 80);
+    },
+    onDelete: isNew ? null : () => {
+      if (!confirm(`Xoá dự án từ khoá "${k.name}"? Hạng đã ghi cũng mất theo.`)) return false;
+      const rec = db.keywords.find(x => x.id === k.id);
+      rec.deleted = true; stamp(rec);
+      kwRanksOf(k.id).forEach(r => {
+        const x = db.kwranks.find(y => y.id === r.id);
+        if (x){ x.deleted = true; stamp(x); }
+      });
+      save(); toast('Đã xoá'); go('keywords');
+    }
+  });
+}
+
+/* Một ô trong bảng top. Ngày chụp nằm ở đây chứ không ở biểu mẫu dự án: lúc
+   sửa số của đối thủ mới là lúc biết bảng này chụp ngày nào. */
+function kwTopForm(kwId, i){
+  const k = keywordOf(kwId);
+  if (!k || !(i >= 0 && i < KW_SLOTS)) return;
+  const t = Object.assign({}, k.tops[i], {topAt: k.topAt || today()});
+
+  formModal({
+    title: 'Đối thủ hạng ' + (i + 1) + ' — ' + k.name,
+    values: t, wide: true,
+    extra: `<div class="explain">Chép từ Metric. Ô quan trọng nhất là <b>đơn mỗi tháng</b> — con
+      bán ít nhất trong ba con này chính là ngưỡng mình phải vượt để chen vào.</div>`,
+    fields: [
+      {k:'name', l:'Tên sản phẩm', t:'text', ph:'Sáp vuốt tóc nam X-Men Clay 70g'},
+      {k:'url',  l:'Link sản phẩm', t:'text', ph:'https://shopee.vn/…'},
+      {k:'shop', l:'Shop nào bán', t:'text', half:true, ph:'X-Men Official Store'},
+      {k:'price', l:'Giá đang bán', t:'money', half:true},
+      {k:'orders', l:'Đơn mỗi tháng', t:'count', half:true,
+       hint:'Cột "Đã bán" trong Metric, quy về một tháng'},
+      {k:'revenue', l:'Doanh số mỗi tháng', t:'money', half:true,
+       hint:'Để trống thì app tự lấy giá nhân số đơn'},
+      {k:'reviews', l:'Số đánh giá', t:'count', half:true,
+       hint:'Đánh giá nhiều là rào cản thật — không mua được bằng tiền quảng cáo'},
+      {k:'topAt', l:'Bảng này chụp ngày nào', t:'date', half:true,
+       hint:'Áp cho cả ba ô — top thay đổi liên tục, số cũ ba tháng là số sai'},
+      {k:'note', l:'Ghi chú', t:'text', ph:'đang chạy flash sale · combo 2 hộp…'}
+    ],
+    onSave(v){
+      const rec = db.keywords.find(x => x.id === kwId);
+      if (!rec) return;
+      rec.tops[i] = {name:v.name, url:v.url, shop:v.shop, note:v.note,
+                     price:v.price, revenue:v.revenue, orders:v.orders, reviews:v.reviews};
+      rec.topAt = v.topAt || '';
+      stamp(rec); ensure(); save();
+      toast('Đã lưu đối thủ hạng ' + (i + 1));
+    }
+  });
+}
+
+/* Một ô của mình. Đây là chỗ nối vào chiến dịch quảng cáo — nối rồi thì chi
+   phí, ROAS và tiền mỗi đơn tự chảy vào, không phải gõ lại tháng nào. */
+function kwMineForm(kwId, sid){
+  const k = keywordOf(kwId);
+  if (!k) return;
+  const m = kwSlotOf(k, sid);
+  if (!m) return;
+  const ds = campKeyOptions();
+  const con = ds.some(x => x[0] === m.campKey);
+
+  formModal({
+    title: 'Con của mình — ' + k.name,
+    values: m, wide: true,
+    extra: `<div class="explain">Số đơn mỗi tháng nên <b>gõ tay</b>, lấy từ trang bán hàng.
+      Quảng cáo chỉ đếm phần đơn do quảng cáo mang về, còn bảng của Metric đếm TỔNG đơn của
+      đối thủ — để app lấy số quảng cáo mà so với họ là tự dìm mình.</div>`,
+    fields: [
+      {k:'name', l:'Tên sản phẩm của mình', t:'text', ph:'Sáp vuốt tóc Roug Đen 90gr'},
+      {k:'url',  l:'Link sản phẩm', t:'text', ph:'https://shopee.vn/…'},
+      {k:'orders', l:'Đơn mỗi tháng (số thật)', t:'count', half:true,
+       hint:'Cả đơn tự nhiên lẫn đơn từ quảng cáo — đây là số đem so với đối thủ'},
+      {k:'sku', l:'Mã sản phẩm trên Shopee', t:'text', half:true},
+      {k:'campKey', l:'Nối vào chiến dịch quảng cáo', t:'select',
+       opts: [['', '— chưa nối —']]
+              .concat(!con && m.campKey ? [[m.campKey, '(chiến dịch cũ không còn trong dữ liệu)']] : [])
+              .concat(ds),
+       hint: ds.length ? 'Xếp theo tiền đã chi, con tiêu nhiều đứng trước · nối rồi thì chi phí, ROAS và tiền mỗi đơn tự chảy vào'
+                       : 'Chưa nạp file quảng cáo nào nên chưa có chiến dịch để chọn'},
+      {k:'note', l:'Ghi chú', t:'text', ph:'vừa đổi ảnh bìa · đang chờ 5 clip KOC…'}
+    ],
+    onSave(v){
+      const rec = db.keywords.find(x => x.id === kwId);
+      if (!rec) return;
+      const o = rec.mine.find(x => x.sid === sid);
+      if (!o) return;
+      Object.assign(o, {name:v.name, url:v.url, sku:v.sku, campKey:v.campKey,
+                        orders:v.orders, note:v.note});
+      stamp(rec); ensure(); save();
+      toast('Đã lưu');
+    }
+  });
+}
+
+/* Ghi hạng. Một con số, hai phút: gõ từ khoá trên Shopee, tìm sản phẩm mình,
+   đếm xem nó nằm thứ mấy. Đây là bảng điểm duy nhất không đoán được. */
+function kwRankForm(kwId, sid){
+  const k = keywordOf(kwId);
+  if (!k) return;
+  const m = kwSlotOf(k, sid);
+  if (!m) return;
+  if (!m.name && !m.campKey){ toast('Điền tên con này đã rồi mới ghi hạng'); kwMineForm(kwId, sid); return; }
+  const truoc = kwRankNow(kwId, sid);
+
+  formModal({
+    title: 'Ghi hạng — ' + (m.name || 'ô ' + sid.slice(1)),
+    values: {date: today(), rank:0, note:''},
+    extra: `<div class="explain">Gõ <b>${esc(k.name)}</b> trên Shopee rồi đếm xem con này nằm thứ mấy.
+      ${truoc ? `Lần trước ngày ${esc(fmtDate(truoc.date))}: <b>${
+        truoc.rank ? 'hạng ' + truoc.rank : 'không thấy'}</b>.`
+        : 'Chưa có lần nào để so — đây sẽ là mốc đầu tiên.'}
+      Tìm hết mấy trang đầu mà không thấy thì để <b>0</b>: "không thấy" là một kết quả, nó khác
+      hẳn "chưa đi tìm".</div>`,
+    fields: [
+      {k:'date', l:'Tra ngày', t:'date', half:true},
+      {k:'rank', l:'Đứng hạng mấy', t:'number', half:true, ph:'0 = không thấy'},
+      {k:'note', l:'Thấy gì đáng chú ý', t:'text',
+       ph:'có 2 shop mới chen lên · đối thủ đang flash sale…'}
+    ],
+    onSave(v){
+      if (!v.date){ toast('Chọn ngày tra'); return false; }
+      /* Tra lại trong cùng một ngày thì ĐÈ lên, không thêm dòng mới: bảng hạng
+         xếp theo ngày, hai dòng cùng ngày sẽ hiện ra như hai lần đo khác nhau. */
+      const cu = kwranks().find(x => x.kwId === kwId && x.sid === sid && x.date === v.date);
+      const rec = cu ? db.kwranks.find(x => x.id === cu.id) : stamp({kwId, sid});
+      rec.date = v.date; rec.rank = Math.max(0, Math.round(+v.rank || 0)); rec.note = v.note || '';
+      stamp(rec);
+      if (!cu) db.kwranks.push(rec);
+      ensure(); save();
+      toast(rec.rank ? 'Đã ghi hạng ' + rec.rank : 'Đã ghi: không thấy');
+    },
+    onDelete: null
+  });
+}
+
+/* Đổi lượt. Bấm đúng con đang được đánh thì bỏ lượt — không có "đang đánh cả
+   ba", vì rải tiền ra ba con thì không con nào bật lên nổi, mà tới lúc đo
+   cũng không tách được nhờ con nào. */
+function kwSetTurn(kwId, sid){
+  const rec = db.keywords.find(x => x.id === kwId && !x.deleted);
+  if (!rec) return;
+  const m = rec.mine.find(x => x.sid === sid);
+  if (!m) return;
+  if (!m.name && !m.campKey){ toast('Điền tên con này đã'); kwMineForm(kwId, sid); return; }
+  rec.turn = rec.turn === sid ? '' : sid;
+  /* Bắt đầu đánh thật thì chặng cũng phải nhảy sang "đang đánh", nếu không
+     thẻ ngoài danh sách vẫn nằm ở "đang dò" trong khi tiền đã chạy.
+     Một dòng chứ không phải hai bậc scan→ready→run: hai câu if liền nhau thì
+     câu sau ăn ngay kết quả của câu trước, nhảy luôn hai bậc trong một cú bấm. */
+  if (rec.turn && (rec.stage === 'scan' || rec.stage === 'ready')) rec.stage = 'run';
+  stamp(rec); save(); render();
+  toast(rec.turn ? 'Đang đánh ' + (m.name || 'ô ' + sid.slice(1)) : 'Đã bỏ lượt');
+}
+
 const ACTIONS = {
   nav:  id => go(id),
   kol:  id => go('kol', id),
@@ -2973,6 +3203,16 @@ const ACTIONS = {
   stage:   id => { go('pipeline'); },
   movestage: id => stagePicker(id),
   setstage:  id => { const [bid, st] = id.split('|'); closeModal(); setStage(bid, st); },
+
+  /* dự án đánh từ khoá */
+  kwgo:    id => go('kw', id),
+  newkw:   () => kwForm(null),
+  editkw:  id => kwForm(keywordOf(id)),
+  kwdead:  () => { ui.kwShowDead = !ui.kwShowDead; render(); },
+  kwtop:   id => { const [a, b] = id.split('|'); kwTopForm(a, +b); },
+  kwmine:  id => { const [a, b] = id.split('|'); kwMineForm(a, b); },
+  kwrank:  id => { const [a, b] = id.split('|'); kwRankForm(a, b); },
+  kwturn:  id => { const [a, b] = id.split('|'); kwSetTurn(a, b); },
 
   newkol:     id => kolForm(null),
   editkol:    id => kolForm(kolOf(id)),
@@ -3178,6 +3418,7 @@ const ACTIONS = {
     else if (p === 'sp') spImportModal(route.id);
     else if (p === 'improve') spImportModal('');
     else if (p === 'newprod') ideaForm(null);
+    else if (p === 'keywords' || p === 'kw') kwForm(null);
     else if (p === 'resources') {
       ({brands: brandForm, products: productForm, statuses: statusForm,
         templates: templateForm}[ui.resTab] || brandForm)(null);
