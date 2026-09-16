@@ -1,0 +1,63 @@
+# KOL Hub — cấu hình cho Apache/LiteSpeed (Hostinger)
+
+# --- mã nguồn phụ trợ: không bao giờ được trả về ---
+# Mấy tệp này lẽ ra không nằm trong dist/. Nhưng nếu ai đó upload nhầm cả
+# thư mục nguồn thì chúng sẽ phơi ra internet — chặn sẵn ở đây.
+<FilesMatch "^(build.js|serve.js|README.md|package(-lock)?.json|.gitignore)$">
+  Require all denied
+  Order allow,deny
+  Deny from all
+</FilesMatch>
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteRule ^(tools|.claude|.git)/ - [F,L]
+</IfModule>
+
+# --- luôn dùng https ---
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{HTTPS} !=on
+  RewriteCond %{HTTP:X-Forwarded-Proto} !https
+  RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+</IfModule>
+
+# --- kiểu tệp (một số máy chủ chưa biết .webmanifest) ---
+<IfModule mod_mime.c>
+  AddType application/manifest+json .webmanifest
+  AddType text/javascript           .js
+  AddType image/svg+xml             .svg
+  AddCharset UTF-8 .html .css .js .json .webmanifest
+</IfModule>
+
+# --- nén ---
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/css text/javascript application/javascript application/manifest+json image/svg+xml
+</IfModule>
+
+# --- bộ nhớ đệm ---
+<IfModule mod_headers.c>
+  # css/js luôn kèm ?v=… nên giữ lâu được; đổi mã nguồn là đổi địa chỉ
+  <FilesMatch "\.(css|js)$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+  <FilesMatch "\.(png|svg)$">
+    Header set Cache-Control "public, max-age=2592000"
+  </FilesMatch>
+  # hai tệp này phải luôn hỏi lại máy chủ, nếu không sẽ kẹt ở bản cũ
+  <FilesMatch "^(index\.html|manifest\.webmanifest)$">
+    Header set Cache-Control "no-cache, must-revalidate"
+  </FilesMatch>
+  # app riêng tư — đừng để bị lập chỉ mục
+  Header set X-Robots-Tag "noindex, nofollow"
+  Header set X-Content-Type-Options "nosniff"
+  Header set Referrer-Policy "no-referrer"
+</IfModule>
+
+# --- không cho liệt kê thư mục ---
+Options -Indexes
+DirectoryIndex index.html
+
+# --- chặn các tệp không nên lộ ---
+<FilesMatch "^\.|\.(sql|md|json)$">
+  Require all denied
+</FilesMatch>
