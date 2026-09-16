@@ -21,7 +21,11 @@ const ui = {
   todayAhead:0,
   ideaQ:'', ideaShowDead:false,
   kwQ:'', kwShowDead:false,
-  costShop:'', costFee:false
+  /* costBrand = null nghĩa là "đang xem thẻ thương hiệu"; một CHUỖI nghĩa là
+     đang mở thương hiệu đó — kể cả chuỗi rỗng, vì '' chính là tên của nhóm
+     chưa gắn thương hiệu. Dùng '' cho cả hai việc thì nhóm chưa gắn tên luôn
+     tự mở và không bao giờ thấy được màn thẻ. */
+  costShop:'', costFee:false, costBrand:null, costCombo:'', costOpen:{}
 };
 
 /* Cấu hình Telegram nằm ở máy chủ, không phải trong db — mã bot không bao
@@ -3039,9 +3043,13 @@ function postFlowCard(m){
    Một câu hỏi duy nhất: con này chạy quảng cáo tới ROAS bao nhiêu thì hết
    lãi? Mọi thứ trên trang chỉ là đường đi tới con số đó.
 
-   Trang danh sách gom theo gian hàng rồi tới thương hiệu; bấm một dòng mở ra
-   bảng bóc phí dựng đúng thứ tự Shopee ghi trên đơn, để đặt cạnh một đơn
-   thật là đối chiếu được ngay.
+   Ba tầng: gian hàng → thương hiệu → sản phẩm. Thương hiệu hiện ra ngoài
+   dưới dạng thẻ, bấm vào mới mở danh sách sản phẩm — bày phẳng cả trăm dòng
+   thì không ai tìm ra con mình cần.
+
+   Combo là dòng con thả xuống từ chính sản phẩm đó, không phải một sản phẩm
+   riêng: giá vốn phần chính nó đọc thẳng từ sản phẩm mẹ, nên sửa giá nhập
+   một lần là mọi combo tính lại theo.
    ============================================================ */
 function costShopTabs(){
   const ds = shops().filter(s => !s.archived);
@@ -3049,6 +3057,16 @@ function costShopTabs(){
   const cur  = ds.some(s => s.id === ui.costShop) ? ui.costShop
              : (ui.costShop === '' && (chua || !ds.length) ? '' : (ds[0] ? ds[0].id : ''));
   return {ds, chua, cur};
+}
+/* Một dòng tóm tắt cả bảng phí, hiện NGAY CẢ KHI chưa mở ra sửa: người ta
+   cần liếc một cái là biết đang tính bằng biểu phí nào, chứ không phải bấm
+   thêm một nút mới thấy. */
+function feeSummary(F){
+  return [ratePct(F.feePct) + ' ngành hàng', 'PiShip ' + dem(F.piship),
+          'hạ tầng ' + dem(F.infra),
+          'voucher extra ' + ratePct(F.xtraPct) + ' (tối đa ' + moneyShort(F.xtraCap) + ')',
+          'giao dịch ' + ratePct(F.payPct), 'thuế ' + ratePct(F.taxPct),
+          'đóng gói ' + dem(F.packCost)].join(' · ');
 }
 
 function viewCost(){
@@ -3071,22 +3089,28 @@ function viewCost(){
       <div style="margin-top:14px" class="btns center">
         <button class="btn pri" data-act="newcostsp">+ Thêm sản phẩm đầu tiên</button></div></div>`;
 
-  /* ---- bảng phí của gian hàng đang mở ---- */
+  /* ---- bảng phí ---- */
   if (cur){
     const sh = shopOf(cur), F = shopFees(sh);
+    const cu = F.at ? -dayDiff(F.at) : null;
     h += `<div class="mod">` + moduleHead('₫', 'Bảng phí của ' + sh.name,
-      'đổi ở đây là mọi sản phẩm trong gian hàng tính lại ngay',
+      'Shopee đổi biểu phí luôn — sửa ở đây là mọi sản phẩm trong gian hàng tính lại ngay',
       `<button class="btn sm ${ui.costFee ? 'pri' : ''}" data-act="costfee">${
-        ui.costFee ? 'Thu lại' : 'Sửa bảng phí'}</button>`);
+        ui.costFee ? 'Xong' : '✎ Sửa bảng phí'}</button>`);
+    h += `<div class="card">
+      <div style="font-size:12.5px;line-height:1.7">${esc(feeSummary(F))}</div>
+      <div class="dim" style="margin-top:7px">${F.at
+        ? `Sửa lần cuối ${esc(fmtDate(F.at))}${cu > 120 ? ' — <b class="warn">đã ' + cu + ' ngày, xem lại biểu phí trên Kênh Người Bán</b>' : ''}`
+        : 'Chưa sửa lần nào — đang dùng mức mặc định, hãy đối chiếu với một đơn thật rồi chỉnh lại'}</div>
+    </div>`;
     if (ui.costFee){
-      h += `<div class="card">` + FEE_FIELDS.map(f => `
+      h += `<div class="card" style="margin-top:9px">` + FEE_FIELDS.map(f => `
         <div class="kv"><span>${esc(f.l)}${f.hint ? `<div class="dim" style="font-size:11px;margin-top:2px">${esc(f.hint)}</div>` : ''}</span>
           <input class="inp num" type="number" min="0" max="${f.max}" step="${f.step}"
                  data-fee="${cur}|${f.k}" value="${F[f.k]}"> ${f.unit}</div>`).join('') +
         `</div>
-        <div class="btns" style="margin-top:8px">
-          ${ds.length > 1 ? `<button class="btn sm" data-act="costfeecopy" data-id="${cur}">Chép bảng phí này sang gian hàng khác</button>` : ''}
-        </div>`;
+        ${ds.length > 1 ? `<div class="btns" style="margin-top:8px">
+          <button class="btn sm" data-act="costfeecopy" data-id="${cur}">Chép bảng phí này sang gian hàng khác</button></div>` : ''}`;
     }
     h += `<div class="explain">Mọi phí phần trăm tính trên <b>giá bán thực</b> = giá niêm yết − voucher
       của shop. Không phải giá niêm yết, và cũng không phải số tiền khách trả: voucher của Shopee là
@@ -3108,45 +3132,77 @@ function viewCost(){
       </div>`).join('') + `</div></div>`;
   }
 
-  /* ---- từng thương hiệu ---- */
-  const nhom = costByBrand(cur);
-  if (!nhom.length){
-    h += `<div class="empty"><b>Gian hàng này chưa có sản phẩm nào</b>
+  /* ---- thương hiệu: thẻ ngoài, bấm vào mới mở danh sách ---- */
+  const the = costBrandCards(cur);
+  if (!the.length)
+    return h + `<div class="empty"><b>Gian hàng này chưa có sản phẩm nào</b>
       Bấm <b>+ Sản phẩm</b> để thêm, hoặc mở một sản phẩm ở tab <b>Chưa xếp</b> rồi chọn gian hàng cho nó.</div>`;
+
+  const dangMo = ui.costBrand === null ? null : the.find(t => t.brand === ui.costBrand);
+  if (!dangMo){
+    h += `<div class="mod">` + moduleHead('🏷', 'Thương hiệu',
+      the.length + ' thương hiệu · bấm một thẻ để mở danh sách sản phẩm');
+    h += `<div class="ideag">` + the.map(brandCard).join('') + `</div></div>`;
     return h;
   }
-  nhom.forEach(g => {
-    const co = g.rows.filter(r => r.calc && !r.calc.lo && r.calc.roas);
-    const tb = co.length ? co.reduce((t,r) => t + r.calc.roas, 0) / co.length : null;
-    h += `<div class="mod">` + moduleHead('🏷', g.brand || 'Chưa gắn thương hiệu',
-      g.rows.length + ' sản phẩm' + (tb ? ' · ROAS min trung bình ' + xText(tb) : ''));
-    h += `<div class="tblwrap"><table class="tbl sm ptbl stick"><thead><tr>
-      <th class="nw">Sản phẩm</th><th class="r">Giá niêm yết</th><th class="r">Voucher</th>
-      <th class="r">Giá bán thực</th><th class="r">Giá vốn</th><th class="r">Thực nhận</th>
-      <th class="r">Lãi/đơn</th><th class="r">ACOS max</th><th class="r">ROAS min</th>
-      <th class="r">ROAS đang chạy</th></tr></thead><tbody>` +
-      g.rows.map(r => costRow(r)).join('') + `</tbody></table></div></div>`;
-  });
+
+  h += `<div class="mod">` + moduleHead('🏷', dangMo.brand || 'Chưa gắn thương hiệu',
+    dangMo.n + ' sản phẩm' + (dangMo.nCombo ? ' · ' + dangMo.nCombo + ' combo' : ''),
+    `<button class="btn sm" data-act="costbrandback">‹ Mọi thương hiệu</button>`);
+  h += `<div class="tblwrap"><table class="tbl sm ptbl stick"><thead><tr>
+    <th class="nw">Sản phẩm</th><th class="r">Giá niêm yết</th><th class="r">Voucher</th>
+    <th class="r">Giá bán thực</th><th class="r">Giá vốn</th><th class="r">Thực nhận</th>
+    <th class="r">Lãi/đơn</th><th class="r">ACOS max</th><th class="r">ROAS min</th>
+    <th class="r">ROAS đang chạy</th></tr></thead><tbody>` +
+    dangMo.rows.map(r => costRow(r)).join('') + `</tbody></table></div></div>`;
   return h;
+}
+
+function brandCard(t){
+  return `<div class="icard" data-act="costbrand" data-id="${esc(t.brand)}">
+    <div class="ic-hd">
+      <b class="grow ell">${esc(t.brand || 'Chưa gắn thương hiệu')}</b>
+      ${t.nLo ? `<span class="chip bad">${t.nLo} lỗ sẵn</span>`
+              : t.nThieu ? `<span class="chip warn">${t.nThieu} thiếu số</span>`
+                         : `<span class="chip ok">đủ số</span>`}
+    </div>
+    <div class="ic-sub">${t.n} sản phẩm${t.nCombo ? ' · ' + t.nCombo + ' combo' : ''}</div>
+    <div class="ic-money">
+      <div><span class="dim">ROAS min thấp nhất</span><b>${t.roasMin ? xText(t.roasMin) : '—'}</b></div>
+      <div><span class="dim">…cao nhất</span><b>${t.roasMax ? xText(t.roasMax) : '—'}</b></div>
+    </div>
+    <div class="ic-ft">
+      <span class="chip acc">Mở danh sách →</span>
+      ${t.nThieu && t.nLo ? `<span class="chip warn">${t.nThieu} thiếu số</span>` : ''}
+    </div>
+  </div>`;
 }
 
 function costRow(r){
   const x = r.calc, p = r.p;
+  const cbs = r.c ? (r.c.combos || []) : [];
+  const mo  = !!ui.costOpen[p.id];
+  const nut = `<button class="btn sm" data-act="costtoggle" data-id="${p.id}"
+      title="${cbs.length ? 'xem combo dựng từ con này' : 'thêm combo'}">${
+      cbs.length ? (mo ? '▾' : '▸') + ' ' + cbs.length + ' combo' : '+ combo'}</button>`;
+
   if (!x)
     return `<tr data-act="costsp" data-id="${p.id}">
-      <td class="nw"><b>${esc(p.name)}</b></td>
+      <td class="nw"><b>${esc(p.name)}</b> ${nut}</td>
       <td colspan="9" class="dim">chưa điền giá bán nên chưa tính được — bấm để điền</td></tr>`;
+
   const nay = costRoasNow(p);
   const dat = p.roasTarget || 0;
-  return `<tr data-act="costsp" data-id="${p.id}">
+  let h = `<tr data-act="costsp" data-id="${p.id}">
     <td class="nw"><b>${esc(p.name)}</b>${x.thieuVon
       ? ` <span class="chip warn">chưa có giá vốn</span>` : ''}${
       r.c && +r.c.feePct > 0
-        ? ` <span class="chip" title="con này đặt riêng, không theo bảng phí của gian hàng">phí ${ratePct(r.c.feePct)}</span>` : ''}</td>
+        ? ` <span class="chip" title="con này đặt riêng, không theo bảng phí của gian hàng">phí ${ratePct(r.c.feePct)}</span>` : ''}${
+      x.gift ? ` <span class="chip">🎁 ${moneyShort(x.gift)}</span>` : ''} ${nut}</td>
     <td class="r">${moneyShort(x.gia)}</td>
     <td class="r">${x.vPct ? ratePct(x.vPct) + '<div class="dim" style="font-size:10px">−' + moneyShort(x.vou) + '</div>' : '—'}</td>
     <td class="r"><b>${moneyShort(x.gbt)}</b></td>
-    <td class="r">${x.von ? moneyShort(x.von) : '<span class="dim">—</span>'}</td>
+    <td class="r">${x.tongVon ? moneyShort(x.tongVon) : '<span class="dim">—</span>'}</td>
     <td class="r">${moneyShort(x.thucNhan)}</td>
     <td class="r"><b class="${x.lo ? 'bad' : 'ok'}">${moneyShort(x.lai)}</b></td>
     <td class="r">${x.acos == null ? '<span class="bad">lỗ sẵn</span>' : pctText(x.acos, 1)}</td>
@@ -3157,20 +3213,50 @@ function costRow(r){
          <div class="dim" style="font-size:10px">${esc(monthLabel(nay.ym))}</div>`
       : '<span class="dim">chưa nối</span>'}</td>
   </tr>`;
+
+  if (mo){
+    h += cbs.map(cb => {
+      const y = costCalc(p, cb.cid);
+      if (!y) return '';
+      return `<tr class="sub" data-act="editcombo" data-id="${p.id}|${cb.cid}">
+        <td class="nw"><span class="dim">↳</span> ${esc(cb.name || 'combo chưa đặt tên')}${
+          cb.gift ? ` <span class="chip">🎁 ${moneyShort(cb.gift)}</span>` : ''}</td>
+        <td class="r">${moneyShort(y.gia)}</td>
+        <td class="r">${y.vPct ? ratePct(y.vPct) : '—'}</td>
+        <td class="r">${moneyShort(y.gbt)}</td>
+        <td class="r">${moneyShort(y.tongVon)}<div class="dim" style="font-size:10px">${
+          moneyShort(y.von)} + ${moneyShort(y.vonThem + y.gift)}</div></td>
+        <td class="r">${moneyShort(y.thucNhan)}</td>
+        <td class="r"><b class="${y.lo ? 'bad' : 'ok'}">${moneyShort(y.lai)}</b></td>
+        <td class="r">${y.acos == null ? '<span class="bad">lỗ sẵn</span>' : pctText(y.acos, 1)}</td>
+        <td class="r"><b>${y.roas == null ? '<span class="bad">—</span>' : xText(y.roas)}</b></td>
+        <td class="r"><span class="dim">—</span></td>
+      </tr>`;
+    }).join('');
+    h += `<tr class="sub"><td class="nw" colspan="10">
+      <button class="btn sm" data-act="newcombo" data-id="${p.id}">+ Combo từ ${esc(p.name)}</button>
+      <span class="dim">giá vốn phần chính lấy thẳng từ sản phẩm này, chỉ điền thêm phần hàng kèm</span>
+    </td></tr>`;
+  }
+  return h;
 }
 
 /* ---------------- một sản phẩm ---------------- */
 function viewCostSp(id){
   const p = productOf(id);
   if (!p) return emptyBox('Không tìm thấy sản phẩm này', 'Có thể đã bị xoá.');
-  const x = costCalc(p);
-  const c = costOf(p.id);
+  const c   = costOf(p.id);
+  const cbs = combosOf(p);
+  const cid = cbs.some(x => x.cid === ui.costCombo) ? ui.costCombo : '';
+  const cb  = cid ? cbs.find(x => x.cid === cid) : null;
+  const x   = costCalc(p, cid);
 
   let h = `<div class="toolbar">
     <button class="btn" data-act="nav" data-id="cost">‹ Tính chi phí</button>
     <div class="grow"></div>
     ${p.url ? `<a class="btn sm" href="${esc(p.url)}" target="_blank" rel="noopener">Mở trên Shopee ↗</a>` : ''}
-    <button class="btn pri" data-act="editcostsp" data-id="${p.id}">Sửa giá vốn, giá bán</button>
+    <button class="btn pri" data-act="${cb ? 'editcombo' : 'editcostsp'}" data-id="${cb ? p.id + '|' + cb.cid : p.id}">${
+      cb ? 'Sửa combo' : 'Sửa giá vốn, giá bán'}</button>
   </div>`;
 
   h += `<div class="card">
@@ -3178,6 +3264,17 @@ function viewCostSp(id){
     <div class="dim">${esc(p.brand || 'chưa gắn thương hiệu')}${
       c && c.shopId ? ' · ' + esc(shopName(c.shopId)) : ' · chưa xếp gian hàng'}${
       p.sku ? ' · SKU ' + esc(p.sku) : ''}</div>
+  </div>`;
+
+  /* ---- chọn xem sản phẩm chính hay một combo ---- */
+  h += `<div class="toolbar" style="margin-top:12px">
+    <div class="tabs">
+      <button class="tab ${!cid ? 'on' : ''}" data-act="costcombo" data-id="">Sản phẩm chính</button>
+      ${cbs.map(z => `<button class="tab ${cid === z.cid ? 'on' : ''}" data-act="costcombo" data-id="${z.cid}">${
+        esc(z.name || 'combo')}</button>`).join('')}
+    </div>
+    <div class="grow"></div>
+    <button class="btn sm" data-act="newcombo" data-id="${p.id}">+ Combo</button>
   </div>`;
 
   if (!x)
@@ -3195,7 +3292,7 @@ function viewCostSp(id){
   </div>`;
 
   /* ---- bảng bóc phí, dựng đúng thứ tự Shopee ghi trên đơn ---- */
-  h += `<div class="mod">` + moduleHead('🧾', 'Bóc từng khoản',
+  h += `<div class="mod">` + moduleHead('🧾', 'Bóc từng khoản' + (cb ? ' — ' + (cb.name || 'combo') : ''),
     'đặt cạnh một đơn thật trong Kênh Người Bán là đối chiếu được từng dòng');
   h += `<div class="tblwrap"><table class="tbl sm ptbl"><tbody>
     <tr><td class="nw">Giá niêm yết</td><td class="dim">giá treo trên trang</td>
@@ -3212,9 +3309,15 @@ function viewCostSp(id){
     <tr class="rowon"><td class="nw"><b>Thực nhận từ Shopee</b></td>
         <td class="dim">đúng dòng “Doanh Thu Đơn Hàng” trên đơn</td>
         <td class="r"><b>${money(x.thucNhan)}</b></td></tr>
-    <tr><td class="nw">Giá vốn sản phẩm</td><td class="dim">${x.thieuVon ? 'CHƯA ĐIỀN — con số dưới đây đang sai' : 'mua vào'}</td>
-        <td class="r">${x.von ? '−' + money(x.von) : '<span class="bad">chưa điền</span>'}</td></tr>
-    <tr><td class="nw">Hộp giấy và công đóng gói</td><td class="dim">phí của mình, Shopee không trừ</td>
+    <tr><td class="nw">Giá vốn ${cb ? 'sản phẩm chính' : 'sản phẩm'}</td>
+        <td class="dim">${x.thieuVon ? 'CHƯA ĐIỀN — con số dưới đây đang sai'
+          : cb ? 'lấy thẳng từ ' + esc(p.name) + ', không nhập lại' : 'mua vào'}</td>
+        <td class="r">${x.von ? '−' + money(x.von) : '<span class="bad">chưa điền</span>'}</td></tr>` +
+    (cb ? `<tr><td class="nw">Giá vốn hàng kèm thêm</td><td class="dim">phần combo thêm vào ngoài sản phẩm chính</td>
+        <td class="r">${x.vonThem ? '−' + money(x.vonThem) : money(0)}</td></tr>` : '') +
+    (x.gift ? `<tr><td class="nw">Quà tặng kèm</td><td class="dim">để tăng tỉ lệ chốt — bỏ quà là lãi thêm đúng khoản này</td>
+        <td class="r">−${money(x.gift)}</td></tr>` : '') +
+    `<tr><td class="nw">Hộp giấy và công đóng gói</td><td class="dim">phí của mình, Shopee không trừ</td>
         <td class="r">−${money(x.pack)}</td></tr>
     <tr class="rowon"><td class="nw"><b>Lãi mỗi đơn</b></td>
         <td class="dim">khi chưa tốn đồng quảng cáo nào</td>
@@ -3222,28 +3325,27 @@ function viewCostSp(id){
   </tbody></table></div></div>`;
 
   /* ---- ngưỡng ---- */
-  const nay = costRoasNow(p);
+  const nay = cb ? null : costRoasNow(p);
   h += `<div class="mod">` + moduleHead('🎯', 'Ngưỡng được phép chạy', 'dưới mốc này là mỗi đơn một lỗ');
   if (x.lo){
-    h += `<div class="explain warn"><b>Con này lỗ ${money(-x.lai)} mỗi đơn dù không chạy quảng cáo.</b>
+    h += `<div class="explain warn"><b>${cb ? 'Combo này' : 'Con này'} lỗ ${money(-x.lai)} mỗi đơn dù không chạy quảng cáo.</b>
       Không có ngưỡng ROAS nào cứu được — chạy càng mạnh lỗ càng nhiều. Phải sửa ở gốc: tăng giá bán,
-      bớt voucher, hạ giá vốn, hoặc bỏ con này.</div>`;
+      bớt voucher, ${cb ? 'bớt hàng kèm' : 'hạ giá vốn'}${x.gift ? ', bỏ quà tặng' : ''}, hoặc bỏ hẳn.</div>`;
   } else {
     h += `<div class="card">
       <div class="kv"><span>ACOS max — được đổ vào quảng cáo tối đa</span><b>${pctText(x.acos, 1)} của giá bán thực = ${money(x.lai)}</b></div>
       <div class="kv"><span>ROAS min — hoà vốn</span><b>${xText(x.roas)}</b></div>
-      <div class="kv"><span>ROAS bạn đang đặt cho con này</span>${p.roasTarget
+      ${cb ? '' : `<div class="kv"><span>ROAS bạn đang đặt cho con này</span>${p.roasTarget
         ? `<b class="${p.roasTarget < x.roas ? 'bad' : 'ok'}">${xText(p.roasTarget)}${
             p.roasTarget < x.roas ? ' — THẤP HƠN điểm hoà vốn' : ''}</b>`
         : `<span class="dim">chưa đặt</span>`}</div>
       <div class="kv"><span>ROAS đang chạy thật</span>${nay
         ? `<b class="${nay.m.roas < x.roas ? 'bad' : 'ok'}">${xText(nay.m.roas)}</b>
            <span class="dim">${esc(monthLabel(nay.ym))} · ${nay.n} chiến dịch</span>`
-        : `<span class="dim">chưa nối được chiến dịch nào — khoá mã Shopee trong Tài nguyên</span>`}</div>
+        : `<span class="dim">chưa nối được chiến dịch nào — khoá mã Shopee trong Tài nguyên</span>`}</div>`}
     </div>`;
-    /* Quanh điểm hoà vốn, lãi đổi rất gắt theo ROAS — nhích một nấc ROAS ăn
-       thêm cả nghìn đồng mỗi đơn. Một câu chữ không nói được chuyện đó, nên
-       bày thẳng cái thang: chạy tới đâu thì còn lại bao nhiêu. */
+    /* Quanh điểm hoà vốn, lãi đổi rất gắt theo ROAS — nhích một nấc ăn thêm
+       cả nghìn đồng mỗi đơn. Một câu chữ không nói được chuyện đó. */
     const thang = [x.roas, x.roas * 1.2, x.roas * 1.5, x.roas * 2, x.roas * 3];
     h += `<div class="tblwrap" style="margin-top:10px"><table class="tbl sm ptbl">
       <thead><tr><th class="nw">Nếu chạy ở ROAS</th><th class="r">Tiền quảng cáo mỗi đơn</th>
@@ -3262,9 +3364,10 @@ function viewCostSp(id){
   }
   h += `</div>`;
 
-  if (c && c.note) h += `<div class="card" style="margin-top:18px">
+  const ghi = cb ? cb.note : (c && c.note);
+  if (ghi) h += `<div class="card" style="margin-top:18px">
     <div class="sec sm">Ghi chú<span class="ln"></span></div>
-    <div class="dim" style="white-space:pre-wrap">${esc(c.note)}</div></div>`;
+    <div class="dim" style="white-space:pre-wrap">${esc(ghi)}</div></div>`;
   return h;
 }
 

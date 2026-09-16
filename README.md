@@ -1315,6 +1315,72 @@ gian hàng. Nên mỗi sản phẩm có ô *phí cố định ngành hàng riên
 theo bảng phí của gian hàng. Chọn 0 làm dấu thay vì ô rỗng vì Shopee không có
 ngành hàng nào 0%. Sản phẩm nào đặt riêng thì trong bảng có một cái nhãn nhỏ.
 
+### Quà tặng kèm đứng riêng, không cộng thẳng vào giá vốn
+
+Tặng kèm một món 5–10k để tăng tỉ lệ chốt là một **quyết định bán hàng có thể
+bỏ**, còn giá vốn thì không. Gộp hai thứ vào một ô là mất khả năng trả lời câu
+"bỏ quà thì lãi thêm bao nhiêu" — mà đó đúng là câu hỏi hay hỏi nhất khi một
+con đang mấp mé hoà vốn. Nên quà tặng có ô riêng, có dòng riêng trong bảng bóc
+phí, và có nhãn 🎁 trên bảng danh sách.
+
+### Combo là dòng con của sản phẩm chính, không phải một sản phẩm rời
+
+Combo nằm trong chính bản ghi giá vốn của sản phẩm mẹ (`costs.combos`), không
+tách bộ riêng. Lý do: một combo không sống được nếu thiếu sản phẩm chính, và
+**giá vốn phần chính nó đọc thẳng từ sản phẩm mẹ chứ không chép lại** — sửa giá
+nhập một lần là mọi combo tính lại theo. Chép sang một bảng riêng thì ba tháng
+sau giá nhập đổi, sản phẩm chính đúng còn combo vẫn đang tính bằng giá cũ, mà
+không có gì báo.
+
+Combo chỉ hỏi ba thứ của riêng nó:
+
+| Ô | Vì sao |
+|---|---|
+| Giá bán của combo | combo là một listing riêng, giá riêng |
+| Voucher của shop | thường đặt khác con lẻ |
+| **Giá vốn hàng KÈM THÊM** | chỉ phần thêm vào — đừng cộng cả giá vốn sản phẩm chính |
+
+Bảng phí và phí đóng gói **dùng chung** với sản phẩm chính: cùng ngành hàng,
+cùng cái hộp.
+
+Ví dụ thật: sáp Roug Đen 279.000 (vốn 100.000, quà 8.000) → ROAS min **4,12x**.
+Combo Roug + gôm 379.000 (kèm thêm 70.000) → ROAS min **5,87x**. Ô xem trước
+nói thẳng câu đó ra — combo bán thêm 100.000 mà **lãi lại thấp hơn** con lẻ,
+vì phần doanh thu thêm cũng gánh đủ 31% phí. Không đặt hai con số cạnh nhau
+thì không ai nhìn ra.
+
+Trên bảng danh sách, combo là dòng con thụt vào có dấu `↳`, cột giá vốn tách
+rõ `100k + 70k`. Trên trang chi tiết có dải tab **Sản phẩm chính | từng combo**
+— chọn cái nào thì cả bảng bóc phí, ô số và thang ROAS tính lại cho cái đó.
+
+### Thương hiệu hiện ra ngoài dưới dạng thẻ
+
+Bày phẳng cả trăm dòng thì không ai tìm ra con mình cần. Nên màn ngoài là lưới
+thẻ thương hiệu — mỗi thẻ nói số sản phẩm, số combo, khoảng ROAS min từ thấp
+tới cao, và có con nào lỗ sẵn hay thiếu số không. Bấm một thẻ mới mở danh sách.
+
+`ui.costBrand = null` nghĩa là *đang xem thẻ*; một **chuỗi** nghĩa là đang mở
+thương hiệu đó — kể cả chuỗi rỗng, vì `''` chính là tên của nhóm chưa gắn
+thương hiệu. Dùng `''` cho cả hai việc thì nhóm chưa gắn tên luôn tự mở và màn
+thẻ không bao giờ hiện ra (đúng lỗi đã gặp).
+
+### Bảng phí luôn nhìn thấy, và có ngày sửa lần cuối
+
+Trước đây bảng phí nằm sau một cái nút, phải bấm mới thấy — không ai biết là nó
+có ở đó. Giờ một dòng tóm tắt cả bảng hiện sẵn (`17% ngành hàng · PiShip 2.700
+· hạ tầng 3.000 · …`), nút ✎ chỉ để mở ra sửa.
+
+Kèm **ngày sửa lần cuối** (`fees.at`, tự ghi mỗi lần đổi một ô). Shopee đổi biểu
+phí luôn, mà một bảng phí cũ sáu tháng vẫn cho ra số đẹp như thường — quá 120
+ngày thì app nhắc đi đối chiếu lại.
+
+### Dòng con và cột đầu dính
+
+`.tbl.stick` đặt nền riêng cho ô đầu mỗi dòng để nó dính lại khi trượt ngang,
+và luật đó **đè mất** màu nhạt của dòng con — đúng vào cái ô mang dấu thụt vào.
+Phải khai lại `.tbl.stick tr.sub td:first-child`, không thì combo nhìn y hệt
+một sản phẩm rời.
+
 ### Giá vốn tách khỏi `products` — và đây là lý do
 
 `products` **không khai quyền** trong `KH_KIND_PERM`, nên nó chảy về máy mọi

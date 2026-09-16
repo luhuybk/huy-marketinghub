@@ -787,5 +787,16 @@ a.plnk:hover{border-color:var(--acc);background:var(--bg4)}
 .hrs{display:flex;gap:1.5px;min-width:150px}
 .hrs i{display:block;width:5px;height:16px;background:var(--acc);border-radius:1.5px}
 .tbl .rowon td{background:color-mix(in srgb,var(--acc) 14%,transparent)}
+/* Dòng con: combo thả xuống từ sản phẩm chính. Lùi vào và nhạt đi để mắt
+   thấy ngay nó thuộc về dòng trên, chứ không phải một sản phẩm rời. */
+.tbl tr.sub td{background:var(--bg3);font-size:11.5px;border-bottom-style:dashed}
+.tbl tr.sub td:first-child{padding-left:26px}
+.tbl tr.sub:hover td{background:var(--bg4)}
+/* Bảng có cột đầu dính đặt nền riêng cho ô đầu (.tbl.stick td:first-child),
+   và luật đó đè mất màu nhạt của dòng con — đúng vào cái ô mang dấu thụt
+   vào. Phải khai lại cho ô đầu của dòng con, không thì combo nhìn y hệt một
+   sản phẩm rời. */
+.tbl.stick tr.sub td:first-child{background:var(--bg3)}
+.tbl.stick tr.sub:hover td:first-child{background:var(--bg4)}
 .sechd{font-size:11.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
   color:var(--tx3);margin:14px 0 8px}

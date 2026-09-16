@@ -1013,6 +1013,10 @@ function ensure(){
       const v = +f[x.k];
       f[x.k] = isFinite(v) && v >= 0 ? Math.min(v, x.max) : DEFAULT_FEES[x.k];
     });
+    /* Ngày sửa bảng phí lần cuối. Shopee đổi biểu phí luôn, mà một bảng phí
+       cũ sáu tháng vẫn cho ra số đẹp như thường — không có cái mốc này thì
+       không ai biết là mình đang tính bằng biểu phí của năm ngoái. */
+    f.at = /^\d{4}-\d{2}-\d{2}$/.test(f.at || '') ? f.at : '';
     sh.fees = f;
   });
   db.adcamps.forEach(c => {
@@ -1117,6 +1121,26 @@ function ensure(){
     c.feePct = isFinite(fp) && fp > 0 ? Math.min(fp, 60) : 0;
     const vp = +c.voucherPct;
     c.voucherPct = isFinite(vp) && vp > 0 ? Math.min(vp, 90) : 0;
+    /* Quà tặng kèm để tăng tỉ lệ chốt. Đứng riêng chứ không cộng thẳng vào
+       giá vốn: nó là một quyết định bán hàng có thể bỏ, còn giá vốn thì
+       không — gộp lại là mất khả năng thử "bỏ quà thì lãi thêm bao nhiêu". */
+    c.gift = parseMoney(c.gift);
+    /* Combo dựng từ chính sản phẩm này. Để trong bản ghi giá vốn chứ không
+       tách bộ riêng: một combo không sống được nếu thiếu sản phẩm chính, và
+       giá vốn phần chính nó lấy thẳng từ đây, không chép lại. */
+    if (!Array.isArray(c.combos)) c.combos = [];
+    c.combos = c.combos.filter(x => x && typeof x === 'object').map(x => {
+      const v = +x.voucherPct;
+      return {
+        cid:     String(x.cid || uid()),
+        name:    String(x.name != null ? x.name : ''),
+        note:    String(x.note != null ? x.note : ''),
+        price:   parseMoney(x.price),
+        addCost: parseMoney(x.addCost),
+        gift:    parseMoney(x.gift),
+        voucherPct: isFinite(v) && v > 0 ? Math.min(v, 90) : 0
+      };
+    });
     if (c.shopId && !db.shops.some(x => x.id === c.shopId && !x.deleted)) c.shopId = '';
     /* Sản phẩm bị xoá thì dòng giá vốn cũng đi theo — giữ lại chỉ tạo ra một
        dòng không tên trong bảng, không tra ngược được là của con nào. */
@@ -2282,7 +2306,11 @@ function costFrom(o){
 
   const feePct = +o.feePct > 0 ? +o.feePct : F.feePct;
   const pack   = +o.pack   > 0 ? +o.pack   : F.packCost;
+  /* Ba khoản vốn đứng riêng để bảng bóc phí nói được từng thứ ăn mất bao
+     nhiêu: hàng chính, hàng kèm trong combo, và quà tặng. */
   const von    = Math.max(0, Math.round(o.von || 0));
+  const vonThem = Math.max(0, Math.round(o.vonThem || 0));
+  const gift    = Math.max(0, Math.round(o.gift || 0));
 
   const lines = [
     {k:'fee',   l:'Phí cố định ngành hàng', sub: ratePct(feePct),      v: gbt * feePct / 100},
@@ -2296,7 +2324,8 @@ function costFrom(o){
 
   const tongPhi  = lines.reduce((t, x) => t + x.v, 0);
   const thucNhan = gbt - tongPhi;               // đúng dòng "Doanh Thu Đơn Hàng" của Shopee
-  const lai      = thucNhan - von - pack;       // lãi mỗi đơn khi chưa tốn đồng quảng cáo nào
+  const tongVon  = von + vonThem + gift;
+  const lai      = thucNhan - tongVon - pack;   // lãi mỗi đơn khi chưa tốn đồng quảng cáo nào
 
   /* ACOS max: phần trăm giá bán thực được phép đổ vào quảng cáo mà vẫn hoà
      vốn. ROAS min là nghịch đảo của nó — cùng một con số nhìn từ hai phía.
@@ -2304,20 +2333,35 @@ function costFrom(o){
      chứ không trả một số to cho có. */
   const acos = lai > 0 && gbt ? lai / gbt * 100 : null;
   const roas = lai > 0 ? gbt / lai : null;
-  return {F, gia, vPct, vou, gbt, feePct, von, pack,
+  return {F, gia, vPct, vou, gbt, feePct, von, vonThem, gift, tongVon, pack,
           lines, tongPhi, thucNhan, lai, acos, roas, lo: lai <= 0,
           thieuVon: !von};
 }
-/* Bảng tính của một sản phẩm đã lưu. */
-function costCalc(p){
+/* Bảng tính của một sản phẩm đã lưu, hoặc của MỘT COMBO dựng từ nó.
+
+   Combo dùng lại y nguyên bảng phí và phí đóng gói của sản phẩm chính — cùng
+   ngành hàng, cùng cái hộp. Chỉ ba thứ là của riêng nó: giá bán, voucher, và
+   phần hàng kèm thêm. Giá vốn phần chính KHÔNG chép lại, nó đọc thẳng từ sản
+   phẩm mẹ, nên sửa giá nhập một lần là mọi combo tính lại theo. */
+function costCalc(p, cid){
   if (!p) return null;
   const c  = costOf(p.id);
   const sh = shopOf(c ? c.shopId : '');
-  const x  = costFrom({gia: parseMoney(p.price), F: shopFees(sh),
-                       vPct: c ? c.voucherPct : 0, feePct: c ? c.feePct : 0,
-                       pack: c ? c.packCost : 0, von: c ? c.cost : 0});
-  return x ? Object.assign(x, {p, c, sh}) : null;
+  const cb = cid && c ? (c.combos || []).find(x => x.cid === cid) : null;
+  if (cid && !cb) return null;
+  const x = costFrom({
+    gia:     cb ? cb.price : parseMoney(p.price),
+    F:       shopFees(sh),
+    vPct:    cb ? cb.voucherPct : (c ? c.voucherPct : 0),
+    feePct:  c ? c.feePct   : 0,
+    pack:    c ? c.packCost : 0,
+    von:     c ? c.cost : 0,
+    vonThem: cb ? cb.addCost : 0,
+    gift:    cb ? cb.gift : (c ? c.gift : 0)
+  });
+  return x ? Object.assign(x, {p, c, sh, cb}) : null;
 }
+const combosOf = p => { const c = costOf(p.id); return c ? (c.combos || []) : []; };
 
 /* Chiến dịch của một sản phẩm — chiều ngược của adcampProduct(), khớp theo
    đúng hai khoá ấy để hai bên không bao giờ nối khác nhau. */
@@ -2357,6 +2401,28 @@ function costByBrand(shopId){
                                          a.localeCompare(b, 'vi'))
                           .map(b => ({brand:b, rows:nhom[b]}));
 }
+/* Thẻ thương hiệu cho màn ngoài — chỉ đủ số để quyết định có cần mở ra xem
+   không. Combo đếm chung vào phần "lỗ sẵn" vì một combo lỗ cũng là tiền thật
+   chảy đi, dù nó chỉ là một dòng con. */
+function costBrandCards(shopId){
+  return costByBrand(shopId).map(g => {
+    let nCombo = 0, nLo = 0, nThieu = 0;
+    const roas = [];
+    g.rows.forEach(r => {
+      const cbs = r.c ? (r.c.combos || []) : [];
+      nCombo += cbs.length;
+      if (!r.calc || r.calc.thieuVon) nThieu++;
+      [r.calc].concat(cbs.map(cb => costCalc(r.p, cb.cid))).forEach(x => {
+        if (!x) return;
+        if (x.lo) nLo++; else if (x.roas) roas.push(x.roas);
+      });
+    });
+    return {brand: g.brand, rows: g.rows, n: g.rows.length, nCombo, nLo, nThieu,
+            roasMin: roas.length ? Math.min.apply(null, roas) : null,
+            roasMax: roas.length ? Math.max.apply(null, roas) : null};
+  });
+}
+
 /* Sản phẩm đang đặt ngưỡng ROAS THẤP HƠN điểm hoà vốn — mỗi đơn quảng cáo
    mang về là một đơn lỗ, mà bảng báo cáo vẫn xanh vì nó chỉ so với ngưỡng
    tự đặt. Đây là thứ đáng tiền nhất cả trang này tìm ra. */

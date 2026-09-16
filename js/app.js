@@ -3228,7 +3228,7 @@ function costSpForm(id){
     name: p ? p.name : '', brand: p ? p.brand : '', sku: p ? p.sku : '',
     price: p ? p.price : 0, roasTarget: p ? p.roasTarget : '',
     shopId: shopMacDinh,
-    cost: c ? c.cost : 0,
+    cost: c ? c.cost : 0, gift: c ? c.gift : 0,
     voucherPct: c ? c.voucherPct : Fmd.voucherPct,
     feePct: c ? c.feePct : 0, packCost: c ? c.packCost : 0,
     note: c ? c.note : ''
@@ -3252,6 +3252,8 @@ function costSpForm(id){
        hint:'Theo %, thường 5–10. Giá bán thực = giá niêm yết trừ khoản này.'},
       {k:'cost', l:'Giá vốn sản phẩm', t:'money', half:true, ph:'90.000',
        hint:'Mua vào, đã gồm ship về kho'},
+      {k:'gift', l:'Quà tặng kèm', t:'money', half:true, ph:'0',
+       hint:'Để tăng tỉ lệ chốt. Tính vào giá vốn như mọi khoản khác — bỏ quà là lãi thêm đúng khoản này.'},
       {k:'roasTarget', l:'ROAS đã tối ưu (nếu đã chốt)', t:'text', half:true, ph:'vd 8,5',
        hint:'App sẽ báo nếu mốc này nằm DƯỚI điểm hoà vốn'},
       {t:'sec', l:'Riêng con này khác gian hàng — để 0 là theo bảng phí chung'},
@@ -3272,7 +3274,7 @@ function costSpForm(id){
 
       const cu = costs().find(x => x.productId === pr.id);
       const cr = cu ? db.costs.find(x => x.id === cu.id) : stamp({productId: pr.id});
-      cr.shopId = v.shopId; cr.cost = v.cost; cr.voucherPct = v.voucherPct;
+      cr.shopId = v.shopId; cr.cost = v.cost; cr.gift = v.gift; cr.voucherPct = v.voucherPct;
       cr.feePct = v.feePct; cr.packCost = v.packCost; cr.note = v.note;
       stamp(cr);
       if (!cu) db.costs.push(cr);
@@ -3304,14 +3306,101 @@ function costSpForm(id){
     const x = costFrom({gia: parseMoney(g('price')), F: shopFees(shopOf(g('shopId'))),
                         vPct: +String(g('voucherPct')).replace(',','.') || 0,
                         feePct: +String(g('feePct')).replace(',','.') || 0,
-                        pack: parseMoney(g('packCost')), von: parseMoney(g('cost'))});
+                        pack: parseMoney(g('packCost')), von: parseMoney(g('cost')),
+                        gift: parseMoney(g('gift'))});
     if (!x){ box.innerHTML = 'Điền <b>giá niêm yết</b> thì ô này hiện kết quả ngay khi bạn gõ.'; return; }
     box.innerHTML = `Giá bán thực <b>${money(x.gbt)}</b> · Shopee giữ <b>${money(x.tongPhi)}</b> ·
-      thực nhận <b>${money(x.thucNhan)}</b><br>` + (x.lo
+      thực nhận <b>${money(x.thucNhan)}</b>${x.gift ? ' · quà tặng ' + money(x.gift) : ''}<br>` + (x.lo
         ? `<span class="bad"><b>Lỗ ${money(-x.lai)} mỗi đơn dù không chạy quảng cáo.</b></span>`
         : `Lãi mỗi đơn <b>${money(x.lai)}</b> · ACOS max <b>${pctText(x.acos, 1)}</b> ·
            <b>ROAS min ${xText(x.roas)}</b>` + (x.thieuVon
              ? ` <span class="bad">— chưa điền giá vốn nên con số này đang quá đẹp</span>` : ''));
+  };
+  el.addEventListener('input', doc);
+  el.addEventListener('change', doc);
+  doc();
+}
+
+/* Combo dựng từ một sản phẩm chính.
+
+   Chỉ hỏi ba thứ là của riêng combo: giá bán, voucher, và phần hàng kèm
+   thêm. Giá vốn phần chính KHÔNG hỏi lại — nó đọc thẳng từ sản phẩm mẹ, nên
+   sửa giá nhập một lần là mọi combo tính lại theo. Bảng phí và phí đóng gói
+   cũng dùng chung: cùng ngành hàng, cùng cái hộp. */
+function comboForm(pid, cid){
+  const p = productOf(pid);
+  if (!p){ toast('Không tìm thấy sản phẩm'); return; }
+  const c = costOf(p.id);
+  if (!c){ toast('Điền giá vốn cho sản phẩm chính đã'); costSpForm(pid); return; }
+  const cu = cid ? (c.combos || []).find(x => x.cid === cid) : null;
+  if (cid && !cu){ toast('Không tìm thấy combo này'); return; }
+  const isNew = !cu;
+  const goc = costCalc(p);
+
+  const el = formModal({
+    title: isNew ? 'Combo từ ' + p.name : (cu.name || 'Sửa combo'),
+    wide: true,
+    saveLabel: isNew ? 'Thêm combo' : 'Lưu',
+    values: cu || {name:'', price:0, addCost:0, gift:0, voucherPct: c.voucherPct, note:''},
+    extra: `<div class="explain">Giá vốn <b>${esc(p.name)}</b> là
+      <b>${money(c.cost)}</b> — app lấy thẳng con số đó, bạn chỉ điền thêm phần hàng kèm.
+      Bảng phí và phí đóng gói dùng chung với sản phẩm chính.</div>`,
+    fields: [
+      {k:'name', l:'Tên combo', t:'text', req:true, ph:'Sáp Roug + Gôm xịt'},
+      {k:'price', l:'Giá bán của combo', t:'money', half:true, ph:'279.000',
+       hint:'Giá niêm yết của combo, chưa trừ gì'},
+      {k:'voucherPct', l:'Voucher của shop', t:'number', half:true, ph:'0',
+       hint:'Theo %, riêng cho combo này'},
+      {k:'addCost', l:'Giá vốn hàng KÈM THÊM', t:'money', half:true, ph:'60.000',
+       hint:'Chỉ phần thêm vào ngoài ' + p.name + ' — đừng cộng cả giá vốn sản phẩm chính vào đây'},
+      {k:'gift', l:'Quà tặng kèm', t:'money', half:true, ph:'0',
+       hint:'Để tăng tỉ lệ chốt. Tính vào giá vốn như mọi khoản khác.'},
+      {k:'note', l:'Ghi chú', t:'textarea', rows:2}
+    ],
+    onSave(v){
+      if (!v.name || !v.name.trim()){ toast('Đặt tên cho combo đã'); return false; }
+      const rec = db.costs.find(x => x.id === c.id);
+      if (!rec) return false;
+      if (!Array.isArray(rec.combos)) rec.combos = [];
+      const o = cu ? rec.combos.find(x => x.cid === cu.cid) : {cid: uid()};
+      Object.assign(o, {name: v.name.trim(), price: v.price, addCost: v.addCost,
+                        gift: v.gift, voucherPct: v.voucherPct, note: v.note});
+      if (!cu) rec.combos.push(o);
+      stamp(rec); ensure(); save();
+      ui.costOpen[p.id] = true;
+      ui.costCombo = o.cid;
+      toast(isNew ? 'Đã thêm combo' : 'Đã lưu');
+    },
+    onDelete: isNew ? null : () => {
+      if (!confirm(`Xoá combo "${cu.name}"?\n\nSản phẩm chính không đổi gì cả.`)) return false;
+      const rec = db.costs.find(x => x.id === c.id);
+      rec.combos = (rec.combos || []).filter(x => x.cid !== cu.cid);
+      stamp(rec); save();
+      if (ui.costCombo === cu.cid) ui.costCombo = '';
+      toast('Đã xoá combo'); render();
+    }
+  });
+
+  /* Ô xem trước, tính lại theo từng phím gõ — giống biểu mẫu sản phẩm. */
+  const box = document.createElement('div');
+  box.className = 'explain';
+  box.style.marginTop = '4px';
+  el.querySelector('.mbody').appendChild(box);
+  const doc = () => {
+    const g = k => { const i = el.querySelector(`[data-f="${k}"]`); return i ? i.value : ''; };
+    const x = costFrom({gia: parseMoney(g('price')), F: shopFees(shopOf(c.shopId)),
+                        vPct: +String(g('voucherPct')).replace(',','.') || 0,
+                        feePct: c.feePct, pack: c.packCost,
+                        von: c.cost, vonThem: parseMoney(g('addCost')), gift: parseMoney(g('gift'))});
+    if (!x){ box.innerHTML = 'Điền <b>giá bán của combo</b> thì ô này hiện kết quả ngay khi bạn gõ.'; return; }
+    box.innerHTML = `Giá bán thực <b>${money(x.gbt)}</b> · Shopee giữ <b>${money(x.tongPhi)}</b> ·
+      thực nhận <b>${money(x.thucNhan)}</b><br>
+      Vốn <b>${money(x.tongVon)}</b> = chính ${money(x.von)} + kèm ${money(x.vonThem)}${
+        x.gift ? ' + quà ' + money(x.gift) : ''}<br>` + (x.lo
+        ? `<span class="bad"><b>Lỗ ${money(-x.lai)} mỗi đơn dù không chạy quảng cáo.</b></span>`
+        : `Lãi mỗi đơn <b>${money(x.lai)}</b> · ACOS max <b>${pctText(x.acos, 1)}</b> ·
+           <b>ROAS min ${xText(x.roas)}</b>` + (goc && goc.roas
+             ? ` <span class="dim">— sản phẩm chính đứng một mình là ${xText(goc.roas)}</span>` : ''));
   };
   el.addEventListener('input', doc);
   el.addEventListener('change', doc);
@@ -3369,9 +3458,15 @@ const ACTIONS = {
   costsp:      id => go('costsp', id),
   newcostsp:   () => costSpForm(null),
   editcostsp:  id => costSpForm(id),
-  costshop:    id => { ui.costShop = id; render(); },
+  costshop:    id => { ui.costShop = id; ui.costBrand = null; render(); },
   costfee:     () => { ui.costFee = !ui.costFee; render(); },
   costfeecopy: id => costFeeCopy(id),
+  costbrand:   id => { ui.costBrand = id; render(); window.scrollTo(0,0); },
+  costbrandback: () => { ui.costBrand = null; render(); },
+  costtoggle:  id => { ui.costOpen[id] = !ui.costOpen[id]; render(); },
+  costcombo:   id => { ui.costCombo = id; render(); },
+  newcombo:    id => comboForm(id, ''),
+  editcombo:   id => { const [a, b] = id.split('|'); comboForm(a, b); },
 
   /* dự án đánh từ khoá */
   kwgo:    id => go('kw', id),
@@ -3697,6 +3792,7 @@ document.addEventListener('change', e => {
     if (sh && spec){
       sh.fees = Object.assign({}, DEFAULT_FEES, sh.fees);
       sh.fees[k] = Math.min(Math.max(0, +fee.value || 0), spec.max);
+      sh.fees.at = today();
       stamp(sh); save(); render();
     }
     return;
