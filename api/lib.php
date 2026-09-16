@@ -109,7 +109,7 @@ function db(): PDO {
    'settings' và 'review' chỉ chủ vào được nên cũng không tick được.
    Danh sách này phải khớp PERMS trong js/state.js. */
 const KH_PERMS = ['dash','pipeline','kols','clips','postfb','posttt','ads',
-                  'improve','newprod','compare','resources'];
+                  'improve','newprod','compare','resources','cost'];
 
 /* Bộ dữ liệu nào cần quyền nào. Có MỘT trong số quyền liệt kê là đọc được.
 
@@ -131,7 +131,9 @@ const KH_KIND_PERM = [
   'orderstats'=> ['ads'],
   'keywords'  => ['ads'],
   'kwranks'   => ['ads'],
-  'shops'     => ['ads'],
+  /* shops mang cả bảng phí, nên bên Tính chi phí cũng phải đọc được */
+  'shops'     => ['ads','cost'],
+  'costs'     => ['cost'],
   'spweeks'   => ['improve','ads'],
   'impacts'   => ['improve'],
   'ideas'     => ['newprod'],

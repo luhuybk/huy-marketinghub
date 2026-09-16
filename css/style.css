@@ -748,7 +748,14 @@ a.plnk:hover{border-color:var(--acc);background:var(--bg4)}
 .ptbl .chips{margin-top:5px}
 
 /* ---- hai mục con của tab Báo cáo Ads ---- */
-.tabs{display:flex;gap:4px;background:var(--bg3);padding:3px;border-radius:10px}
+/* Dải tab phải tự trượt trong lòng nó. Tab đặt white-space:nowrap, mà .tabs
+   lại là ô flex trong .toolbar nên mặc định nó không co được: bốn tab của Báo
+   cáo Ads, hay hai cái tên gian hàng dài, đẩy rộng hơn khung và làm CẢ TRANG
+   trượt ngang trên điện thoại. min-width:0 cho nó co, overflow-x:auto cho nó
+   tự cuộn, và giấu thanh cuộn đi vì nó nằm đè lên chữ của tab. */
+.tabs{display:flex;gap:4px;background:var(--bg3);padding:3px;border-radius:10px;
+  max-width:100%;min-width:0;overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
 .tabs .tab{border:0;background:transparent;color:var(--tx3);font:inherit;font-size:13px;
   font-weight:600;padding:7px 15px;border-radius:8px;cursor:pointer;white-space:nowrap}
 .tabs .tab:hover{color:var(--tx)}

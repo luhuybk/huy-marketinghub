@@ -19,6 +19,7 @@ const NAV = [
   {id:'ads',      icon:'◎', label:'Shopee Ads',   perm:'ads'},
   {id:'adreport', icon:'📊',label:'Báo cáo Ads',  perm:'ads'},
   {id:'keywords', icon:'🔎',label:'Đánh từ khoá',  perm:'ads'},
+  {id:'cost',     icon:'🧮',label:'Tính chi phí',  perm:'cost'},
   {id:'improve',  icon:'🔻',label:'Cải thiện SP', perm:'improve'},
   {id:'newprod',  icon:'💡',label:'Sản phẩm mới', perm:'newprod'},
   {id:'compare',  icon:'⇄', label:'So sánh kênh', perm:'compare'},
@@ -32,11 +33,13 @@ const TITLES = {today:'Hôm nay', dash:'Tổng quan', pipeline:'Booking', kols:'
                 newprod:'Xây dựng sản phẩm mới', compare:'So sánh kênh', resources:'Tài nguyên',
                 review:'Cần bạn duyệt', settings:'Cài đặt', kol:'Hồ sơ KOC', product:'Sản phẩm',
                 sp:'Sức khoẻ trên Shopee', adreport:'Báo cáo quảng cáo',
-                adcamp:'Chiến dịch', keywords:'Đánh top từ khoá', kw:'Dự án từ khoá'};
+                adcamp:'Chiến dịch', keywords:'Đánh top từ khoá', kw:'Dự án từ khoá',
+                cost:'Tính chi phí', costsp:'Chi phí sản phẩm'};
 /* Trang chỉ chủ mở được. Nhân viên gõ thẳng đường dẫn cũng bị đưa về Hôm nay. */
 const OWNER_PAGES = ['settings', 'review'];
 /* Trang con mở từ một trang chính — quyền đi theo trang cha. */
-const PAGE_PERM = {kol:'kols', product:'ads', sp:'improve', adcamp:'ads', kw:'ads'};
+const PAGE_PERM = {kol:'kols', product:'ads', sp:'improve', adcamp:'ads', kw:'ads',
+                   costsp:'cost'};
 const NAV_PERM  = Object.fromEntries(NAV.filter(n => n.perm).map(n => [n.id, n.perm]));
 const mayPage = id => {
   if (OWNER_PAGES.includes(id)) return isOwner();
@@ -112,6 +115,8 @@ function render(){
       case 'adcamp':   html = viewAdcamp(route.id); break;
       case 'keywords': html = viewKeywords(); break;
       case 'kw':       html = viewKw(route.id); break;
+      case 'cost':     html = viewCost(); break;
+      case 'costsp':   html = viewCostSp(route.id); break;
       case 'settings': ensureSettingsCfg(); html = viewSettings(); break;
     }
   } catch(e){
@@ -182,7 +187,7 @@ function renderSide(){
   const hot = {dash:1, ads:1, today:1, improve:1, postfb:1, posttt:1};
   const active = route.page === 'kol' ? 'kols' : route.page === 'product' ? 'ads'
                : route.page === 'sp' ? 'improve' : route.page === 'kw' ? 'keywords'
-               : route.page;
+               : route.page === 'costsp' ? 'cost' : route.page;
   const st = Sync.status();
   const dot = st.state === 'syncing' ? 'sync' : st.state === 'error' ? 'bad' : st.state === 'idle' ? 'ok' : '';
 
@@ -216,6 +221,13 @@ function renderBar(){
     const k = kolOf(route.id);
     t.textContent = k ? k.name : 'Hồ sơ KOC';
     s.textContent = k ? tierOf(k).label + ' · ' + num(followers(k)) + ' người theo dõi' : '';
+  } else if (route.page === 'costsp'){
+    const pr = productOf(route.id);
+    const x  = pr ? costCalc(pr) : null;
+    t.textContent = pr ? pr.name : 'Chi phí sản phẩm';
+    s.textContent = !x ? 'chưa có giá bán'
+      : x.lo ? 'đang lỗ ' + money(-x.lai) + ' mỗi đơn'
+             : 'ROAS min ' + xText(x.roas) + ' · lãi ' + money(x.lai) + '/đơn';
   } else if (route.page === 'kw'){
     const k = keywordOf(route.id);
     t.textContent = k ? k.name : 'Dự án từ khoá';
@@ -3194,6 +3206,155 @@ function kwSetTurn(kwId, sid){
   toast(rec.turn ? 'Đang đánh ' + (m.name || 'ô ' + sid.slice(1)) : 'Đã bỏ lượt');
 }
 
+/* ============================================================
+   TÍNH CHI PHÍ — biểu mẫu
+
+   Một biểu mẫu ghi vào HAI bản ghi: giá bán và tên nằm ở `products` (ai cũng
+   đọc được, giá bán vốn công khai trên Shopee), còn giá vốn nằm ở `costs`
+   (quyền `cost`). Tách như vậy vì `products` không khai quyền nên nó chảy về
+   máy mọi nhân viên — để giá vốn vào đó là lộ, mà lộ lặng lẽ, không báo gì.
+   ============================================================ */
+function costSpForm(id){
+  const isNew = !id;
+  const p  = id ? productOf(id) : null;
+  if (id && !p){ toast('Không tìm thấy sản phẩm'); return; }
+  const c  = p ? costOf(p.id) : null;
+  const ds = shops().filter(s => !s.archived);
+  const shopMacDinh = c ? c.shopId
+                        : (ds.some(s => s.id === ui.costShop) ? ui.costShop : (ds[0] ? ds[0].id : ''));
+  const Fmd = shopFees(shopOf(shopMacDinh));
+
+  const v0 = {
+    name: p ? p.name : '', brand: p ? p.brand : '', sku: p ? p.sku : '',
+    price: p ? p.price : 0, roasTarget: p ? p.roasTarget : '',
+    shopId: shopMacDinh,
+    cost: c ? c.cost : 0,
+    voucherPct: c ? c.voucherPct : Fmd.voucherPct,
+    feePct: c ? c.feePct : 0, packCost: c ? c.packCost : 0,
+    note: c ? c.note : ''
+  };
+
+  const el = formModal({
+    title: isNew ? 'Thêm sản phẩm để tính chi phí' : (p.name || 'Sửa giá vốn, giá bán'),
+    values: v0, wide: true,
+    saveLabel: isNew ? 'Thêm' : 'Lưu',
+    fields: [
+      {k:'name', l:'Tên sản phẩm', t:'text', req:true, list: allProductNames()},
+      {k:'shopId', l:'Gian hàng', t:'select', half:true,
+       opts: [['', '— chưa xếp —']].concat(ds.map(s => [s.id, s.name])),
+       hint:'Bảng phí lấy theo gian hàng này'},
+      {k:'brand', l:'Thương hiệu', t:'select', half:true,
+       opts: [['', '— chưa gắn —']].concat(allBrands().map(b => [b, b]))},
+      {t:'sec', l:'Ba con số cần điền'},
+      {k:'price', l:'Giá niêm yết', t:'money', half:true, ph:'189.000',
+       hint:'Giá treo trên trang, chưa trừ gì cả'},
+      {k:'voucherPct', l:'Voucher của shop', t:'number', half:true, ph:'0',
+       hint:'Theo %, thường 5–10. Giá bán thực = giá niêm yết trừ khoản này.'},
+      {k:'cost', l:'Giá vốn sản phẩm', t:'money', half:true, ph:'90.000',
+       hint:'Mua vào, đã gồm ship về kho'},
+      {k:'roasTarget', l:'ROAS đã tối ưu (nếu đã chốt)', t:'text', half:true, ph:'vd 8,5',
+       hint:'App sẽ báo nếu mốc này nằm DƯỚI điểm hoà vốn'},
+      {t:'sec', l:'Riêng con này khác gian hàng — để 0 là theo bảng phí chung'},
+      {k:'feePct', l:'Phí cố định ngành hàng riêng', t:'number', half:true, ph:'0',
+       hint:'Kem đánh răng và sáp vuốt tóc là hai ngành hàng, hai mức phí'},
+      {k:'packCost', l:'Phí đóng gói riêng', t:'money', half:true, ph:'0'},
+      {k:'sku', l:'Mã SKU', t:'text', half:true},
+      {k:'note', l:'Ghi chú', t:'textarea', rows:2}
+    ],
+    onSave(v){
+      if (!v.name || !v.name.trim()){ toast('Chưa nhập tên sản phẩm'); return false; }
+      const pr = isNew ? stamp({archived:false}) : db.products.find(x => x.id === p.id);
+      if (!pr) return false;
+      pr.name = v.name.trim(); pr.brand = v.brand; pr.sku = v.sku;
+      pr.price = v.price; pr.roasTarget = parseX(v.roasTarget);
+      stamp(pr);
+      if (isNew) db.products.push(pr);
+
+      const cu = costs().find(x => x.productId === pr.id);
+      const cr = cu ? db.costs.find(x => x.id === cu.id) : stamp({productId: pr.id});
+      cr.shopId = v.shopId; cr.cost = v.cost; cr.voucherPct = v.voucherPct;
+      cr.feePct = v.feePct; cr.packCost = v.packCost; cr.note = v.note;
+      stamp(cr);
+      if (!cu) db.costs.push(cr);
+
+      linkProducts();
+      ensure(); save();
+      if (v.shopId) ui.costShop = v.shopId;
+      toast(isNew ? 'Đã thêm ' + pr.name : 'Đã lưu');
+      if (isNew) setTimeout(() => go('costsp', pr.id), 80);
+    },
+    onDelete: isNew ? null : () => {
+      if (!confirm(`Xoá dòng giá vốn của "${p.name}"?\n\nSản phẩm vẫn còn trong Tài nguyên, chỉ mất phần giá vốn và bảng tính.`)) return false;
+      const cu = costs().find(x => x.productId === p.id);
+      if (cu){ const r = db.costs.find(x => x.id === cu.id); r.deleted = true; stamp(r); }
+      save(); toast('Đã xoá'); go('cost');
+    }
+  });
+
+  /* ---- ô xem trước, tính lại theo từng phím gõ ----
+     Dò giá vốn là việc thử đi thử lại: gõ 90k xem ROAS min bao nhiêu, gõ 95k
+     xem lại. Bắt bấm Lưu rồi mới thấy kết quả thì mỗi lần thử mất bốn cú
+     bấm, và không ai thử quá hai lần. */
+  const box = document.createElement('div');
+  box.className = 'explain';
+  box.style.marginTop = '4px';
+  el.querySelector('.mbody').appendChild(box);
+  const doc = () => {
+    const g = k => { const i = el.querySelector(`[data-f="${k}"]`); return i ? i.value : ''; };
+    const x = costFrom({gia: parseMoney(g('price')), F: shopFees(shopOf(g('shopId'))),
+                        vPct: +String(g('voucherPct')).replace(',','.') || 0,
+                        feePct: +String(g('feePct')).replace(',','.') || 0,
+                        pack: parseMoney(g('packCost')), von: parseMoney(g('cost'))});
+    if (!x){ box.innerHTML = 'Điền <b>giá niêm yết</b> thì ô này hiện kết quả ngay khi bạn gõ.'; return; }
+    box.innerHTML = `Giá bán thực <b>${money(x.gbt)}</b> · Shopee giữ <b>${money(x.tongPhi)}</b> ·
+      thực nhận <b>${money(x.thucNhan)}</b><br>` + (x.lo
+        ? `<span class="bad"><b>Lỗ ${money(-x.lai)} mỗi đơn dù không chạy quảng cáo.</b></span>`
+        : `Lãi mỗi đơn <b>${money(x.lai)}</b> · ACOS max <b>${pctText(x.acos, 1)}</b> ·
+           <b>ROAS min ${xText(x.roas)}</b>` + (x.thieuVon
+             ? ` <span class="bad">— chưa điền giá vốn nên con số này đang quá đẹp</span>` : ''));
+  };
+  el.addEventListener('input', doc);
+  el.addEventListener('change', doc);
+  doc();
+}
+
+/* Chép bảng phí sang gian hàng khác. Với hai gian hàng thì chép thẳng; nhiều
+   hơn thì hỏi chép sang con nào. */
+function costFeeCopy(fromId){
+  const from = shopOf(fromId);
+  if (!from) return;
+  const khac = shops().filter(s => !s.archived && s.id !== fromId);
+  if (!khac.length){ toast('Chỉ có một gian hàng'); return; }
+  const chep = list => {
+    list.forEach(s => {
+      const r = db.shops.find(x => x.id === s.id);
+      if (!r) return;
+      /* Phí cố định ngành hàng KHÔNG chép: đó đúng là con số khác nhau giữa
+         shop thường và shop mall, chép đè lên là xoá mất thứ người ta vừa
+         ngồi tra. Các khoản còn lại Shopee áp chung nên chép được. */
+      r.fees = Object.assign({}, shopFees(r), shopFees(from), {feePct: shopFees(r).feePct});
+      stamp(r);
+    });
+    ensure(); save(); render();
+    toast('Đã chép sang ' + list.length + ' gian hàng (giữ nguyên phí ngành hàng của từng shop)');
+  };
+  if (khac.length === 1){
+    if (!confirm(`Chép bảng phí của "${from.name}" sang "${khac[0].name}"?\n\nPhí cố định theo ngành hàng của shop kia được GIỮ NGUYÊN.`)) return;
+    chep(khac);
+    return;
+  }
+  const el = openModal('Chép bảng phí sang', `<div class="list">` + khac.map(s =>
+    `<div class="li" data-cp="${s.id}"><div class="grow"><div class="li-t">${esc(s.name)}</div>
+      <div class="li-s">giữ nguyên phí ngành hàng ${ratePct(shopFees(s).feePct)}</div></div>
+      <span class="chip acc">Chép →</span></div>`).join('') + `</div>`, '', false);
+  el.addEventListener('click', e => {
+    const li = e.target.closest('[data-cp]');
+    if (!li) return;
+    closeModal();
+    chep(khac.filter(s => s.id === li.dataset.cp));
+  });
+}
+
 const ACTIONS = {
   nav:  id => go(id),
   kol:  id => go('kol', id),
@@ -3203,6 +3364,14 @@ const ACTIONS = {
   stage:   id => { go('pipeline'); },
   movestage: id => stagePicker(id),
   setstage:  id => { const [bid, st] = id.split('|'); closeModal(); setStage(bid, st); },
+
+  /* tính chi phí */
+  costsp:      id => go('costsp', id),
+  newcostsp:   () => costSpForm(null),
+  editcostsp:  id => costSpForm(id),
+  costshop:    id => { ui.costShop = id; render(); },
+  costfee:     () => { ui.costFee = !ui.costFee; render(); },
+  costfeecopy: id => costFeeCopy(id),
 
   /* dự án đánh từ khoá */
   kwgo:    id => go('kw', id),
@@ -3419,6 +3588,7 @@ const ACTIONS = {
     else if (p === 'improve') spImportModal('');
     else if (p === 'newprod') ideaForm(null);
     else if (p === 'keywords' || p === 'kw') kwForm(null);
+    else if (p === 'cost' || p === 'costsp') costSpForm(null);
     else if (p === 'resources') {
       ({brands: brandForm, products: productForm, statuses: statusForm,
         templates: templateForm}[ui.resTab] || brandForm)(null);
@@ -3516,6 +3686,20 @@ document.addEventListener('change', e => {
     db.settings.postTargets = db.settings.postTargets || {};
     db.settings.postTargets[pt.dataset.pt] = Math.max(0, +pt.value || 0);
     save(); render(); return;
+  }
+
+  /* bảng phí của gian hàng — data-fee="shopId|khoá" */
+  const fee = e.target.closest('[data-fee]');
+  if (fee){
+    const [sid, k] = fee.dataset.fee.split('|');
+    const sh = db.shops.find(x => x.id === sid && !x.deleted);
+    const spec = FEE_FIELDS.find(x => x.k === k);
+    if (sh && spec){
+      sh.fees = Object.assign({}, DEFAULT_FEES, sh.fees);
+      sh.fees[k] = Math.min(Math.max(0, +fee.value || 0), spec.max);
+      stamp(sh); save(); render();
+    }
+    return;
   }
 
   const ar = e.target.closest('[data-ar]');

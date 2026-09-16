@@ -20,7 +20,8 @@ const ui = {
   cmpFrom:'', cmpTo:'',
   todayAhead:0,
   ideaQ:'', ideaShowDead:false,
-  kwQ:'', kwShowDead:false
+  kwQ:'', kwShowDead:false,
+  costShop:'', costFee:false
 };
 
 /* Cấu hình Telegram nằm ở máy chủ, không phải trong db — mã bot không bao
@@ -3030,6 +3031,241 @@ function postFlowCard(m){
         : 'reup sau ~' + Math.round(m.lagTB) + ' ngày'}</span>` : ''}
     </div>
   </div>`;
+}
+
+/* ============================================================
+   TÍNH CHI PHÍ
+
+   Một câu hỏi duy nhất: con này chạy quảng cáo tới ROAS bao nhiêu thì hết
+   lãi? Mọi thứ trên trang chỉ là đường đi tới con số đó.
+
+   Trang danh sách gom theo gian hàng rồi tới thương hiệu; bấm một dòng mở ra
+   bảng bóc phí dựng đúng thứ tự Shopee ghi trên đơn, để đặt cạnh một đơn
+   thật là đối chiếu được ngay.
+   ============================================================ */
+function costShopTabs(){
+  const ds = shops().filter(s => !s.archived);
+  const chua = costRows('').length;
+  const cur  = ds.some(s => s.id === ui.costShop) ? ui.costShop
+             : (ui.costShop === '' && (chua || !ds.length) ? '' : (ds[0] ? ds[0].id : ''));
+  return {ds, chua, cur};
+}
+
+function viewCost(){
+  const {ds, chua, cur} = costShopTabs();
+
+  let h = `<div class="toolbar">
+    <div class="tabs">${
+      ds.map(s => `<button class="tab ${cur === s.id ? 'on' : ''}" data-act="costshop" data-id="${s.id}">${
+        esc(s.name)}</button>`).join('')}${
+      chua ? `<button class="tab ${cur === '' ? 'on' : ''}" data-act="costshop" data-id="">Chưa xếp (${chua})</button>` : ''}
+    </div>
+    <div class="grow"></div>
+    <button class="btn pri" data-act="newcostsp">+ Sản phẩm</button>
+  </div>`;
+
+  if (!products().filter(p => !p.archived).length)
+    return h + `<div class="empty"><b>Chưa có sản phẩm nào</b>
+      Điền giá vốn và giá bán, app trừ hết phí Shopee rồi trả về <b>ROAS thấp nhất được phép chạy</b>.
+      Dưới mốc đó thì mỗi đơn quảng cáo mang về là một đơn lỗ.
+      <div style="margin-top:14px" class="btns center">
+        <button class="btn pri" data-act="newcostsp">+ Thêm sản phẩm đầu tiên</button></div></div>`;
+
+  /* ---- bảng phí của gian hàng đang mở ---- */
+  if (cur){
+    const sh = shopOf(cur), F = shopFees(sh);
+    h += `<div class="mod">` + moduleHead('₫', 'Bảng phí của ' + sh.name,
+      'đổi ở đây là mọi sản phẩm trong gian hàng tính lại ngay',
+      `<button class="btn sm ${ui.costFee ? 'pri' : ''}" data-act="costfee">${
+        ui.costFee ? 'Thu lại' : 'Sửa bảng phí'}</button>`);
+    if (ui.costFee){
+      h += `<div class="card">` + FEE_FIELDS.map(f => `
+        <div class="kv"><span>${esc(f.l)}${f.hint ? `<div class="dim" style="font-size:11px;margin-top:2px">${esc(f.hint)}</div>` : ''}</span>
+          <input class="inp num" type="number" min="0" max="${f.max}" step="${f.step}"
+                 data-fee="${cur}|${f.k}" value="${F[f.k]}"> ${f.unit}</div>`).join('') +
+        `</div>
+        <div class="btns" style="margin-top:8px">
+          ${ds.length > 1 ? `<button class="btn sm" data-act="costfeecopy" data-id="${cur}">Chép bảng phí này sang gian hàng khác</button>` : ''}
+        </div>`;
+    }
+    h += `<div class="explain">Mọi phí phần trăm tính trên <b>giá bán thực</b> = giá niêm yết − voucher
+      của shop. Không phải giá niêm yết, và cũng không phải số tiền khách trả: voucher của Shopee là
+      tiền Shopee bỏ ra, nó không đụng tới phần mình.</div></div>`;
+  }
+
+  /* ---- ngưỡng đang đặt thấp hơn điểm hoà vốn ---- */
+  const duoi = costUnderMin();
+  if (duoi.length){
+    h += `<div class="mod">` + moduleHead('🚨', 'Ngưỡng ROAS đang đặt thấp hơn điểm hoà vốn',
+      duoi.length + ' sản phẩm — mỗi đơn quảng cáo mang về là một đơn lỗ');
+    h += `<div class="alerts">` + duoi.slice(0, 8).map(x => `
+      <div class="al al-bad" data-act="costsp" data-id="${x.p.id}">
+        <span class="al-dot"></span>
+        <div class="grow"><div class="al-t">${esc(x.p.name)}</div>
+          <div class="al-s">đang đặt ${xText(x.p.roasTarget)} · hoà vốn ở <b>${xText(x.calc.roas)}</b>
+            · chênh ${xText(x.calc.roas - x.p.roasTarget)}</div></div>
+        <span class="al-go">›</span>
+      </div>`).join('') + `</div></div>`;
+  }
+
+  /* ---- từng thương hiệu ---- */
+  const nhom = costByBrand(cur);
+  if (!nhom.length){
+    h += `<div class="empty"><b>Gian hàng này chưa có sản phẩm nào</b>
+      Bấm <b>+ Sản phẩm</b> để thêm, hoặc mở một sản phẩm ở tab <b>Chưa xếp</b> rồi chọn gian hàng cho nó.</div>`;
+    return h;
+  }
+  nhom.forEach(g => {
+    const co = g.rows.filter(r => r.calc && !r.calc.lo && r.calc.roas);
+    const tb = co.length ? co.reduce((t,r) => t + r.calc.roas, 0) / co.length : null;
+    h += `<div class="mod">` + moduleHead('🏷', g.brand || 'Chưa gắn thương hiệu',
+      g.rows.length + ' sản phẩm' + (tb ? ' · ROAS min trung bình ' + xText(tb) : ''));
+    h += `<div class="tblwrap"><table class="tbl sm ptbl stick"><thead><tr>
+      <th class="nw">Sản phẩm</th><th class="r">Giá niêm yết</th><th class="r">Voucher</th>
+      <th class="r">Giá bán thực</th><th class="r">Giá vốn</th><th class="r">Thực nhận</th>
+      <th class="r">Lãi/đơn</th><th class="r">ACOS max</th><th class="r">ROAS min</th>
+      <th class="r">ROAS đang chạy</th></tr></thead><tbody>` +
+      g.rows.map(r => costRow(r)).join('') + `</tbody></table></div></div>`;
+  });
+  return h;
+}
+
+function costRow(r){
+  const x = r.calc, p = r.p;
+  if (!x)
+    return `<tr data-act="costsp" data-id="${p.id}">
+      <td class="nw"><b>${esc(p.name)}</b></td>
+      <td colspan="9" class="dim">chưa điền giá bán nên chưa tính được — bấm để điền</td></tr>`;
+  const nay = costRoasNow(p);
+  const dat = p.roasTarget || 0;
+  return `<tr data-act="costsp" data-id="${p.id}">
+    <td class="nw"><b>${esc(p.name)}</b>${x.thieuVon
+      ? ` <span class="chip warn">chưa có giá vốn</span>` : ''}${
+      r.c && +r.c.feePct > 0
+        ? ` <span class="chip" title="con này đặt riêng, không theo bảng phí của gian hàng">phí ${ratePct(r.c.feePct)}</span>` : ''}</td>
+    <td class="r">${moneyShort(x.gia)}</td>
+    <td class="r">${x.vPct ? ratePct(x.vPct) + '<div class="dim" style="font-size:10px">−' + moneyShort(x.vou) + '</div>' : '—'}</td>
+    <td class="r"><b>${moneyShort(x.gbt)}</b></td>
+    <td class="r">${x.von ? moneyShort(x.von) : '<span class="dim">—</span>'}</td>
+    <td class="r">${moneyShort(x.thucNhan)}</td>
+    <td class="r"><b class="${x.lo ? 'bad' : 'ok'}">${moneyShort(x.lai)}</b></td>
+    <td class="r">${x.acos == null ? '<span class="bad">lỗ sẵn</span>' : pctText(x.acos, 1)}</td>
+    <td class="r"><b>${x.roas == null ? '<span class="bad">—</span>' : xText(x.roas)}</b>${
+      dat ? `<div class="dim" style="font-size:10px">đặt ${xText(dat)}</div>` : ''}</td>
+    <td class="r">${nay
+      ? `<b class="${x.roas && nay.m.roas < x.roas ? 'bad' : 'ok'}">${xText(nay.m.roas)}</b>
+         <div class="dim" style="font-size:10px">${esc(monthLabel(nay.ym))}</div>`
+      : '<span class="dim">chưa nối</span>'}</td>
+  </tr>`;
+}
+
+/* ---------------- một sản phẩm ---------------- */
+function viewCostSp(id){
+  const p = productOf(id);
+  if (!p) return emptyBox('Không tìm thấy sản phẩm này', 'Có thể đã bị xoá.');
+  const x = costCalc(p);
+  const c = costOf(p.id);
+
+  let h = `<div class="toolbar">
+    <button class="btn" data-act="nav" data-id="cost">‹ Tính chi phí</button>
+    <div class="grow"></div>
+    ${p.url ? `<a class="btn sm" href="${esc(p.url)}" target="_blank" rel="noopener">Mở trên Shopee ↗</a>` : ''}
+    <button class="btn pri" data-act="editcostsp" data-id="${p.id}">Sửa giá vốn, giá bán</button>
+  </div>`;
+
+  h += `<div class="card">
+    <h2>${esc(p.name)}</h2>
+    <div class="dim">${esc(p.brand || 'chưa gắn thương hiệu')}${
+      c && c.shopId ? ' · ' + esc(shopName(c.shopId)) : ' · chưa xếp gian hàng'}${
+      p.sku ? ' · SKU ' + esc(p.sku) : ''}</div>
+  </div>`;
+
+  if (!x)
+    return h + `<div class="empty"><b>Chưa có giá bán</b>
+      Điền giá niêm yết thì app mới bóc phí ra được.
+      <div style="margin-top:14px" class="btns center">
+        <button class="btn pri" data-act="editcostsp" data-id="${p.id}">Điền giá bán và giá vốn</button></div></div>`;
+
+  h += `<div class="tiles">
+    ${tile('Giá bán thực', moneyShort(x.gbt), x.vPct ? 'sau voucher ' + ratePct(x.vPct) : 'không có voucher')}
+    ${tile('Thực nhận từ Shopee', moneyShort(x.thucNhan), 'sau ' + moneyShort(x.tongPhi) + ' phí')}
+    ${tile('Lãi mỗi đơn', moneyShort(x.lai), x.lo ? 'ĐANG LỖ' : 'khi chưa chạy quảng cáo', x.lo ? 'bad' : 'ok')}
+    ${tile('ROAS min', x.roas == null ? '—' : xText(x.roas),
+           x.acos == null ? 'lỗ sẵn, không có ngưỡng' : 'ACOS max ' + pctText(x.acos, 1))}
+  </div>`;
+
+  /* ---- bảng bóc phí, dựng đúng thứ tự Shopee ghi trên đơn ---- */
+  h += `<div class="mod">` + moduleHead('🧾', 'Bóc từng khoản',
+    'đặt cạnh một đơn thật trong Kênh Người Bán là đối chiếu được từng dòng');
+  h += `<div class="tblwrap"><table class="tbl sm ptbl"><tbody>
+    <tr><td class="nw">Giá niêm yết</td><td class="dim">giá treo trên trang</td>
+        <td class="r"><b>${money(x.gia)}</b></td></tr>
+    <tr><td class="nw">Voucher của shop</td><td class="dim">${x.vPct ? ratePct(x.vPct) + ' mình tự đặt' : 'không đặt'}</td>
+        <td class="r">${x.vou ? '−' + money(x.vou) : money(0)}</td></tr>
+    <tr class="rowon"><td class="nw"><b>Giá bán thực</b></td>
+        <td class="dim">mốc để tính mọi phí phần trăm bên dưới</td>
+        <td class="r"><b>${money(x.gbt)}</b></td></tr>` +
+    x.lines.map(l => `<tr><td class="nw">${esc(l.l)}</td><td class="dim">${esc(l.sub)}</td>
+        <td class="r">−${money(l.v)}</td></tr>`).join('') +
+    `<tr><td class="nw"><b>Tổng phí Shopee giữ</b></td><td class="dim"></td>
+        <td class="r"><b>−${money(x.tongPhi)}</b></td></tr>
+    <tr class="rowon"><td class="nw"><b>Thực nhận từ Shopee</b></td>
+        <td class="dim">đúng dòng “Doanh Thu Đơn Hàng” trên đơn</td>
+        <td class="r"><b>${money(x.thucNhan)}</b></td></tr>
+    <tr><td class="nw">Giá vốn sản phẩm</td><td class="dim">${x.thieuVon ? 'CHƯA ĐIỀN — con số dưới đây đang sai' : 'mua vào'}</td>
+        <td class="r">${x.von ? '−' + money(x.von) : '<span class="bad">chưa điền</span>'}</td></tr>
+    <tr><td class="nw">Hộp giấy và công đóng gói</td><td class="dim">phí của mình, Shopee không trừ</td>
+        <td class="r">−${money(x.pack)}</td></tr>
+    <tr class="rowon"><td class="nw"><b>Lãi mỗi đơn</b></td>
+        <td class="dim">khi chưa tốn đồng quảng cáo nào</td>
+        <td class="r"><b class="${x.lo ? 'bad' : 'ok'}">${money(x.lai)}</b></td></tr>
+  </tbody></table></div></div>`;
+
+  /* ---- ngưỡng ---- */
+  const nay = costRoasNow(p);
+  h += `<div class="mod">` + moduleHead('🎯', 'Ngưỡng được phép chạy', 'dưới mốc này là mỗi đơn một lỗ');
+  if (x.lo){
+    h += `<div class="explain warn"><b>Con này lỗ ${money(-x.lai)} mỗi đơn dù không chạy quảng cáo.</b>
+      Không có ngưỡng ROAS nào cứu được — chạy càng mạnh lỗ càng nhiều. Phải sửa ở gốc: tăng giá bán,
+      bớt voucher, hạ giá vốn, hoặc bỏ con này.</div>`;
+  } else {
+    h += `<div class="card">
+      <div class="kv"><span>ACOS max — được đổ vào quảng cáo tối đa</span><b>${pctText(x.acos, 1)} của giá bán thực = ${money(x.lai)}</b></div>
+      <div class="kv"><span>ROAS min — hoà vốn</span><b>${xText(x.roas)}</b></div>
+      <div class="kv"><span>ROAS bạn đang đặt cho con này</span>${p.roasTarget
+        ? `<b class="${p.roasTarget < x.roas ? 'bad' : 'ok'}">${xText(p.roasTarget)}${
+            p.roasTarget < x.roas ? ' — THẤP HƠN điểm hoà vốn' : ''}</b>`
+        : `<span class="dim">chưa đặt</span>`}</div>
+      <div class="kv"><span>ROAS đang chạy thật</span>${nay
+        ? `<b class="${nay.m.roas < x.roas ? 'bad' : 'ok'}">${xText(nay.m.roas)}</b>
+           <span class="dim">${esc(monthLabel(nay.ym))} · ${nay.n} chiến dịch</span>`
+        : `<span class="dim">chưa nối được chiến dịch nào — khoá mã Shopee trong Tài nguyên</span>`}</div>
+    </div>`;
+    /* Quanh điểm hoà vốn, lãi đổi rất gắt theo ROAS — nhích một nấc ROAS ăn
+       thêm cả nghìn đồng mỗi đơn. Một câu chữ không nói được chuyện đó, nên
+       bày thẳng cái thang: chạy tới đâu thì còn lại bao nhiêu. */
+    const thang = [x.roas, x.roas * 1.2, x.roas * 1.5, x.roas * 2, x.roas * 3];
+    h += `<div class="tblwrap" style="margin-top:10px"><table class="tbl sm ptbl">
+      <thead><tr><th class="nw">Nếu chạy ở ROAS</th><th class="r">Tiền quảng cáo mỗi đơn</th>
+        <th class="r">Còn lại mỗi đơn</th></tr></thead><tbody>` +
+      thang.map((r, i) => {
+        const qc = x.gbt / r, con = x.lai - qc;
+        return `<tr class="${i === 0 ? 'rowon' : ''}"><td class="nw">${xText(r)}${
+          i === 0 ? ' <span class="chip">hoà vốn</span>' : ''}</td>
+          <td class="r">${money(qc)}</td>
+          <td class="r"><b class="${con > 0 ? 'ok' : ''}">${money(con)}</b></td></tr>`;
+      }).join('') + `</tbody></table></div>
+      <div class="dim" style="margin-top:6px">Quanh điểm hoà vốn lãi đổi rất gắt: nhích ROAS từ ${
+        xText(x.roas)} lên ${xText(x.roas * 1.2)} đã ăn thêm ${
+        money(x.lai - x.gbt / (x.roas * 1.2))} mỗi đơn. Đó là lý do ngưỡng phải đặt
+        <b>trên</b> mốc hoà vốn một quãng, chứ không đặt sát nó.</div>`;
+  }
+  h += `</div>`;
+
+  if (c && c.note) h += `<div class="card" style="margin-top:18px">
+    <div class="sec sm">Ghi chú<span class="ln"></span></div>
+    <div class="dim" style="white-space:pre-wrap">${esc(c.note)}</div></div>`;
+  return h;
 }
 
 /* ============================================================

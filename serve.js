@@ -78,11 +78,13 @@ function db(){
    Hai bản phải giống nhau từng luật một. Lệch một chỗ thì bản chạy thử ở máy
    nói "được" còn máy chủ thật nói "không" — hoặc tệ hơn, ngược lại. */
 const KH_PERMS = ['dash','pipeline','kols','clips','postfb','posttt','ads',
-                  'improve','newprod','compare','resources'];
+                  'improve','newprod','compare','resources','cost'];
 const KH_KIND_PERM = {
   kols:['kols','pipeline'], statuses:['kols','pipeline'], templates:['kols','pipeline'],
   bookings:['pipeline','kols','clips'], clips:['clips','pipeline','kols'],
-  adperiods:['ads'], actions:['ads'], adcamps:['ads'], addays:['ads'], shops:['ads'],
+  adperiods:['ads'], actions:['ads'], adcamps:['ads'], addays:['ads'],
+  /* shops mang cả bảng phí, nên bên Tính chi phí cũng phải đọc được */
+  shops:['ads','cost'], costs:['cost'],
   orderstats:['ads'], adfixes:['ads'], keywords:['ads'], kwranks:['ads'],
   spweeks:['improve','ads'],
   impacts:['improve'], ideas:['newprod']

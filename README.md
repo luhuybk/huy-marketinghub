@@ -1211,6 +1211,141 @@ xếp mỗi dòng một mục. Duyệt tay trăm rưỡi dòng số máy móc th
 những thứ đáng duyệt thật — một deal, một clip — sẽ chìm mất trong đó. Số quảng
 cáo được soi bằng cờ cảnh báo trong chính báo cáo, đó mới là chỗ đọc được.
 
+## Tính chi phí
+
+Một câu hỏi duy nhất: **con này chạy quảng cáo tới ROAS bao nhiêu thì hết lãi?**
+Mọi thứ trên trang chỉ là đường đi tới con số đó.
+
+```
+Gian hàng  →  Thương hiệu  →  Sản phẩm  →  bảng bóc phí
+   ↑ bảng phí riêng           ↑ giá vốn + giá bán
+```
+
+### Mốc tính phí là GIÁ BÁN THỰC, không phải giá niêm yết
+
+Ba con số rất dễ nhầm với nhau, nên nói rõ một lần bằng một đơn thật:
+
+| | |
+|---|---|
+| Giá niêm yết | 189.000 — giá treo trên trang |
+| **Giá bán thực** | **174.000** — sau khi trừ mã giảm giá **của shop** ← mốc tính phí |
+| Khách trả | 139.000 — sau khi trừ tiếp voucher **của Shopee** |
+
+Voucher của Shopee là tiền Shopee bỏ ra, nó **không đụng tới phần mình**, nên
+không được lấy số khách trả làm mốc. Lấy nhầm là mọi phí đều tính thiếu và
+ngưỡng ROAS ra thấp hơn thực tế — tức là chạy quảng cáo lỗ mà bảng vẫn xanh.
+
+### Sáu khoản phí, đã đối chiếu với một đơn thật
+
+Trên giá bán thực 174.000, phí cố định ngành hàng 17%:
+
+| Khoản | Cách tính | Ra |
+|---|---|---|
+| Phí cố định ngành hàng | 17% × 174.000 | 29.580 |
+| Phí dịch vụ PiShip | cố định mỗi đơn | 2.700 |
+| Phí hạ tầng | cố định mỗi đơn | 3.000 |
+| Gói voucher extra | 5,5% × 174.000, tối đa 50.000 | 9.570 |
+| Phí xử lý giao dịch | 6% × 174.000 | 10.440 |
+| Thuế | 1,5% × 174.000 (GTGT 1% + TNCN 0,5%) | 2.610 |
+| **Tổng** | | **57.900** |
+
+174.000 − 57.900 = **116.100**, đúng dòng *Doanh Thu Đơn Hàng* Shopee ghi trên
+đơn — **lệch 0 đồng**. Hai khoản *Phí hạ tầng* và *Gói voucher extra* cộng lại
+thành đúng dòng *Phí Dịch Vụ* mà Shopee gộp sẵn (3.000 + 9.570 = 12.570).
+
+Trang chi tiết bày đúng thứ tự này để đặt cạnh một đơn thật trong Kênh Người
+Bán là đối chiếu được từng dòng — không phải tin vào một con số từ trên trời.
+
+### ACOS max và ROAS min
+
+```
+lãi mỗi đơn = thực nhận − giá vốn − hộp giấy và công đóng gói
+ACOS max    = lãi mỗi đơn / giá bán thực
+ROAS min    = 1 / ACOS max = giá bán thực / lãi mỗi đơn
+```
+
+Với giá vốn 90.000 và đóng gói 5.000: lãi 21.100 → ACOS max **12,1%** → ROAS
+min **8,25x**.
+
+Lỗ sẵn khi chưa chạy quảng cáo thì **không có ngưỡng nào cả** — app trả về
+trống chứ không trả một con số to cho có. Chạy càng mạnh lỗ càng nhiều; phải
+sửa ở gốc chứ không phải chỉnh giá thầu.
+
+### ROAS min là điểm hoà vốn, không phải mục tiêu
+
+Quanh mốc hoà vốn, lãi đổi rất gắt theo ROAS — nên trang chi tiết bày thẳng cả
+cái thang thay vì một con số:
+
+| Chạy ở | Tiền quảng cáo mỗi đơn | Còn lại |
+|---|---|---|
+| 8,25x (hoà vốn) | 21.100 | 0 |
+| 9,90x | 17.583 | 3.517 |
+| 12,37x | 14.067 | 7.033 |
+| 16,49x | 10.550 | 10.550 |
+
+Nhích từ 8,25x lên 9,90x đã ăn thêm 3.517đ mỗi đơn. Đó là lý do ngưỡng phải
+đặt **trên** mốc hoà vốn một quãng, chứ không đặt sát nó.
+
+### Thứ đáng tiền nhất trang này tìm ra
+
+Khối **🚨 Ngưỡng ROAS đang đặt thấp hơn điểm hoà vốn**: sản phẩm có
+`roasTarget` nhỏ hơn ROAS min. Mỗi đơn quảng cáo mang về là một đơn lỗ, mà báo
+cáo vẫn xanh vì nó chỉ so với ngưỡng mình tự đặt. Không có bảng chi phí thì
+không cách nào nhìn ra.
+
+Cạnh đó, mỗi sản phẩm hiện luôn **ROAS đang chạy thật** lấy từ số quảng cáo đã
+nạp, nối qua đúng hai khoá `shopeeSku` / `shopeeName` mà `adcampProduct()` dùng
+— hai chiều không bao giờ nối khác nhau.
+
+### Bảng phí nằm trên GIAN HÀNG, không nằm trong Cài đặt
+
+`db.settings` không có trong `COLLECTIONS` nên nó **chỉ sống trên một máy**. Để
+bảng phí ở đó thì mỗi người một bảng, và cùng một sản phẩm sẽ ra hai ngưỡng
+ROAS khác nhau tuỳ mở app ở máy nào. Đặt trên bản ghi `shops` là nó đồng bộ
+theo, và cũng đúng hơn: shop thường và shop mall vốn khác nhau thật.
+
+Nút **Chép bảng phí sang gian hàng khác** chép mọi khoản **trừ phí cố định
+ngành hàng** — đó đúng là con số khác nhau giữa hai shop, chép đè lên là xoá
+mất thứ vừa ngồi tra.
+
+### Phí ngành hàng đặt riêng cho từng sản phẩm
+
+Kem đánh răng và sáp vuốt tóc là hai ngành hàng, hai mức phí, dù nằm chung một
+gian hàng. Nên mỗi sản phẩm có ô *phí cố định ngành hàng riêng*: để **0** là
+theo bảng phí của gian hàng. Chọn 0 làm dấu thay vì ô rỗng vì Shopee không có
+ngành hàng nào 0%. Sản phẩm nào đặt riêng thì trong bảng có một cái nhãn nhỏ.
+
+### Giá vốn tách khỏi `products` — và đây là lý do
+
+`products` **không khai quyền** trong `KH_KIND_PERM`, nên nó chảy về máy mọi
+nhân viên (thẻ booking cần tên sản phẩm). Để giá vốn vào đó là lộ, mà lộ lặng
+lẽ: app vẫn chạy đúng, đồng bộ vẫn xanh.
+
+Nên bộ `costs` là một bảng riêng, khai `['cost']`. Một biểu mẫu ghi vào hai bản
+ghi: tên và **giá bán** vào `products` (giá bán vốn công khai trên Shopee), còn
+**giá vốn** vào `costs`.
+
+Đã thử bằng tài khoản nhân viên thật: có quyền `ads` mà không có `cost` thì đẩy
+`costs` bị chặn và kéo về **không thấy một dòng nào**; cấp thêm `cost` thì lưu
+và kéo về đủ. `shops` khai `['ads','cost']` vì nó mang bảng phí.
+
+Quyền `cost` là quyền **mới**, nên tài khoản nhân viên đang có sẽ chưa được
+tick — vào Cài đặt bật cho ai cần.
+
+### Ô xem trước tính lại theo từng phím gõ
+
+Dò giá vốn là việc thử đi thử lại: gõ 90k xem ROAS min bao nhiêu, gõ 95k xem
+lại. Bắt bấm Lưu rồi mới thấy kết quả thì mỗi lần thử mất bốn cú bấm, và không
+ai thử quá hai lần. Nên `costFrom()` là hàm **thuần số**, không đọc db — biểu
+mẫu gọi thẳng nó với những con số chưa lưu.
+
+### Dải tab phải tự trượt trong lòng nó
+
+`.tab` đặt `white-space:nowrap`, mà `.tabs` là ô flex trong `.toolbar` nên mặc
+định nó không co được: bốn tab của Báo cáo Ads, hay hai cái tên gian hàng dài,
+đẩy rộng hơn khung và làm **cả trang** trượt ngang trên điện thoại. `min-width:0`
+cho nó co, `overflow-x:auto` cho nó tự cuộn.
+
 ## Đánh top từ khoá
 
 Một từ khoá ở đây là **một dự án**, không phải một dòng ghi chú. Quy trình cố

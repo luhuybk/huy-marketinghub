@@ -431,6 +431,53 @@ const KW_STAGES = [
   {id:'drop',  label:'Bỏ qua',          icon:'✕',  color:'var(--bad)', live:false}
 ];
 const KW_STAGE = Object.fromEntries(KW_STAGES.map(s => [s.id, s]));
+
+/* ============================================================
+   TÍNH CHI PHÍ — từ giá niêm yết ra ngưỡng ROAS thấp nhất
+
+   Mốc của MỌI phí phần trăm là GIÁ BÁN THỰC = giá niêm yết − voucher của
+   shop. Ba con số dễ nhầm với nhau, nên nói rõ một lần:
+
+     · giá niêm yết  189.000   giá treo trên trang
+     · giá bán thực  174.000   sau khi trừ mã giảm giá CỦA SHOP  ← mốc tính phí
+     · khách trả     139.000   sau khi trừ tiếp voucher của Shopee
+
+   Voucher của Shopee là tiền Shopee bỏ ra, nó KHÔNG đụng tới phần mình, nên
+   không được lấy số khách trả làm mốc. Đã đối chiếu với một đơn thật: sáu
+   dòng phí dưới đây ra đúng 116.100 — lệch 0 đồng.
+   ============================================================ */
+const DEFAULT_FEES = {
+  feePct:     17,      // phí cố định theo ngành hàng — shop thường khác shop mall
+  piship:     2700,    // phí dịch vụ PiShip, cố định mỗi đơn
+  infra:      3000,    // phí hạ tầng, cố định mỗi đơn
+  xtraPct:    5.5,     // phí tham gia gói voucher extra
+  xtraCap:    50000,   // trần của phí trên
+  payPct:     6,       // phí xử lý giao dịch
+  taxPct:     1.5,     // thuế: GTGT 1% + TNCN 0,5%
+  packCost:   5000,    // hộp giấy và công đóng gói tại shop — phí của mình, không phải của Shopee
+  voucherPct: 0        // voucher shop đặt sẵn, dùng làm mặc định cho sản phẩm mới
+};
+/* Khai một lần, dùng cho cả ô nhập lẫn dòng giải thích — thêm một khoản phí
+   về sau chỉ phải sửa ở đây. */
+const FEE_FIELDS = [
+  {k:'feePct',     l:'Phí cố định theo ngành hàng', unit:'%', step:'0.1', max:60,
+   hint:'Shop thường và Shop Mall khác nhau, thường 17–21%. Mỗi ngành hàng một mức.'},
+  {k:'piship',     l:'Phí dịch vụ PiShip',          unit:'₫', step:'100', max:100000,
+   hint:'Cố định mỗi đơn, không theo giá'},
+  {k:'infra',      l:'Phí hạ tầng',                 unit:'₫', step:'100', max:100000,
+   hint:'Cố định mỗi đơn. Cùng với gói voucher extra tạo thành dòng “Phí Dịch Vụ” Shopee ghi trên đơn.'},
+  {k:'xtraPct',    l:'Phí gói voucher extra',       unit:'%', step:'0.1', max:30},
+  {k:'xtraCap',    l:'…tối đa',                     unit:'₫', step:'1000', max:5000000,
+   hint:'Vượt mức này thì phí đứng lại, không tăng nữa'},
+  {k:'payPct',     l:'Phí xử lý giao dịch',         unit:'%', step:'0.1', max:30},
+  {k:'taxPct',     l:'Thuế',                        unit:'%', step:'0.1', max:30,
+   hint:'GTGT 1% + TNCN 0,5% — Shopee giữ lại ngay trên đơn'},
+  {k:'packCost',   l:'Hộp giấy và công đóng gói',   unit:'₫', step:'500', max:500000,
+   hint:'Phí của MÌNH, Shopee không trừ. Đưa vào đây vì nó ăn vào lãi y như mọi phí khác.'},
+  {k:'voucherPct', l:'Voucher shop đặt sẵn',        unit:'%', step:'0.5', max:90,
+   hint:'Chỉ là mức điền sẵn khi thêm sản phẩm mới — từng sản phẩm vẫn đặt riêng được'}
+];
+const FEE_KEYS = FEE_FIELDS.map(f => f.k);
 const KW_LIVE  = KW_STAGES.filter(s => s.live).map(s => s.id);
 
 /* ============================================================
@@ -703,7 +750,12 @@ const PERMS = [
   {id:'improve',   label:'Cải thiện SP', hint:'phễu và số liệu tuần trên Shopee'},
   {id:'newprod',   label:'Sản phẩm mới', hint:'ý tưởng sản phẩm đang dựng'},
   {id:'compare',   label:'So sánh kênh', hint:'đối chiếu KOC với Shopee Ads'},
-  {id:'resources', label:'Tài nguyên',   hint:'thương hiệu, sản phẩm, mẫu tin nhắn'}
+  {id:'resources', label:'Tài nguyên',   hint:'thương hiệu, sản phẩm, mẫu tin nhắn'},
+  /* Quyền riêng, KHÔNG gộp vào `ads`: giá vốn là thứ nhạy nhất trong app.
+     Người chạy quảng cáo cần biết chi bao nhiêu, không cần biết mua vào bao
+     nhiêu. Bộ `costs` cũng vì thế mà tách khỏi `products` — `products` không
+     khai quyền nên chảy về máy mọi nhân viên, để giá vốn vào đó là lộ. */
+  {id:'cost',      label:'Tính chi phí',  hint:'giá vốn, lãi mỗi đơn, ngưỡng ROAS'}
 ];
 const PERM_IDS = PERMS.map(p => p.id);
 const PERM = Object.fromEntries(PERMS.map(p => [p.id, p]));
@@ -740,13 +792,13 @@ const DEFAULT_POST_TARGETS = {fb:0, tt:0};
 const KEY = 'kolhub.v1';
 const COLLECTIONS = ['kols','bookings','clips','products','adperiods','actions','brands','statuses',
                      'templates','spweeks','impacts','ideas','posts','adcamps','shops','addays',
-                     'orderstats','adfixes','keywords','kwranks'];
+                     'orderstats','adfixes','keywords','kwranks','costs'];
 
 function blank(){
   return {
     kols:[], bookings:[], clips:[], products:[], adperiods:[], actions:[], brands:[], statuses:[],
     templates:[], spweeks:[], impacts:[], ideas:[], posts:[], adcamps:[], shops:[], addays:[],
-    orderstats:[], adfixes:[], keywords:[], kwranks:[],
+    orderstats:[], adfixes:[], keywords:[], kwranks:[], costs:[],
     settings:{
       theme:'dark',
       myName:'',
@@ -952,6 +1004,16 @@ function ensure(){
     if (typeof sh.name !== 'string') sh.name = String(sh.name || 'Shop không tên');
     ['code','note'].forEach(f => { if (typeof sh[f] !== 'string') sh[f] = String(sh[f] == null ? '' : sh[f]); });
     if (sh.archived === undefined) sh.archived = false;
+    /* Bảng phí nằm TRÊN gian hàng chứ không nằm trong db.settings, vì
+       db.settings không có trong COLLECTIONS nên nó chỉ sống trên một máy.
+       Để ở đó thì mỗi người một bảng phí, và cùng một sản phẩm sẽ ra hai
+       ngưỡng ROAS khác nhau tuỳ mở app ở máy nào. */
+    const f = Object.assign({}, DEFAULT_FEES, sh.fees || {});
+    FEE_FIELDS.forEach(x => {
+      const v = +f[x.k];
+      f[x.k] = isFinite(v) && v >= 0 ? Math.min(v, x.max) : DEFAULT_FEES[x.k];
+    });
+    sh.fees = f;
   });
   db.adcamps.forEach(c => {
     /* KHÔNG lưu productId ở đây. Chiến dịch nối vào sản phẩm qua mã Shopee,
@@ -1042,6 +1104,23 @@ function ensure(){
     /* Lượt đang đánh trỏ vào một ô đã bị xoá trắng thì bỏ lượt, đừng để thẻ
        khoe "đang đánh" một ô không có gì trong đó. */
     if (k.turn && !k.mine.some(m => m.sid === k.turn && (m.name || m.campKey))) k.turn = '';
+  });
+  db.costs.forEach(c => {
+    ['productId','shopId','note'].forEach(f => { if (typeof c[f] !== 'string') c[f] = String(c[f] == null ? '' : c[f]); });
+    c.cost     = parseMoney(c.cost);
+    c.packCost = parseMoney(c.packCost);
+    /* 0 ở feePct và packCost nghĩa là "theo bảng phí của gian hàng", không
+       phải "bằng không". Chọn 0 làm dấu thay vì ô rỗng vì Shopee không có
+       ngành hàng nào 0%; còn ai thật sự không mất tiền đóng gói thì đặt 0 ở
+       bảng phí của gian hàng, chứ không đặt ở từng sản phẩm. */
+    const fp = +c.feePct;
+    c.feePct = isFinite(fp) && fp > 0 ? Math.min(fp, 60) : 0;
+    const vp = +c.voucherPct;
+    c.voucherPct = isFinite(vp) && vp > 0 ? Math.min(vp, 90) : 0;
+    if (c.shopId && !db.shops.some(x => x.id === c.shopId && !x.deleted)) c.shopId = '';
+    /* Sản phẩm bị xoá thì dòng giá vốn cũng đi theo — giữ lại chỉ tạo ra một
+       dòng không tên trong bảng, không tra ngược được là của con nào. */
+    if (c.productId && !db.products.some(x => x.id === c.productId && !x.deleted)) c.deleted = true;
   });
   db.kwranks.forEach(r => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(r.date || '')) r.date = today();
@@ -1339,6 +1418,7 @@ function missingVars(text){
 const REVIEW_KINDS = {
   adfixes:   'Việc làm trên chiến dịch quảng cáo',
   keywords:  'Dự án đánh từ khoá',
+  costs:     'Giá vốn sản phẩm',
   adperiods: 'Kỳ số liệu quảng cáo',
   spweeks:   'Tuần số liệu Shopee',
   impacts:   'Hành động cải thiện sản phẩm',
@@ -1433,6 +1513,16 @@ function reviewLabel(kind, rec){
                    (rec.whoName ? ' · phụ trách ' + rec.whoName : '') +
                    (g ? (g.trong ? ' · đã trong top' : ' · còn thiếu ' + dem(g.thieu) + ' đơn/tháng') : ''),
               go: ['kw', rec.id]};
+    }
+    case 'costs': {
+      const pr = productOf(rec.productId);
+      const x  = pr ? costCalc(pr) : null;
+      return {title: (pr ? pr.name : 'Sản phẩm đã xoá') + ': giá vốn ' + money(rec.cost),
+              sub: (rec.shopId ? shopName(rec.shopId) + ' · ' : '') +
+                   (x ? (x.lo ? 'ĐANG LỖ ' + money(-x.lai) + ' mỗi đơn'
+                              : 'lãi ' + money(x.lai) + '/đơn · ROAS min ' + xText(x.roas))
+                      : 'chưa có giá bán nên chưa tính được'),
+              go: pr ? ['costsp', pr.id] : ['cost', '']};
     }
     case 'ideas':
       return {title: rec.name, sub: 'sản phẩm mới · ' + IDEA_STAGE[rec.stage].label,
@@ -2164,6 +2254,119 @@ function kwScore(k){
   if (g && g.trong) return null;
   return Math.round(k.volume / Math.max(1, g ? g.thieu : bar));
 }
+
+/* ---- tính chi phí: từ giá niêm yết ra ngưỡng ROAS ---- */
+const costs   = () => alive(db.costs);
+const costOf  = pid => costs().find(c => c.productId === pid) || null;
+const shopFees = sh => Object.assign({}, DEFAULT_FEES, (sh && sh.fees) || {});
+/* Tỉ lệ viết gọn: 17% chứ không phải 17,0% — nhưng 5,5% thì giữ nguyên. */
+const ratePct = v => pctText(v, (+v % 1) ? 1 : 0);
+
+/* Bảng tính của MỘT sản phẩm.
+
+   Trả về từng dòng phí rời chứ không chỉ trả về con số cuối, để trang chi
+   tiết bày ra đúng thứ tự Shopee ghi trên đơn — nhìn hai bên cạnh nhau là
+   đối chiếu được ngay, không phải tin vào một con số từ trên trời rơi xuống. */
+/* Lõi tính, THUẦN SỐ — không đọc db.
+   Tách ra để ô xem trước trong biểu mẫu dùng lại được với những con số người
+   ta vừa gõ mà chưa bấm lưu: đổi giá vốn một cái là thấy ROAS min nhảy theo,
+   đó mới là cách người ta dò giá. */
+function costFrom(o){
+  const gia = Math.max(0, Math.round(o.gia || 0));
+  if (!gia) return null;
+  const F = o.F || DEFAULT_FEES;
+
+  const vPct = Math.max(0, +o.vPct || 0);
+  const vou  = Math.round(gia * vPct / 100);
+  const gbt  = gia - vou;                       // giá bán thực — mốc của mọi phí %
+
+  const feePct = +o.feePct > 0 ? +o.feePct : F.feePct;
+  const pack   = +o.pack   > 0 ? +o.pack   : F.packCost;
+  const von    = Math.max(0, Math.round(o.von || 0));
+
+  const lines = [
+    {k:'fee',   l:'Phí cố định ngành hàng', sub: ratePct(feePct),      v: gbt * feePct / 100},
+    {k:'pi',    l:'Phí dịch vụ PiShip',     sub: 'cố định mỗi đơn',    v: F.piship},
+    {k:'infra', l:'Phí hạ tầng',            sub: 'cố định mỗi đơn',    v: F.infra},
+    {k:'xtra',  l:'Gói voucher extra',      sub: ratePct(F.xtraPct) + ', tối đa ' + moneyShort(F.xtraCap),
+                                            v: Math.min(gbt * F.xtraPct / 100, F.xtraCap)},
+    {k:'pay',   l:'Phí xử lý giao dịch',    sub: ratePct(F.payPct),    v: gbt * F.payPct / 100},
+    {k:'tax',   l:'Thuế',                   sub: ratePct(F.taxPct) + ' — GTGT và TNCN', v: gbt * F.taxPct / 100}
+  ].map(x => Object.assign(x, {v: Math.round(x.v)}));
+
+  const tongPhi  = lines.reduce((t, x) => t + x.v, 0);
+  const thucNhan = gbt - tongPhi;               // đúng dòng "Doanh Thu Đơn Hàng" của Shopee
+  const lai      = thucNhan - von - pack;       // lãi mỗi đơn khi chưa tốn đồng quảng cáo nào
+
+  /* ACOS max: phần trăm giá bán thực được phép đổ vào quảng cáo mà vẫn hoà
+     vốn. ROAS min là nghịch đảo của nó — cùng một con số nhìn từ hai phía.
+     Lỗ sẵn thì không có ngưỡng nào cả: chạy bao nhiêu cũng lỗ, nên trả null
+     chứ không trả một số to cho có. */
+  const acos = lai > 0 && gbt ? lai / gbt * 100 : null;
+  const roas = lai > 0 ? gbt / lai : null;
+  return {F, gia, vPct, vou, gbt, feePct, von, pack,
+          lines, tongPhi, thucNhan, lai, acos, roas, lo: lai <= 0,
+          thieuVon: !von};
+}
+/* Bảng tính của một sản phẩm đã lưu. */
+function costCalc(p){
+  if (!p) return null;
+  const c  = costOf(p.id);
+  const sh = shopOf(c ? c.shopId : '');
+  const x  = costFrom({gia: parseMoney(p.price), F: shopFees(sh),
+                       vPct: c ? c.voucherPct : 0, feePct: c ? c.feePct : 0,
+                       pack: c ? c.packCost : 0, von: c ? c.cost : 0});
+  return x ? Object.assign(x, {p, c, sh}) : null;
+}
+
+/* Chiến dịch của một sản phẩm — chiều ngược của adcampProduct(), khớp theo
+   đúng hai khoá ấy để hai bên không bao giờ nối khác nhau. */
+function campsOfProduct(p){
+  const sku = norm(p.shopeeSku || p.sku), nm = norm(p.shopeeName);
+  if (!sku && !nm) return [];
+  return adcamps().filter(c => (sku && norm(c.sku) === sku) || (nm && norm(c.name) === nm));
+}
+/* ROAS đang chạy thật của sản phẩm, lấy tháng gần nhất có số. Đây là thứ
+   đem so với ROAS min — không có nó thì cả bảng tính chỉ là lý thuyết. */
+function costRoasNow(p){
+  const cs = campsOfProduct(p);
+  if (!cs.length) return null;
+  const ym = cs.map(c => c.ym).sort().pop();
+  const m  = adSum(cs.filter(c => c.ym === ym));
+  return m.roas == null ? null : {ym, m, n: cs.filter(c => c.ym === ym).length};
+}
+
+/* Sản phẩm của một gian hàng, kèm bảng tính. shopId rỗng = nhóm "chưa xếp",
+   gồm cả sản phẩm chưa có dòng giá vốn nào — nếu không, thêm một sản phẩm
+   xong sẽ không thấy nó ở đâu cả và người dùng tưởng bấm lưu bị trôi. */
+function costRows(shopId){
+  return products().filter(p => !p.archived).map(p => {
+    const c = costOf(p.id);
+    return {p, c, calc: costCalc(p), shopId: c ? c.shopId : ''};
+  }).filter(r => r.shopId === shopId)
+    .sort((a,b) => norm(a.p.name).localeCompare(norm(b.p.name), 'vi'));
+}
+/* Gom theo thương hiệu trong một gian hàng. */
+function costByBrand(shopId){
+  const nhom = {};
+  costRows(shopId).forEach(r => {
+    const b = r.p.brand || '';
+    (nhom[b] = nhom[b] || []).push(r);
+  });
+  return Object.keys(nhom).sort((a,b) => (a ? 0 : 1) - (b ? 0 : 1) ||
+                                         a.localeCompare(b, 'vi'))
+                          .map(b => ({brand:b, rows:nhom[b]}));
+}
+/* Sản phẩm đang đặt ngưỡng ROAS THẤP HƠN điểm hoà vốn — mỗi đơn quảng cáo
+   mang về là một đơn lỗ, mà bảng báo cáo vẫn xanh vì nó chỉ so với ngưỡng
+   tự đặt. Đây là thứ đáng tiền nhất cả trang này tìm ra. */
+function costUnderMin(){
+  return products().filter(p => !p.archived && p.roasTarget).map(p => {
+    const x = costCalc(p);
+    return x && x.roas && p.roasTarget < x.roas ? {p, calc:x} : null;
+  }).filter(Boolean).sort((a,b) => (b.calc.roas - b.p.roasTarget) - (a.calc.roas - a.p.roasTarget));
+}
+
 
 /* Bốn dấu hiệu cần soi. Trả về mảng mã, có thể nhiều cái cùng lúc. */
 function adcampIssues(c){
