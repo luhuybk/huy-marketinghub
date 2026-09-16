@@ -25,7 +25,10 @@ const ui = {
      đang mở thương hiệu đó — kể cả chuỗi rỗng, vì '' chính là tên của nhóm
      chưa gắn thương hiệu. Dùng '' cho cả hai việc thì nhóm chưa gắn tên luôn
      tự mở và không bao giờ thấy được màn thẻ. */
-  costShop:'', costFee:false, costBrand:null, costCombo:'', costOpen:{}
+  costShop:'', costFee:false, costBrand:null, costCombo:'', costOpen:{},
+  /* Mốc so sánh của báo cáo ngày. null = tháng gần nhất (mặc định),
+     'moi' = mọi tháng đã nạp, hoặc một mảng tháng bạn tự chọn. */
+  adNen: null
 };
 
 /* Cấu hình Telegram nằm ở máy chủ, không phải trong db — mã bot không bao
@@ -35,7 +38,11 @@ let tgCfg = null;
 let usersCfg = null;
 /* Máy chủ từ chối hoặc mất mạng: phải nói ra. Trước đây lỗi làm danh sách
    thành rỗng, nhìn y hệt "chưa có tài khoản nào" — chủ sẽ tưởng mất sạch. */
-let cfgErr = {tg:'', users:''};
+let cfgErr = {tg:'', users:'', stats:''};
+/* Máy chủ đang để file dữ liệu ở đâu, nặng bao nhiêu. Chỉ máy chủ biết —
+   nhìn từ trình duyệt thì không có cách nào đoán ra, mà đây lại đúng là câu
+   quyết định "lần cập nhật code tới có xoá mất dữ liệu không". */
+let statsCfg = null;
 
 /* ---------------- mảnh dùng lại ---------------- */
 function tile(label, value, sub, cls){
@@ -1338,6 +1345,59 @@ function adDayRow(r){
   </tr>`;
 }
 
+/* ---- ngày này so với TỪNG tháng, mỗi tháng một cột ----
+
+   Khối "So với mức thường" ở trên gộp các tháng lại thành một mốc. Bảng này
+   tách chúng ra. Hai bảng trả lời hai câu khác nhau, và câu thứ hai mới là
+   câu quyết định có phải đi sửa hay không:
+
+     · gộp:  hôm nay có khác thường không
+     · tách: khác từ bao giờ — tụt so với cả T7 lẫn T8 là đang trôi dốc,
+             chỉ tụt so với T8 thì phải xem lại xem T8 có gì bất thường
+
+   Cột "so T7" nằm ngay cạnh số của T7 chứ không dồn xuống một hàng riêng:
+   mắt đọc ngang một dòng là xong một chỉ số, không phải nhảy lên nhảy xuống
+   giữa hai hàng cách nhau vài chục điểm ảnh.                              */
+function adDayMonthTable(shopId, date, rp){
+  const v = adDayVsMonths(shopId, date, null);
+  if (v.rows.length < 2) return '';        // một tháng thì khối ở trên đã đủ
+
+  const d = (nay, bau) => bau && nay != null && isFinite(bau) ? (nay - bau) / bau * 100 : null;
+  let h = sectionTitle('Ngày này so với từng tháng',
+    `<span class="dim">mỗi tháng quy về trung bình một ngày</span>`);
+
+  h += `<div class="tblwrap"><table class="tbl sm ptbl stick"><thead><tr>
+    <th class="nw">Chỉ số</th>
+    <th class="r nw">Ngày ${esc(fmtShort(date))}</th>` +
+    v.rows.map(r => `<th class="r nw">${esc(monthLabel(r.ym))}<div class="dim"
+       style="font-weight:400">tb 1 ngày · ${r.ngay} ngày</div></th>`).join('') +
+    `</tr></thead><tbody>` +
+    AD_SS.map(x => `<tr>
+      <td class="nw"><b>${x.l}</b><div class="dim">${x.p}</div></td>
+      <td class="r nw"><b>${x.f(v.cur[x.k])}</b></td>` +
+      v.rows.map(r => `<td class="r nw"><span class="dim">${x.f(r.b[x.k])}</span>
+        <div>${deltaChip(d(v.cur[x.k], r.b[x.k]), x.tot) || '—'}</div></td>`).join('') +
+    `</tr>`).join('') + `</tbody></table></div>`;
+
+  /* Một câu đọc hộ: chỉ số nào xấu đi so với MỌI tháng thì đó là xu hướng,
+     không phải một ngày xấu. Chỉ kể tên khi mọi tháng cùng nói một điều.
+
+     "Xấu" phải theo đúng chiều tốt của từng chỉ số. CPC thấp đi là mừng, mà
+     nó cũng là một con số tụt 10% — bắt theo dấu trừ thì tháng nào rẻ tiền
+     click cũng bị báo động. */
+  const xau = (x, t) => t != null && (x.tot === false ? t >= 10 : t <= -10);
+  const deu = AD_SS.filter(x => x.tot != null &&
+                v.rows.every(r => xau(x, d(v.cur[x.k], r.b[x.k]))));
+  h += deu.length
+    ? `<div class="explain warn" style="margin-top:8px">⚠︎ <b>${esc(deu.map(x => x.l).join(', '))}</b>
+       kém hơn <b>mọi tháng</b> đã nạp, không riêng tháng gần nhất — đây là chuyện kéo dài chứ
+       không phải một ngày xấu. Mở bảng chiến dịch bên dưới xem con nào kéo xuống.</div>`
+    : `<div class="dim" style="margin-top:8px">Một chỉ số lệch so với tháng này mà ngang tháng
+       kia thì <b>tháng kia mới là tháng cần xem lại</b> — có sale, đứt hàng hay đổi ngân sách
+       không — trước khi lấy nó làm chuẩn cho hôm nay.</div>`;
+  return h;
+}
+
 function viewAdDay(shopId){
   const shopIds = adcampShopIds();
   const dates = adDayDates(shopId);
@@ -1360,8 +1420,13 @@ function viewAdDay(shopId){
      đây nhất của chính nó; gộp cả tháng cũ vào thì một tháng tốt hồi xưa kéo
      mốc lên mãi và ngày nào cũng thấy đỏ vì chuyện đã hết thời sự. Trang Hôm
      nay thì ngược lại — giữa ngày số ít và nhiễu nên mốc rộng mới đỡ lệch. */
-  const rp = adDayReport(shopId, date, null, 'gan');
+  const che = ui.adNen || 'gan';
+  const rp = adDayReport(shopId, date, null, che);
   const cham = v => v == null ? '' : deltaChip(v, null);
+  /* Những tháng có thể lấy làm mốc cho ĐÚNG ngày này. Nạp bù một ngày của
+     hai tháng trước thì danh sách này ngắn lại theo — bày ra một tháng nằm
+     SAU ngày đang xem rồi để bấm vào không thấy gì đổi là tệ hơn không bày. */
+  const nenCo = adcampMonths(shopId).filter(m => m < date.slice(0,7)).sort();
 
   let h = '';
 
@@ -1371,6 +1436,21 @@ function viewAdDay(shopId){
     dates.slice(0, 10).reverse().map(d =>
     `<button class="btn sm ${d === date ? 'pri' : ''}" data-act="addate" data-id="${d}">${
       esc(fmtShort(d))}</button>`).join('') + `</div>`;
+
+  /* Chọn mốc so sánh. Bày ra chứ không giấu trong Cài đặt: mốc là thứ quyết
+     định mọi mũi tên đỏ/xanh bên dưới, mà nó lại đổi tuỳ câu đang hỏi —
+     "hôm qua có gì lạ" hỏi tháng gần nhất, "dạo này có trôi dốc không" hỏi
+     cả mấy tháng. Không thấy mốc thì người xem tưởng chỉ có một cách đọc. */
+  if (nenCo.length) h += `<div class="chips" style="margin-bottom:12px">
+    <span class="dim" style="align-self:center;margin-right:2px">So với:</span>
+    <button class="btn sm ${ui.adNen === null ? 'pri' : ''}" data-act="adnen" data-id="gan">Tháng gần nhất</button>
+    ${nenCo.length > 1 ? `<button class="btn sm ${che === 'moi' ? 'pri' : ''}"
+       data-act="adnen" data-id="moi">Cả ${nenCo.length} tháng</button>` : ''}
+    ${nenCo.map(m => `<button class="btn sm ${Array.isArray(che) && che.includes(m) ? 'pri' : ''}"
+       data-act="adnen" data-id="${m}">${esc(monthLabel(m).replace('Tháng ','T'))}</button>`).join('')}
+    ${Array.isArray(che) && che.length > 1
+      ? '<span class="dim" style="align-self:center">— trung bình của ' + che.length + ' tháng</span>' : ''}
+  </div>`;
 
   /* ---- thẻ báo cáo: phần để chụp ---- */
   h += `<div class="card rpt" id="rpt">
@@ -1406,9 +1486,11 @@ function viewAdDay(shopId){
              deltaChip(rp.dCpc, false) + ' · thường ' + dem(Math.round(rp.nen.total.cpc || 0)))}
     </div>
     ${ui.adGon ? '' : `<div class="dim" style="margin-top:8px">Mốc là <b>trung bình một ngày của
-      ${esc(monthLabel(rp.nen.ym))}</b> — tháng đầy đủ gần nhất đã nạp. Từng chiến dịch ở bảng
-      dưới cũng so với chính nó trong tháng đó, nên đọc ngang một dòng là biết con nào hỏng ở
-      khúc nào.</div>`}` : ''}
+      ${esc(rp.nen.nhan)}</b>${rp.nen.che === 'gan' ? ' — tháng đầy đủ gần nhất đã nạp' :
+        rp.nen.thangs.length > 1 ? ' — gộp ' + rp.nen.thangs.length + ' tháng rồi chia đều theo số ngày' : ''}.
+      Từng chiến dịch ở bảng dưới cũng so với chính nó trong ${
+        rp.nen.thangs.length > 1 ? 'những tháng đó' : 'tháng đó'}, nên đọc ngang một dòng là biết
+      con nào hỏng ở khúc nào.</div>`}` : ''}
 
     ${gioChup != null ? `<div class="explain warn" style="margin-top:12px">⚠︎ Số của ngày này là
       <b>ảnh chụp lúc ${esc(gioLabel(gioChup))}</b>, chưa trọn 24 giờ — mọi con số dưới đây đều
@@ -1469,16 +1551,18 @@ function viewAdDay(shopId){
       rows: chuoi,
       bars: [{key:'cost', label:'Chi phí', color:'var(--bad)'}, {key:'gmv', label:'Doanh số', color:'var(--ok)'}],
       lines:[{key:'roas', label:'ROAS', color:'var(--acc)'}].concat(
-        nenRoas ? [{key:'nen', label:'ROAS mức thường ' + monthLabel(rp.nen.ym), color:'var(--tx3)'}] : []),
+        nenRoas ? [{key:'nen', label:'ROAS mức thường ' + rp.nen.nhan, color:'var(--tx3)'}] : []),
       fmtBar: moneyShort, fmtLine: xText
     }) + `</div>`;
   }
 
   h += adCompareBlock(rp, {
-    nhanBau: rp.nen ? monthLabel(rp.nen.ym) : '',
+    nhanBau: rp.nen ? rp.nen.nhan : '',
     nhanNay: 'Ngày ' + fmtShort(date),
     phuNay:  gioChup != null ? 'ảnh chụp lúc ' + gioLabel(gioChup) : 'trọn ngày'
   });
+
+  h += adDayMonthTable(shopId, date, rp);
 
   /* ---- bảng đầy đủ của ngày ---- */
   const q = norm(ui.adQ);
@@ -1488,7 +1572,7 @@ function viewAdDay(shopId){
 
   h += sectionTitle('Từng chiến dịch trong ngày',
     `<span class="dim">${rows.length}/${rp.rows.length} dòng${
-      rp.nen ? ' · so với ' + esc(monthLabel(rp.nen.ym)) : ''}</span>`);
+      rp.nen ? ' · so với ' + esc(rp.nen.nhan) : ''}</span>`);
   h += `<div class="toolbar">
     <input class="inp grow" placeholder="Tìm theo tên hoặc mã sản phẩm…" data-inp="adQ" value="${esc(ui.adQ)}">
     <button class="btn sm ${!ui.adOnlyBad ? 'pri' : ''}" data-act="adonlybad" data-id="off">Tất cả</button>
@@ -3944,6 +4028,37 @@ function usersCard(){
   return h;
 }
 
+/* ---- file dữ liệu đang nằm ở đâu ----
+   Đây là thẻ trả lời cho một câu đã làm mất dữ liệu thật: "cập nhật code
+   xong có còn dữ liệu không". Nằm trong public_html thì có, vì cập nhật
+   nghĩa là ghi đè lên đúng thư mục đó. Nằm ngoài thì không bao giờ.
+
+   Không cắt bớt đường dẫn: bạn sẽ cần copy nguyên nó vào File Manager. */
+function dataHomeRows(){
+  if (cfgErr.stats)
+    return `<div class="kv"><span>File dữ liệu trên máy chủ</span>
+      <b class="dim">${esc(cfgErr.stats)}</b></div>`;
+  if (!statsCfg) return `<div class="kv"><span>File dữ liệu trên máy chủ</span>
+      <b class="dim">đang đọc…</b></div>`;
+
+  const kb = statsCfg.size ? (statsCfg.size / 1048576).toFixed(2) + ' MB' : '—';
+  let h = `<div class="kv"><span>Bản ghi trên máy chủ</span><b>${
+    dem(statsCfg.records || 0)}<span class="dim"> · ${esc(kb)}</span></b></div>
+  <div class="kv"><span>File dữ liệu</span>
+    <b class="${statsCfg.inWeb ? 'bad' : 'ok'}" style="word-break:break-all;text-align:right">${
+      esc(statsCfg.db || '—')}</b></div>`;
+
+  if (statsCfg.inWeb) h += `<div class="explain warn" style="margin-top:10px">⚠︎ File dữ liệu
+    đang nằm <b>trong public_html</b> — đúng thư mục bị ghi đè mỗi lần cập nhật code.
+    Chuyển nó ra ngoài: tạo thư mục <code>${esc(statsCfg.safeDir || '')}</code> rồi
+    <b>di chuyển</b> (không phải chép) cả <code>config.php</code> lẫn file
+    <code>.sqlite</code> sang đó. App tự tìm ra chỗ mới, không phải khai báo gì.
+    Xem mục <b>Cập nhật code mà không mất dữ liệu</b> trong README.</div>`;
+  else h += `<div class="dim" style="margin-top:6px">✓ Nằm ngoài public_html — cập nhật code
+    không đụng tới được.</div>`;
+  return h;
+}
+
 function viewSettings(){
   const st = Sync.status();
   const w  = db.settings.weights;
@@ -3959,6 +4074,7 @@ function viewSettings(){
       'Chưa đăng nhập máy chủ'}</b></div>
     <div class="kv"><span>Lần kéo gần nhất</span><b>${db.meta.lastPull ? esc(new Date(db.meta.lastPull).toLocaleString('vi-VN')) : '—'}</b></div>
     <div class="kv"><span>Số bản ghi trên máy</span><b>${COLLECTIONS.reduce((s,k) => s + db[k].length, 0)}</b></div>
+    ${dataHomeRows()}
     <div class="btns" style="margin-top:12px">
       <button class="btn sm" data-act="syncnow">Đồng bộ ngay</button>
       <button class="btn sm" data-act="export">Xuất sao lưu (.json)</button>

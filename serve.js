@@ -658,7 +658,11 @@ function api(req, res, body){
         trashed: q('SELECT COUNT(*) c FROM items WHERE deleted = 1').c,
         devices: q('SELECT COUNT(*) c FROM sessions').c,
         last:    q('SELECT MAX(updated_at) m FROM items').m,
-        size:    fs.existsSync(f) ? fs.statSync(f).size : 0});
+        size:    fs.existsSync(f) ? fs.statSync(f).size : 0,
+        /* Bản giả lập luôn chạy trên máy bạn nên không có chuyện "nằm trong
+           public_html". Vẫn trả đủ khoá để màn Cài đặt không phải viết hai
+           nhánh cho hai máy chủ. */
+        db: f, cfg: 'serve.js (máy của bạn)', inWeb: false, safeDir: path.dirname(f)});
     }
   }
   return fail('Không hiểu yêu cầu: ' + inp.action, 404);

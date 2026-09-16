@@ -1,7 +1,11 @@
 /* Đóng gói KOL Hub để đưa lên máy chủ (Hostinger…).
-   Chạy:  node build.js
 
-   Tạo ra thư mục dist/ — đem upload thẳng vào public_html.
+   Chạy:  node build.js            — chỉ dựng, ra thư mục dist/
+          node build.js --deploy   — dựng xong đẩy luôn lên nhánh `deploy`
+
+   dist/ là đúng những gì public_html cần chứa. Nhánh `deploy` trên GitHub
+   chứa y hệt dist/ ở gốc nhánh, để Hostinger `git pull` thẳng vào
+   public_html — không còn phải xoá thư mục rồi upload tay nữa.
 
    Chỉ những tệp cần cho người dùng mới vào dist/. Mã nguồn phụ trợ
    (build.js, serve.js, README, tools/) ở lại trên máy: đưa lên máy chủ
@@ -9,6 +13,8 @@
 const fs   = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const {execFileSync} = require('child_process');
+const os = require('os');
 
 const dir  = __dirname;
 const DIST = path.join(dir, 'dist');
@@ -140,7 +146,101 @@ const files = walk(DIST);
 const total = files.reduce((s,f) => s + fs.statSync(f).size, 0);
 
 console.log(`✓ dist/  ${files.length} tệp · ${Math.round(total/1024)} KB · phiên bản ${VERSION}`);
-console.log('\nUpload toàn bộ NỘI DUNG trong dist/ vào public_html trên Hostinger.');
-console.log('Lần đầu: đổi tên api/config.example.php thành api/config.php rồi dán');
-console.log('mã mật khẩu (node tools/hash-password.js) vào. Chưa làm bước này thì');
-console.log('app sẽ báo "Chưa có api/config.php" ngay ở màn đăng nhập.');
+
+/* ============================================================
+   --deploy: đẩy nội dung dist/ lên nhánh `deploy`
+
+   Vì sao có nhánh riêng: `main` chứa mã nguồn (build.js, serve.js, README,
+   tools/) — những thứ KHÔNG được nằm trên máy chủ, vì ai cũng tải về đọc
+   được. Nhánh `deploy` chỉ chứa đúng dist/, nên Hostinger kéo nguyên nhánh
+   về public_html là xong, không phải lọc gì.
+
+   Cách dựng: KHÔNG đổi nhánh, không dùng worktree, không đụng một sợi tóc
+   nào của thư mục làm việc. Chỉ nhét từng file vào kho đối tượng của git rồi
+   tự tay ghép cây và commit. Lý do rất thực tế: lệnh dựng hay được gõ giữa
+   lúc đang sửa dở, mà `git checkout` giữa lúc đó thì hoặc là báo lỗi, hoặc
+   là bỏ nhánh bạn đang đứng ở một chỗ bạn không ngờ tới.
+
+   Điều quan trọng nhất của cả cách làm này: `git pull` CHỈ đụng vào file
+   mà git quản lý. api/config.php và kolhub-data/ không nằm trong nhánh, nên
+   mỗi lần cập nhật chúng nằm im — đó chính là chỗ dữ liệu hay bị mất trước
+   đây, khi cập nhật nghĩa là xoá sạch public_html rồi upload lại.
+   ============================================================ */
+if (process.argv.includes('--deploy')) deploy();
+
+function deploy(){
+  const git = (args, env) => execFileSync('git', args,
+    {cwd: dir, encoding: 'utf8', env: env || process.env,
+     stdio: ['ignore','pipe','pipe']}).trim();
+  /* Bản "hỏi thử": im lặng khi không có câu trả lời. rev-parse một nhánh
+     chưa tồn tại là chuyện bình thường ở lần đẩy đầu tiên, nhưng git vẫn
+     kêu "fatal: Needed a single revision" ra màn hình — đọc rất giống hỏng. */
+  const thu = (args, env) => {
+    try { return execFileSync('git', args,
+      {cwd: dir, encoding:'utf8', env: env || process.env,
+       stdio:['ignore','pipe','ignore']}).trim(); }
+    catch(e){ return null; }
+  };
+
+  if (!thu(['rev-parse','--git-dir'])){
+    console.error('\n✗ Thư mục này chưa phải kho git — chưa đẩy được.\n'); process.exit(1);
+  }
+
+  /* Tên người commit. Máy này chưa đặt `git config user.email` thì git tự
+     đoán từ tên máy, và có máy nó đoán ra thứ chính git từ chối. Lấy tạm tên
+     của commit gần nhất là xong — không phải bắt bạn đi cấu hình git chỉ để
+     đẩy một bản dựng. */
+  const env = Object.assign({}, process.env, {GIT_INDEX_FILE: ''});
+  if (!thu(['var','GIT_AUTHOR_IDENT'])){
+    const ten = thu(['log','-1','--format=%an']) || 'KOL Hub';
+    const mail = thu(['log','-1','--format=%ae']) || 'kolhub@localhost';
+    Object.assign(env, {GIT_AUTHOR_NAME: ten, GIT_AUTHOR_EMAIL: mail,
+                        GIT_COMMITTER_NAME: ten, GIT_COMMITTER_EMAIL: mail});
+  }
+
+  /* Một bảng mục lục riêng trong thư mục tạm: bảng mục lục thật của bạn
+     (những gì đã `git add`) không bị đụng tới. */
+  const idx = path.join(os.tmpdir(), 'kolhub-deploy-index-' + process.pid);
+  fs.rmSync(idx, {force:true});
+  env.GIT_INDEX_FILE = idx;
+
+  let commit;
+  try {
+    files.forEach(f => {
+      const rel  = path.relative(DIST, f).split(path.sep).join('/');
+      const hash = git(['hash-object','-w','--', f], env);
+      git(['update-index','--add','--cacheinfo', `100644,${hash},${rel}`], env);
+    });
+    const tree = git(['write-tree'], env);
+
+    const parent = thu(['rev-parse','--verify','refs/heads/deploy^{commit}']);
+    if (parent && thu(['rev-parse', parent + '^{tree}']) === tree){
+      console.log(`\n· nhánh deploy đã đúng bản ${VERSION} rồi — không tạo commit mới.`);
+      return day();
+    }
+    const msg = `Bản dựng ${VERSION}`;
+    commit = git(parent ? ['commit-tree', tree, '-p', parent, '-m', msg]
+                        : ['commit-tree', tree, '-m', msg], env);
+    git(['update-ref', 'refs/heads/deploy', commit, parent || ''], env);
+    console.log(`\n✓ nhánh deploy → ${commit.slice(0,7)}  (${msg})`);
+  } catch(e){
+    console.error('\n✗ Không dựng được nhánh deploy:\n  ' +
+                  String(e.stderr || e.message).trim().split('\n')[0] + '\n');
+    process.exit(1);
+  } finally {
+    fs.rmSync(idx, {force:true});
+  }
+  day();
+
+  function day(){
+    try {
+      execFileSync('git', ['push','origin','deploy'],
+        {cwd: dir, stdio: ['ignore','ignore','pipe']});
+      console.log('✓ đã đẩy lên GitHub. Hostinger sẽ tự kéo về trong khoảng một phút.');
+    } catch(e){
+      console.error('✗ đẩy lên GitHub không được:\n  ' +
+                    String(e.stderr || e.message).trim().split('\n').slice(-1)[0]);
+      console.error('  Đẩy tay:  git push origin deploy');
+    }
+  }
+}

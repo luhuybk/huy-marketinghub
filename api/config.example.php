@@ -31,11 +31,20 @@ define('KH_PASSWORD', 'DAN_MA_VAO_DAY');
 // define('KH_PASSWORD_STAFF', 'DAN_MA_NHAN_VIEN_VAO_DAY');
 
 /* --- 2. Nơi để file dữ liệu ---
-   Mặc định: api/data/kolhub.sqlite (PHP tự tạo, tự chặn tải về).
 
-   An toàn hơn nếu bạn để nó RA NGOÀI public_html — lúc đó dù cấu hình
-   máy chủ có sai sót thì cũng không ai tải file dữ liệu về được.
-   Trên Hostinger đường dẫn thường có dạng:
+   ĐỂ RA NGOÀI public_html. Mọi cách cập nhật code đều đụng vào public_html
+   — xoá sạch rồi upload lại, hay `git pull` — nên thứ gì nằm trong đó cũng
+   có ngày bị cuốn đi. Trên Hostinger, chỗ đúng là thư mục nằm CẠNH
+   public_html, không phải bên trong:
+
        /home/uXXXXXXXX/kolhub-data/kolhub.sqlite
-   Tạo thư mục đó bằng File Manager rồi bỏ dấu // ở dòng dưới.       */
+
+   App tự tìm thư mục tên `kolhub-data` cạnh public_html, nên tạo thư mục đó
+   rồi bỏ file dữ liệu vào là xong, không cần khai báo gì thêm. Dòng dưới chỉ
+   cần khi bạn muốn để ở một chỗ khác hẳn.
+
+   Lưu ý một nếp có sẵn để khỏi mất dữ liệu: nếu api/data/kolhub.sqlite VẪN
+   CÒN thì app dùng file đó, kể cả khi bạn đã tạo kolhub-data. Chuyển nhà
+   nghĩa là DI CHUYỂN file cũ sang chỗ mới, không phải chép — còn sót bản cũ
+   là app cứ ghi vào bản cũ mà bạn tưởng đã chuyển xong.                */
 // define('KH_DB_FILE', '/home/uXXXXXXXX/kolhub-data/kolhub.sqlite');

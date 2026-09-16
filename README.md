@@ -48,7 +48,20 @@ tệp đó đi, và xoá luôn `kolhub.v1` trong localStorage của trình duy�
    Mật khẩu thật không nằm trong đó, chỉ có mã băm — từ mã băm không suy
    ngược lại được.
 
-2. **Dựng**
+2. **Tạo thư mục dữ liệu — ngoài `public_html`**
+
+   Trong File Manager của Hostinger, ở cùng cấp với `public_html` (tức là
+   `/home/uXXXXXXXX/`, **không phải bên trong** `public_html`), tạo một thư
+   mục tên đúng là:
+
+   ```
+   kolhub-data
+   ```
+
+   Đây là bước quan trọng nhất của cả trang này. Đọc lý do ở
+   [Cập nhật code mà không mất dữ liệu](#cập-nhật-code-mà-không-mất-dữ-liệu).
+
+3. **Dựng**
 
    ```bash
    node build.js
@@ -58,12 +71,18 @@ tệp đó đi, và xoá luôn `kolhub.v1` trong localStorage của trình duy�
    nên một dấu ngoặc thiếu sẽ bị chặn ở đây chứ không biến thành trang trắng
    trên điện thoại.
 
-3. **Upload toàn bộ *nội dung* trong `dist/`** vào `public_html`.
+4. **Upload toàn bộ *nội dung* trong `dist/`** vào `public_html`.
 
-4. **Trên máy chủ**: đổi tên `api/config.example.php` thành `api/config.php`,
-   dán dòng mật khẩu ở bước 1 vào.
+5. **Trên máy chủ**: chép `api/config.example.php` thành
+   `kolhub-data/config.php` (chép ra thư mục vừa tạo ở bước 2, không để lại
+   trong `api/`), dán dòng mật khẩu ở bước 1 vào.
 
-5. Mở tên miền. Chưa làm bước 4 thì app báo thẳng "Chưa có api/config.php".
+6. Mở tên miền. Chưa làm bước 5 thì app báo thẳng "Chưa có config.php" kèm
+   đúng đường dẫn nó đang tìm.
+
+7. Vào **Cài đặt → Máy chủ & dữ liệu**, xem dòng *File dữ liệu*. Phải thấy
+   `/home/uXXXXXXXX/kolhub-data/kolhub.sqlite` và dòng xanh *"Nằm ngoài
+   public_html"*. Thấy chữ đỏ thì chưa xong — làm theo mục dưới.
 
 ### Tài khoản nhân viên
 
@@ -123,16 +142,22 @@ trong Cài đặt.
 
 ### Những gì KHÔNG được upload
 
-`build.js`, `serve.js`, `tools/`, `README.md` và `api/config.php` cố ý không
-nằm trong `dist/`. Mọi tệp trong `public_html` đều có thể bị tải về đọc —
-trừ `.php` (máy chủ chạy nó chứ không trả nguyên văn), nên `config.php` an
-toàn ở đó, nhưng nó phải được tạo thẳng trên máy chủ chứ không đi qua `dist/`.
+`build.js`, `serve.js`, `tools/`, `README.md` và `config.php` cố ý không nằm
+trong `dist/`. Mọi tệp trong `public_html` đều có thể bị tải về đọc — trừ
+`.php` (máy chủ chạy nó chứ không trả nguyên văn).
+
+`config.php` phải được tạo thẳng trên máy chủ, không đi qua `dist/` và cũng
+không đi qua git: nó chứa mã mật khẩu của bạn, mà thứ gì đã nằm trong một bản
+dựng hay một commit thì còn ở đó mãi. Chỗ đặt nó là `kolhub-data/` bên ngoài
+`public_html` — xem mục dưới.
 
 ### Cập nhật về sau
 
-Sửa mã → `node build.js` → upload đè **toàn bộ nội dung `dist/`**, kể cả
-`index.html` và `.htaccess`. **Đừng đụng vào `api/config.php` và `api/data/`**
-— đó là mật khẩu và dữ liệu thật của bạn.
+Sửa mã → `node build.js --deploy` → xong. Xem
+[Cập nhật code mà không mất dữ liệu](#cập-nhật-code-mà-không-mất-dữ-liệu).
+
+Còn upload tay thì: `node build.js` → upload đè **toàn bộ nội dung `dist/`**,
+kể cả `index.html` và `.htaccess`.
 
 **Upload đủ, hoặc không upload gì.** Đây là chỗ đã hỏng một lần thật, nên nói
 rõ tại sao: app gồm **6 tệp JS tải riêng**. `dist/index.html` gắn `?v=<mã băm>`
@@ -170,13 +195,113 @@ internet.
 
 ### Dữ liệu nằm ở đâu
 
-SQLite, mặc định `api/data/kolhub.sqlite` — PHP tự tạo và tự chặn tải về.
-An toàn hơn nữa thì để hẳn ra ngoài `public_html`: tạo thư mục bằng File
-Manager rồi mở dòng `KH_DB_FILE` trong `config.php`.
+Một file SQLite. **Chỗ đúng của nó là `/home/uXXXXXXXX/kolhub-data/` — ngoài
+`public_html`**, xem [Cập nhật code mà không mất dữ liệu](#cập-nhật-code-mà-không-mất-dữ-liệu).
+App tự tìm thư mục đó; không có thì lùi về `api/data/kolhub.sqlite`, chạy được
+nhưng nằm ngay trong tầm mọi lần cập nhật code.
+
+Không phải đoán nó đang nằm đâu: **Cài đặt → Máy chủ & dữ liệu** in ra đường
+dẫn thật, kèm một dòng đỏ nếu file đang nằm trong `public_html`.
 
 Trình duyệt giữ một bản chép trong localStorage để app mở được ngay cả khi
 mạng chập chờn, nhưng **máy chủ mới là bản chính**. Mở trên máy khác, đăng
 nhập là kéo đủ về.
+
+---
+
+## Cập nhật code mà không mất dữ liệu
+
+Chuyện đã xảy ra thật: mỗi lần sửa code là xoá `public_html` rồi upload lại
+`dist/`, và **toàn bộ dữ liệu nhân viên nhập biến mất**. Không phải app hỏng —
+`public_html` chính là chỗ file cơ sở dữ liệu đang nằm, nên xoá thư mục đó là
+xoá luôn nó.
+
+Hai việc dưới đây chữa dứt điểm. Việc thứ nhất là bắt buộc; việc thứ hai bỏ
+hẳn thao tác upload tay.
+
+### 1. Đưa dữ liệu ra khỏi `public_html`
+
+Tất cả những gì cần: một thư mục **cạnh** `public_html`, không phải bên trong.
+
+```
+/home/uXXXXXXXX/
+├── kolhub-data/            ← không ai trên internet với tới được
+│   ├── config.php          ← mã mật khẩu
+│   └── kolhub.sqlite       ← toàn bộ dữ liệu
+└── public_html/            ← chỗ này muốn xoá bao nhiêu lần cũng được
+    ├── index.html
+    ├── js/ · css/
+    └── api/
+```
+
+App tự tìm thư mục tên `kolhub-data` ở cạnh `public_html`, không phải khai
+báo gì thêm. Muốn để chỗ khác thì mở `config.php` bỏ dấu `//` ở dòng
+`KH_DB_FILE` rồi ghi đường dẫn của bạn.
+
+**Đang chạy bản cũ thì chuyển nhà thế này** (làm trong File Manager, một lần
+duy nhất, khoảng hai phút):
+
+1. Tạo `/home/uXXXXXXXX/kolhub-data/`
+2. **Di chuyển** (Move — *không phải* Copy) `public_html/api/config.php` sang đó
+3. **Di chuyển** `public_html/api/data/kolhub.sqlite` sang đó. Có thêm hai
+   file `kolhub.sqlite-wal` và `kolhub.sqlite-shm` thì chuyển cả — chúng là
+   phần ghi gần nhất chưa kịp gộp vào file chính.
+4. Xoá thư mục rỗng `public_html/api/data/`
+5. Mở app → **Cài đặt → Máy chủ & dữ liệu**, xác nhận đường dẫn đã đổi
+
+> Bước 2 và 3 phải là **Move**, không được là **Copy**. Nếu
+> `api/data/kolhub.sqlite` vẫn còn thì app cố tình vẫn dùng file cũ đó —
+> đây là một nếp được viết hẳn vào `api/lib.php` để không ai bị mất dấu dữ
+> liệu sau lưng. Còn sót bản cũ thì bạn tưởng đã chuyển xong, mà app vẫn đang
+> ghi vào cái sắp bị xoá.
+
+Sau bước này, xoá sạch `public_html` cũng không mất một dòng dữ liệu nào.
+
+### 2. Đẩy bằng git, không upload tay nữa
+
+```bash
+node build.js --deploy
+```
+
+Một lệnh: kiểm cú pháp → dựng `dist/` → đẩy nội dung `dist/` lên nhánh
+**`deploy`** trên GitHub. Hostinger kéo về, khoảng một phút sau tên miền đã
+là bản mới.
+
+**Vì sao nhánh riêng.** `main` chứa mã nguồn — `build.js`, `serve.js`, cả
+README này — những thứ không được nằm trên máy chủ, vì ai cũng tải về đọc
+được. Nhánh `deploy` chứa đúng những gì `public_html` cần chứa, không thừa
+một file.
+
+**Vì sao cách này không xoá dữ liệu.** `git pull` chỉ đụng vào file mà git
+quản lý. `config.php` và `kolhub-data/` không nằm trong nhánh nào cả, nên mỗi
+lần cập nhật chúng nằm im. Cộng thêm việc 1 ở trên — dữ liệu còn không nằm
+trong `public_html` — thì không có đường nào để mất nữa.
+
+**Bật một lần trên hPanel:**
+
+1. hPanel → **Advanced → GIT** → *Create a new repository*
+2. Repository: `https://github.com/luhuybk/huy-marketinghub.git`
+   · Branch: **`deploy`** · Directory: để trống (nghĩa là `public_html`)
+3. Kho riêng tư thì hPanel đưa ra một **SSH key** — dán nó vào GitHub →
+   *Settings → Deploy keys → Add deploy key*
+4. Vẫn ở trang GIT, bấm **Auto deployment**, copy đường dẫn webhook, dán vào
+   GitHub → *Settings → Webhooks → Add webhook* (Content type: `application/json`)
+
+Từ đó trở đi, `node build.js --deploy` là xong.
+
+> Hostinger đòi thư mục trống khi tạo repository lần đầu. Nên làm **việc 1
+> trước** (dữ liệu đã ra ngoài rồi) mới xoá `public_html` — lúc đó xoá nó
+> không mất gì.
+
+Không đổi gì mà chạy lại lệnh thì nó nhận ra nhánh `deploy` đã đúng bản đang
+có và không tạo commit rỗng. Chưa bật hPanel cũng chạy được: lệnh vẫn đẩy lên
+GitHub, bạn upload tay như cũ.
+
+### Vẫn nên sao lưu
+
+**Cài đặt → Xuất sao lưu (.json)** tải toàn bộ dữ liệu về máy thành một file.
+Hai việc trên chặn được chuyện mất dữ liệu do cập nhật code, nhưng không chặn
+được hosting hỏng đĩa hay ai đó xoá nhầm trong app. Mỗi tháng một lần là đủ.
 
 ---
 
@@ -920,13 +1045,57 @@ theo giờ mới.
 Mỗi sáng, người phụ trách xuất báo cáo quảng cáo của **ngày hôm trước** rồi kéo
 vào mục **Hôm qua**. App so ngay, ra một thẻ gọn để chụp màn hình gửi đi.
 
-### Mốc của báo cáo ngày là tháng gần nhất
+### Mốc của báo cáo ngày — mặc định là tháng gần nhất, đổi được
 
-Khác tab **Hôm nay**: ở đây mốc chỉ lấy **một tháng đầy đủ gần nhất đã nạp**,
-không gộp trung bình mọi tháng. Câu hỏi của trang này là "hôm qua con này chạy
-khác thường không", mà "thường" của một chiến dịch là nhịp gần đây nhất của
-chính nó. Gộp cả tháng cũ vào thì một tháng tốt hồi xưa kéo mốc lên mãi, và
-ngày nào cũng thấy đỏ vì một lý do đã hết thời sự.
+Khác tab **Hôm nay**: mặc định ở đây mốc chỉ lấy **một tháng đầy đủ gần nhất
+đã nạp**, không gộp trung bình mọi tháng. Câu hỏi của trang này là "hôm qua con
+này chạy khác thường không", mà "thường" của một chiến dịch là nhịp gần đây
+nhất của chính nó. Gộp cả tháng cũ vào thì một tháng tốt hồi xưa kéo mốc lên
+mãi, và ngày nào cũng thấy đỏ vì một lý do đã hết thời sự.
+
+Nhưng mặc định không đúng mãi, nên có dải **So với:** ngay dưới dải ngày:
+
+| Bấm | Mốc thành |
+|---|---|
+| **Tháng gần nhất** | một tháng đầy đủ gần nhất (mặc định) |
+| **Cả N tháng** | trung bình mọi tháng đã nạp |
+| **T7/2026**, **T8/2026**… | đúng những tháng bạn bấm — bấm nhiều tháng là gộp lại |
+
+Bấm vào một tháng là **bật/tắt** tháng đó chứ không phải "chỉ tháng đó" — chọn
+nhiều tháng là chuyện thường, mà giữ phím trên điện thoại thì không giữ được.
+Tắt hết thì quay về mặc định.
+
+Vì sao cần đổi: có tháng bản thân nó đã bất thường — chạy sale lớn, hay đứt
+hàng giữa tháng — mà đúng tháng đó lại là tháng gần nhất. Lấy nó làm "mức
+thường" thì mọi mũi tên đỏ/xanh bên dưới đều lệch theo, mà không có gì trên
+màn hình nói cho bạn biết.
+
+Đổi mốc là đổi **tất cả**: bốn ô số ở thẻ đầu, mức lệch của từng chiến dịch
+trong bảng, đường ROAS mức thường trên biểu đồ, và khối "So với mức thường".
+
+### Bảng "Ngày này so với từng tháng"
+
+Dải **So với:** gộp các tháng thành một mốc. Bảng này tách chúng ra, mỗi tháng
+một cột, đủ tám chỉ số. Hai bảng trả lời hai câu khác nhau, và câu thứ hai mới
+là câu quyết định có phải đi sửa hay không:
+
+* **gộp** — hôm nay có khác thường không
+* **tách** — khác **từ bao giờ**
+
+CTR hôm nay thua tháng 8 nhưng bằng tháng 7 là một chuyện: tháng 8 mới là tháng
+lạ, đi xem tháng đó có gì. Thua đều cả hai tháng lại là chuyện khác hẳn — đang
+trôi dốc từ lâu, và hôm nay chỉ là chỗ bạn tình cờ nhìn thấy. Một con số gộp
+không phân biệt nổi hai trường hợp đó, mà cách xử lý thì ngược nhau.
+
+App đọc hộ luôn: chỉ số nào **kém hơn mọi tháng** đã nạp thì hiện một dòng vàng
+gọi tên nó ra. "Kém" tính theo chiều tốt của từng chỉ số — CPC tụt 10% là mừng,
+không phải báo động, nên nó chỉ bị gọi tên khi tăng.
+
+Mỗi tháng quy về **trung bình một ngày của chính nó**: tháng 2 có 28 ngày,
+tháng 7 có 31. Đem tổng cả tháng ra so với một ngày thì tháng nào cũng thắng.
+
+Bảng chỉ hiện khi đã nạp **từ hai tháng trở lên** — một tháng thì nó chỉ là bản
+sao của khối ở trên.
 
 Từng chiến dịch cũng so với **chính nó** trong tháng đó, đủ sáu chỉ số
 **View · CTR · CVR · Chi phí · GMV · ROAS** — mỗi con số kèm mức lệch ngay

@@ -19,10 +19,29 @@ function khFail(string $msg, int $code = 500): never {
   exit;
 }
 
-/* ---------------- cấu hình ---------------- */
-if (!is_file(__DIR__ . '/config.php'))
-  khFail('Chưa có api/config.php — hãy chép config.example.php thành config.php rồi dán mã mật khẩu vào.', 503);
-require __DIR__ . '/config.php';
+/* ---------------- cấu hình ----------------
+
+   Tìm config.php ở hai nơi, theo thứ tự:
+
+     1. api/config.php               — ngay cạnh mã nguồn, cách cũ
+     2. <thư mục cha của public_html>/kolhub-data/config.php
+
+   Chỗ thứ hai mới là chỗ nên để. Lý do: mọi cách cập nhật code đều đụng vào
+   public_html — xoá sạch rồi upload lại, hay `git pull` — nên bất cứ thứ gì
+   nằm trong đó đều có ngày bị cuốn đi. Mật khẩu và cơ sở dữ liệu là hai thứ
+   KHÔNG được phép mất, nên chúng ra khỏi public_html hẳn.
+
+   Hostinger: public_html nằm ở /home/uXXXXXXXX/public_html, nên chỗ thứ hai
+   là /home/uXXXXXXXX/kolhub-data/ — cùng cấp với public_html, không ai tải
+   về qua trình duyệt được vì nó không nằm trong vùng máy chủ web phục vụ. */
+$KH_DATA_DIR = dirname(__DIR__, 2) . '/kolhub-data';
+$KH_CONFIG = null;
+foreach ([__DIR__ . '/config.php', $KH_DATA_DIR . '/config.php'] as $p)
+  if (is_file($p)) { $KH_CONFIG = $p; break; }
+if (!$KH_CONFIG)
+  khFail('Chưa có config.php — hãy chép api/config.example.php thành config.php rồi dán mã mật khẩu vào. '
+       . 'Để ngoài public_html thì đặt ở: ' . $KH_DATA_DIR . '/config.php', 503);
+require $KH_CONFIG;
 
 if (!defined('KH_PASSWORD') || KH_PASSWORD === '' || str_contains(KH_PASSWORD, 'DAN_MA_VAO_DAY'))
   khFail('Chưa đặt mật khẩu trong api/config.php. Chạy "node tools/hash-password.js" để tạo mã rồi dán vào.', 503);
@@ -35,7 +54,30 @@ if (!defined('KH_PASSWORD_STAFF')) define('KH_PASSWORD_STAFF', '');
    thường chạy giờ UTC, lệch 7 tiếng thì lời nhắc sáng sẽ tới lúc nửa đêm. */
 if (!defined('KH_TZ')) define('KH_TZ', 'Asia/Ho_Chi_Minh');
 
-$DB_FILE = defined('KH_DB_FILE') ? KH_DB_FILE : __DIR__ . '/data/kolhub.sqlite';
+/* ---- nơi để file dữ liệu ----
+   Bốn nấc, dừng ở nấc đầu tiên đúng:
+
+     1. KH_DB_FILE trong config.php  — bạn chỉ định thì nghe bạn
+     2. api/data/kolhub.sqlite nếu FILE ĐÓ ĐANG CÓ  — bản cài cũ, không được
+        đổi chỗ sau lưng: đổi là app mở một file rỗng và trông y như mất sạch
+     3. <cha của public_html>/kolhub-data/kolhub.sqlite nếu THƯ MỤC đó đang
+        có — bạn đã tạo nó nghĩa là bạn muốn để dữ liệu ở đấy
+     4. api/data/kolhub.sqlite  — bản cài mới toanh, chưa có gì cả
+
+   Nấc 2 đứng trước nấc 3 là cố ý. Nếu đảo lại, người đang chạy bản cũ vừa
+   tạo thư mục kolhub-data để chuẩn bị chuyển sẽ mất dấu toàn bộ dữ liệu cũ
+   ngay lần tải trang kế tiếp — mà không có một dòng lỗi nào. */
+if (defined('KH_DB_FILE')) $DB_FILE = KH_DB_FILE;
+elseif (is_file(__DIR__ . '/data/kolhub.sqlite')) $DB_FILE = __DIR__ . '/data/kolhub.sqlite';
+elseif (is_dir($KH_DATA_DIR)) $DB_FILE = $KH_DATA_DIR . '/kolhub.sqlite';
+else $DB_FILE = __DIR__ . '/data/kolhub.sqlite';
+
+/* File dữ liệu có đang nằm trong vùng máy chủ web phục vụ không.
+   Nằm trong thì hai chuyện xấu cùng rình: cập nhật code có thể xoá mất nó,
+   và chỉ cần .htaccess hỏng một nhịp là ai cũng tải nguyên cơ sở dữ liệu về.
+   Cài đặt trong app đọc cờ này để nói thẳng ra. */
+$KH_DB_IN_WEB = str_starts_with(realpath(dirname($DB_FILE)) ?: dirname($DB_FILE),
+                                realpath(dirname(__DIR__)) ?: dirname(__DIR__));
 
 /* ---------------- kết nối ---------------- */
 function db(): PDO {
@@ -58,7 +100,8 @@ function db(): PDO {
       PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     ]);
   } catch (Throwable $e) {
-    khFail('Không mở được cơ sở dữ liệu. Kiểm tra quyền ghi của thư mục api/data.', 500);
+    khFail('Không mở được cơ sở dữ liệu. Kiểm tra quyền ghi của thư mục '
+         . dirname($DB_FILE) . ' (cần 0700 và thuộc về tài khoản hosting của bạn).', 500);
   }
   $pdo->exec('PRAGMA journal_mode = WAL');
   $pdo->exec('PRAGMA busy_timeout = 5000');

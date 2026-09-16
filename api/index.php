@@ -589,9 +589,14 @@ switch ($action) {
     $d = (int)db()->query('SELECT COUNT(*) c FROM items WHERE deleted = 1')->fetch()['c'];
     $s = (int)db()->query('SELECT COUNT(*) c FROM sessions')->fetch()['c'];
     $last = db()->query('SELECT MAX(updated_at) m FROM items')->fetch()['m'];
-    global $DB_FILE;
+    global $DB_FILE, $KH_DB_IN_WEB, $KH_CONFIG, $KH_DATA_DIR;
+    /* Trả về cả CHỖ ĐỂ file, không chỉ kích thước. Đây là câu hỏi duy nhất
+       trả lời được "lần cập nhật code tới có xoá mất dữ liệu không", mà nhìn
+       từ trình duyệt thì không có cách nào khác để biết. */
     out(['ok' => true, 'records' => $n, 'trashed' => $d, 'devices' => $s, 'last' => $last,
-         'size' => is_file($DB_FILE) ? filesize($DB_FILE) : 0]);
+         'size' => is_file($DB_FILE) ? filesize($DB_FILE) : 0,
+         'db' => $DB_FILE, 'cfg' => $KH_CONFIG, 'inWeb' => (bool)$KH_DB_IN_WEB,
+         'safeDir' => $KH_DATA_DIR]);
   }
 
   default: fail('Không hiểu yêu cầu: ' . $action, 404);

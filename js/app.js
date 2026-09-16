@@ -1146,11 +1146,26 @@ function copyText(text){
    Chốt chặn: mở Cài đặt mà chưa ai hỏi thì hỏi ngay tại đây. Cờ asked bật ngay
    khi bắt đầu hỏi nên máy chủ đang lỗi cũng chỉ hỏi đúng một lần, không quay
    vòng render → hỏi → render. */
-const cfgAsked = {tg:false, users:false};
+const cfgAsked = {tg:false, users:false, stats:false};
 function ensureSettingsCfg(){
   if (!Server.authed() || !isOwner()) return;
   if (!cfgAsked.tg)    loadTg(true);
   if (!cfgAsked.users) loadUsers(true);
+  if (!cfgAsked.stats) loadStats(true);
+}
+
+/* Máy chủ đang để file dữ liệu ở đâu. Xem js/views.js → thẻ "Máy chủ & dữ liệu". */
+async function loadStats(silent){
+  if (!Server.authed() || !isOwner()) return;
+  cfgAsked.stats = true;
+  try {
+    statsCfg = await Server.stats();
+    cfgErr.stats = '';
+    if (!silent || route.page === 'settings') render();
+  } catch(e){
+    cfgErr.stats = e.message || 'lỗi không rõ';
+    if (route.page === 'settings') render();
+  }
 }
 
 async function loadTg(silent){
@@ -3539,6 +3554,20 @@ const ACTIONS = {
      mang sang ngày khác được — giữ lại thì ô chọn trỏ vào một id không còn
      tồn tại và bảng lặng lẽ quay về "toàn gian hàng". */
   addate:      id => { ui.adDate = id; ui.adSoSanh = ''; render(); },
+  /* Đổi mốc so sánh của báo cáo ngày. Bấm vào một tháng là BẬT/TẮT tháng đó,
+     không phải "chỉ tháng đó" — chọn nhiều tháng là chuyện thường, mà bắt
+     giữ phím trên điện thoại thì không giữ được. Tắt hết thì quay về mặc
+     định thay vì để lại một báo cáo không có mốc nào. */
+  adnen:       id => {
+    if (id === 'gan') ui.adNen = null;
+    else if (id === 'moi') ui.adNen = 'moi';
+    else {
+      const cu = Array.isArray(ui.adNen) ? ui.adNen : [];
+      ui.adNen = cu.includes(id) ? cu.filter(m => m !== id) : cu.concat([id]);
+      if (!ui.adNen.length) ui.adNen = null;
+    }
+    render();
+  },
   adtg:        id => sendDayReport(id),
   adshop:      id => { ui.adShop = id || ''; ui.adYm = ''; ui.adIssue = '';
                        ui.adOnlyBad = false; ui.adSoSanh = ''; render(); },

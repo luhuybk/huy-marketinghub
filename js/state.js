@@ -2533,12 +2533,22 @@ const adDayKey = adcampKey;
 
    · 'moi' (mặc định) — trung bình mọi tháng đã nạp. Trang Hôm nay dùng kiểu
      này: giữa ngày số còn ít và nhiễu, mốc rộng thì đỡ bị một tháng bất
-     thường làm lệch. */
+     thường làm lệch.
+
+   · một MẢNG tháng, ví dụ ['2026-07','2026-08'] — bạn tự chọn. Có khi tháng
+     gần nhất chính là tháng bất thường (chạy sale, hay đứt hàng giữa tháng),
+     lúc đó lấy nó làm "mức thường" là sai ngay từ đầu. Tháng nào bạn chọn mà
+     chưa nạp file thì lặng lẽ bỏ qua, chọn trượt hết thì quay về mặc định —
+     một báo cáo trống trơn không nói được gì hơn một báo cáo lệch mốc. */
 function adBaseline(shopId, date, tyLe, che){
   const ym = String(date || today()).slice(0,7);
   let co = adcampMonths(shopId).filter(m => m < ym).sort();   // mọi tháng đã nạp trước đó
   if (!co.length) return null;
-  if (che === 'gan') co = [co[co.length - 1]];
+  if (Array.isArray(che)){
+    const chon = co.filter(m => che.includes(m));
+    if (chon.length) co = chon;
+  }
+  else if (che === 'gan') co = [co[co.length - 1]];
 
   /* tyLe < 1 khi so với một tệp chụp giữa ngày: mốc phải co lại theo đúng
      phần ngày đã trôi qua. Nhân đều mọi chỉ số nên các TỈ LỆ (ROAS, CTR, CVR)
@@ -2576,7 +2586,7 @@ function adBaseline(shopId, date, tyLe, che){
   const h = co_ / (tongNgay || 1);
   return {
     ym: co[co.length-1], thangs: co, ngay: tongNgay, byKey, tyLe: co_,
-    che: che === 'gan' ? 'gan' : 'moi',
+    che: Array.isArray(che) ? 'chon' : che === 'gan' ? 'gan' : 'moi',
     nhan: co.length === 1 ? monthLabel(co[0])
           : co.map(m => monthLabel(m).replace('Tháng ','T')).join(' · '),
     /* Cho qua adMetrics để có luôn cpc, cpo, aov — nhân đều mọi số tuyệt đối
@@ -2711,6 +2721,34 @@ function adDayVerdict(rp){
   const n = rp.bad.length;
   t.push(n ? n + ' chiến dịch cần xem lại.' : 'Không chiến dịch nào bất thường.');
   return t.join(' ');
+}
+
+/* ---- ngày này so với TỪNG tháng đã nạp, mỗi tháng một dòng ----
+
+   Khác với mốc ở đầu báo cáo (gộp các tháng thành một con số): ở đây mỗi
+   tháng đứng riêng. Vì sao cần cả hai — gộp lại chỉ trả lời "hôm nay có
+   khác thường không", còn tách ra trả lời được câu đắt hơn nhiều: chỉ số
+   này tụt từ bao giờ. CTR hôm nay thua tháng 8 nhưng bằng tháng 7 là một
+   chuyện (tháng 8 mới là tháng lạ); thua đều cả hai tháng lại là chuyện
+   khác hẳn (đang trôi dốc từ lâu). Một con số gộp không phân biệt nổi hai
+   trường hợp đó, mà cách xử lý thì ngược nhau.
+
+   Mỗi tháng chia cho SỐ NGÀY CỦA CHÍNH NÓ để ra mức trung bình một ngày —
+   tháng 2 có 28 ngày, tháng 7 có 31, đem tổng tháng ra so với một ngày thì
+   tháng nào cũng thắng. */
+function adDayVsMonths(shopId, date, tyLe){
+  const ym = String(date || today()).slice(0,7);
+  const co = adcampMonths(shopId).filter(m => m < ym).sort();
+  const cur = adSum(adDaysIn(date, shopId));
+  const h0  = tyLe == null ? 1 : Math.max(0.01, tyLe);
+  const rows = co.map(m => {
+    const t = adSum(adcampsIn(m, shopId));
+    const h = h0 / (+monthEnd(m).slice(8,10));
+    const b = adMetrics({impressions: t.impressions*h, clicks: t.clicks*h,
+                         orders: t.orders*h, cost: t.cost*h, gmv: t.gmv*h});
+    return {ym: m, b, ngay: +monthEnd(m).slice(8,10)};
+  });
+  return {date, cur, rows, thangs: co};
 }
 
 /* ============================================================
