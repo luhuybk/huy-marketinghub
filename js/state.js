@@ -1176,28 +1176,23 @@ function ensure(){
     if (pj.shopId && !db.shops.some(x => x.id === pj.shopId && !x.deleted)) pj.shopId = '';
     const r = pj.rival && typeof pj.rival === 'object' ? pj.rival : {};
     pj.rival = {name: String(r.name || ''), url: String(r.url || ''), price: parseMoney(r.price)};
-    if (!Array.isArray(pj.plans)) pj.plans = [];
-    pj.plans = pj.plans.filter(x => x && typeof x === 'object').map(x => {
-      const v = +x.voucherPct;
-      return {
-        pid:   String(x.pid || uid()),
-        name:  String(x.name != null ? x.name : ''),
-        note:  String(x.note != null ? x.note : ''),
-        price: parseMoney(x.price),
-        gift:  parseMoney(x.gift),
-        voucherPct: isFinite(v) && v > 0 ? Math.min(v, 90) : 0,
-        /* CỐ Ý không lọc bỏ phần trỏ tới sản phẩm đã xoá ở đây. projPart()
-           bày nó ra thành một dòng "đã xoá" để tổng vốn không lặng lẽ tụt
-           xuống — dọn ở đây thì phương án bỗng dưng có lãi hơn mà không ai
-           biết vì sao. */
-        parts: (Array.isArray(x.parts) ? x.parts : []).filter(q => q && typeof q === 'object').map(q => ({
-          productId: String(q.productId || ''),
-          sid: String(q.sid || ''),
-          cid: String(q.cid || ''),
-          qty: Math.max(1, Math.round(+q.qty || 1))
-        })).filter(q => q.productId)
-      };
-    });
+    /* Chỉ giữ id. Sản phẩm bị xoá thì lặng lẽ rời khỏi dự án — ở đây làm thế
+       là đúng, vì dự án chỉ là một cách gom: mất một con khỏi nhóm không làm
+       con số nào của những con còn lại sai đi. */
+    if (!Array.isArray(pj.productIds)) pj.productIds = [];
+    /* Chuyển bản cũ: dự án từng giữ "phương án" và "phần", mỗi phần trỏ tới
+       một sản phẩm. Gom hết id đó lại thành danh sách sản phẩm của dự án.
+       Vứt thẳng plans đi thì người đã dựng vài phương án mất sạch công mà
+       không có một dòng nào báo — mà đây đúng là loại mất mát không bao giờ
+       lần ra được sau này. */
+    if (Array.isArray(pj.plans) && pj.plans.length && !pj.productIds.length)
+      pj.plans.forEach(pl => (pl && Array.isArray(pl.parts) ? pl.parts : [])
+        .forEach(q => { if (q && q.productId) pj.productIds.push(String(q.productId)); }));
+    delete pj.plans;
+    const co = new Set();
+    pj.productIds = pj.productIds.map(x => String(x || ''))
+      .filter(x => x && !co.has(x) && co.add(x) !== null &&
+                   db.products.some(q => q.id === x && !q.deleted));
   });
   db.kwranks.forEach(r => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(r.date || '')) r.date = today();
@@ -1496,7 +1491,7 @@ const REVIEW_KINDS = {
   adfixes:   'Việc làm trên chiến dịch quảng cáo',
   keywords:  'Dự án đánh từ khoá',
   costs:     'Giá vốn sản phẩm',
-  projects:  'Dự án so giá',
+  projects:  'Dự án — sản phẩm tổng',
   adperiods: 'Kỳ số liệu quảng cáo',
   spweeks:   'Tuần số liệu Shopee',
   impacts:   'Hành động cải thiện sản phẩm',
@@ -1594,11 +1589,11 @@ function reviewLabel(kind, rec){
     }
     case 'projects': {
       const cd = projCard(rec);
-      return {title: 'Dự án so giá: ' + (rec.name || 'chưa đặt tên'),
+      return {title: 'Dự án: ' + (rec.name || 'chưa đặt tên'),
               sub: (rec.shopId ? shopName(rec.shopId) + ' · ' : '') +
-                   cd.n + ' phương án' +
-                   (rec.rival && rec.rival.price ? ' · đối thủ ' + moneyShort(rec.rival.price) : '') +
-                   (cd.n ? ' · ' + cd.nSong + ' đánh được' : '')};
+                   cd.n + ' sản phẩm' +
+                   (cd.nLo ? ' · ' + cd.nLo + ' đang lỗ' : '') +
+                   (rec.rival && rec.rival.price ? ' · đối thủ ' + moneyShort(rec.rival.price) : '')};
     }
     case 'costs': {
       const pr = productOf(rec.productId);
@@ -2507,21 +2502,7 @@ function costByBrand(shopId){
    không. Combo đếm chung vào phần "lỗ sẵn" vì một combo lỗ cũng là tiền thật
    chảy đi, dù nó chỉ là một dòng con. */
 function costBrandCards(shopId){
-  return costByBrand(shopId).map(g => {
-    let nCombo = 0, nSize = 0, nLo = 0, nThieu = 0;
-    const roas = [];
-    g.rows.forEach(r => {
-      nCombo += r.c ? (r.c.combos || []).length : 0;
-      nSize  += r.c ? (r.c.sizes  || []).length : 0;
-      /* "Thiếu số" đọc từ chính danh sách đơn vị bán: con có size mà chưa
-         điền vốn cho size nào thì cũng là thiếu, dù ô giá vốn gốc có số. */
-      if (!r.units.length || r.units.some(u => u.x.thieuVon)) nThieu++;
-      r.units.forEach(u => { if (u.x.lo) nLo++; else if (u.x.roas) roas.push(u.x.roas); });
-    });
-    return {brand: g.brand, rows: g.rows, n: g.rows.length, nCombo, nSize, nLo, nThieu,
-            roasMin: roas.length ? Math.min.apply(null, roas) : null,
-            roasMax: roas.length ? Math.max.apply(null, roas) : null};
-  });
+  return costByBrand(shopId).map(g => Object.assign(costGroupStats(g.rows), {brand: g.brand}));
 }
 
 /* Sản phẩm đang đặt ngưỡng ROAS THẤP HƠN điểm hoà vốn — mỗi đơn quảng cáo
@@ -2548,42 +2529,22 @@ const selKey   = sel => !sel ? '' : sel.sid ? 's:' + sel.sid : sel.cid ? 'c:' + 
 const selParse = k => !k ? null : k.slice(0,2) === 's:' ? {sid: k.slice(2)}
                     : k.slice(0,2) === 'c:' ? {cid: k.slice(2)} : null;
 
-/* Mọi thứ bán được của MỌI sản phẩm, làm danh sách chọn cho phương án dự án.
-   Một danh sách phẳng thay vì hai ô chọn nối nhau: gõ vài chữ trong ô chọn
-   của trình duyệt là nhảy tới đúng dòng, nhanh hơn chọn sản phẩm rồi chờ ô
-   thứ hai nạp lại. */
-function costUnitOptions(){
-  const out = [];
-  products().filter(p => !p.archived).forEach(p => {
-    const c = costOf(p.id);
-    if (!c) return;
-    const sh = c.shopId ? shopName(c.shopId) : 'chưa xếp gian hàng';
-    costUnits(p).forEach(u => {
-      const q = u.sel || {};
-      out.push({v: [p.id, q.sid || '', q.cid || ''].join('|'),
-                label: p.name + (u.cap ? ' — ' + u.nhan : ''),
-                von: u.x.tongVon, sh, brand: p.brand || ''});
-    });
-  });
-  return out.sort((a,b) => norm(a.label).localeCompare(norm(b.label), 'vi'));
-}
-
 /* ============================================================
-   DỰ ÁN SO GIÁ (projects)
+   DỰ ÁN — SẢN PHẨM TỔNG
 
-   Câu hỏi nó sinh ra để trả lời: *đối thủ đang bán 279k, mình ghép được thứ
-   gì để đánh lại mà vẫn sống?*
+   Cùng một bảng giá vốn, chỉ sâu hơn đúng một cấp:
 
-   Một dự án gồm giá con đối thủ, và vài PHƯƠNG ÁN bán đặt cạnh nhau. Mỗi
-   phương án là một rổ hàng tick từ những sản phẩm / size / combo ĐÃ CÓ trong
-   bảng giá vốn, cộng lại ra tổng vốn, rồi chạy qua đúng bộ phí của gian hàng
-   như một sản phẩm thường.
+     Bảng giá vốn:  Sản phẩm  →  Size  →  Combo
+     Dự án:         SP TỔNG   →  Sản phẩm A, B, C  →  Size  →  Combo
 
-   Nguyên tắc không được phá: dự án **trỏ tới** sản phẩm, không **chứa** sản
-   phẩm. Sáp A thuộc thương hiệu Akuma vĩnh viễn, nhưng có thể nằm trong cả
-   "Đánh giá tháng 10" lẫn "Combo Tết". Nếu dự án giữ bản sao giá vốn thì hai
-   bản sẽ trôi khỏi nhau, và không ai phát hiện ra cho tới lúc tính sai tiền
-   thật. Vì thế projPart() luôn đọc lại giá vốn từ bản gốc, mỗi lần vẽ.
+   SP tổng là một con hàng ghép để đi cạnh tranh giá: bên trong nó là vài sản
+   phẩm thật, mỗi con vẫn giữ nguyên size và combo của mình.
+
+   Dự án **trỏ tới** sản phẩm, không **chứa** sản phẩm — nó chỉ giữ một danh
+   sách id. Sáp A thuộc thương hiệu Akuma vĩnh viễn và vẫn nằm trong bảng giá
+   vốn như cũ; nằm thêm trong một dự án không nhân bản nó ra. Nếu dự án giữ
+   bản sao giá vốn thì hai bản sẽ trôi khỏi nhau, và không ai phát hiện ra cho
+   tới lúc tính sai tiền thật.
    ============================================================ */
 const PJ_STAGES = [
   {id:'draft', label:'Đang dựng',  cls:''},
@@ -2592,82 +2553,45 @@ const PJ_STAGES = [
 ];
 const PJ_STAGE = id => PJ_STAGES.find(x => x.id === id) || PJ_STAGES[0];
 
-const projects   = () => alive(db.projects);
-const projOf     = id => projects().find(p => p.id === id) || null;
+const projects    = () => alive(db.projects);
+const projOf      = id => projects().find(p => p.id === id) || null;
 const projsOfShop = shopId => projects().filter(p => (p.shopId || '') === (shopId || ''));
+/* Dự án nào đang chứa con này — để trang chi tiết sản phẩm chỉ đường ngược lại. */
+const projsOfProduct = pid => projects().filter(p => (p.productIds || []).includes(pid));
 
-/* Một phần của phương án → giá vốn thật của nó, đọc lại từ bảng giá vốn gốc.
-   Trả về cả `mat` khi thứ được tick đã bị xoá: phải bày ra chứ không được âm
-   thầm coi như 0đ, vì lúc đó tổng vốn tụt xuống và phương án trông có lãi
-   hơn hẳn — sai theo đúng hướng dễ tin nhất. */
-function projPart(pt){
-  const qty = Math.max(1, Math.round(+pt.qty || 1));
-  const p = products().find(x => x.id === pt.productId);
-  if (!p) return {pt, qty, mat:true, von:0, nhan:'Sản phẩm đã xoá'};
-  const c = costOf(p.id);
-  const cb = pt.cid && c ? (c.combos || []).find(x => x.cid === pt.cid) : null;
-  const sz = pt.sid && c ? (c.sizes  || []).find(x => x.sid === pt.sid) : null;
-  if (pt.cid && !cb) return {pt, p, qty, mat:true, von:0, nhan: p.name + ' — combo đã xoá'};
-  if (pt.sid && !sz) return {pt, p, qty, mat:true, von:0, nhan: p.name + ' — size đã xoá'};
-
-  /* Combo: vốn của nó = vốn phần chính (của đúng size nó ghép từ) + hàng kèm
-     thêm + quà. Lấy qua costCalc để không phải chép lại phép cộng đó. */
-  let von, nhan = p.name;
-  if (cb){
-    const x = costCalc(p, {cid: cb.cid});
-    von = x ? x.tongVon : 0;
-    nhan += ' — ' + (cb.name || 'combo');
-  } else if (sz){
-    von = sz.cost;
-    nhan += ' — ' + (sz.name || 'size');
-  } else {
-    von = c ? c.cost : 0;
-  }
-  return {pt, p, c, cb, sz, qty, von: Math.round(von) * qty, donVi: Math.round(von), nhan};
+/* Sản phẩm trong một dự án, đúng hình dạng mà costRow() cần vẽ. */
+function projRows(pj){
+  if (!pj) return [];
+  return (pj.productIds || []).map(id => {
+    const p = products().find(x => x.id === id && !x.archived);
+    if (!p) return null;
+    const c = costOf(p.id);
+    return {p, c, calc: costCalc(p), units: costUnits(p), shopId: c ? c.shopId : ''};
+  }).filter(Boolean)
+    .sort((a,b) => norm(a.p.name).localeCompare(norm(b.p.name), 'vi'));
 }
 
-/* Một phương án → đủ bộ số như một sản phẩm thường.
-   `gia` để trống thì tính theo giá của phương án; truyền vào một con số khác
-   (giá đối thủ) thì ra kịch bản "nếu phải bán bằng giá nó thì sao". */
-function projCalc(pj, pid, gia){
-  if (!pj) return null;
-  const plan = (pj.plans || []).find(x => x.pid === pid);
-  if (!plan) return null;
-  const sh = shopOf(pj.shopId);
-  const parts = (plan.parts || []).map(projPart);
-  const von   = parts.reduce((t, x) => t + x.von, 0);
-  const x = costFrom({
-    gia:  gia == null ? plan.price : gia,
-    F:    shopFees(sh),
-    vPct: plan.voucherPct,
-    feePct: 0, pack: 0,
-    von,  gift: plan.gift
+/* Số tóm tắt của một nhóm sản phẩm. Dùng chung cho thẻ thương hiệu và thẻ dự
+   án: hai chỗ đếm cùng một thứ, mà đếm ở hai nơi thì sớm muộn cũng lệch. */
+function costGroupStats(rows){
+  let nCombo = 0, nSize = 0, nLo = 0, nThieu = 0;
+  const roas = [];
+  rows.forEach(r => {
+    nCombo += r.c ? (r.c.combos || []).length : 0;
+    nSize  += r.c ? (r.c.sizes  || []).length : 0;
+    /* "Thiếu số" đọc từ chính danh sách đơn vị bán: con có size mà chưa điền
+       vốn cho size nào thì cũng là thiếu, dù ô giá vốn gốc có số. */
+    if (!r.units.length || r.units.some(u => u.x.thieuVon)) nThieu++;
+    r.units.forEach(u => { if (u.x.lo) nLo++; else if (u.x.roas) roas.push(u.x.roas); });
   });
-  return x ? Object.assign(x, {pj, plan, sh, parts,
-                               mat: parts.some(q => q.mat),
-                               trong: !parts.length}) : null;
+  return {rows, n: rows.length, nCombo, nSize, nLo, nThieu,
+          roasMin: roas.length ? Math.min.apply(null, roas) : null,
+          roasMax: roas.length ? Math.max.apply(null, roas) : null};
 }
 
-/* Mọi phương án của một dự án, kèm luôn kịch bản bán ở giá đối thủ.
-   Sắp theo lãi mỗi đơn giảm dần — câu hỏi ở đây là "đánh bằng con nào", nên
-   con lời nhất phải nằm trên cùng, không phải con nhập trước nhất. */
-function projPlans(pj){
-  const gd = pj.rival && pj.rival.price > 0 ? pj.rival.price : null;
-  return (pj.plans || []).map(pl => ({
-    plan: pl,
-    x:    projCalc(pj, pl.pid),
-    doi:  gd == null ? null : projCalc(pj, pl.pid, gd)
-  })).filter(r => r.x)
-     .sort((a, b) => b.x.lai - a.x.lai);
-}
-
-/* Thẻ ngoài: đủ để biết dự án này đã có lời giải chưa. */
+/* Thẻ ngoài của một dự án. */
 function projCard(pj){
-  const rows = projPlans(pj);
-  const song = rows.filter(r => r.doi ? !r.doi.lo : !r.x.lo);
-  return {pj, rows, n: rows.length, nSong: song.length,
-          best: song.length ? song[0] : (rows[0] || null),
-          mat: rows.some(r => r.x.mat)};
+  return Object.assign(costGroupStats(projRows(pj)), {pj});
 }
 
 /* Bốn dấu hiệu cần soi. Trả về mảng mã, có thể nhiều cái cùng lúc. */
@@ -4204,4 +4128,4 @@ function searchAll(q, limit){
 const KIND_LABEL = {kol:'KOL/KOC', booking:'Booking', clip:'Clip', product:'Sản phẩm',
                     idea:'Sản phẩm mới', kwgo:'Từ khoá'};
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "3680d5af"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "2524f906"]);
