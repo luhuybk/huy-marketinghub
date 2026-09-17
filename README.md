@@ -1392,8 +1392,9 @@ Gian hàng → Thương hiệu → Sản phẩm →  Size  → Combo → bảng 
 ```
 
 Size là cấp **tuỳ chọn**: con nào không có size thì combo treo thẳng dưới sản
-phẩm, đúng như trước. Cạnh bảng giá vốn còn một tab thứ hai — **⚔ Dự án so
-giá** — dùng khi phải đánh lại một con đang phá giá của đối thủ.
+phẩm, đúng như trước. Cạnh bảng giá vốn còn một tab thứ hai — **⚔ Dự án** —
+chính là bảng này thêm một cấp nữa ở trên, cho một *sản phẩm tổng* ghép từ
+nhiều con.
 
 ### Mốc tính phí là GIÁ BÁN THỰC, không phải giá niêm yết
 
@@ -1576,40 +1577,47 @@ không phải sản phẩm gốc: một ngưỡng đặt chung cho cả con hàn
 size nặng nhất. So với size dễ thở nhất thì mọi thứ đều xanh, đúng lúc size kia
 đang lỗ từng đơn.
 
-### ⚔ Dự án so giá
+### ⚔ Dự án — sản phẩm tổng
 
-Câu hỏi nó sinh ra để trả lời: **đối thủ đang bán 199k, mình ghép được thứ gì
-để đánh lại mà vẫn sống?**
+Cùng một bảng, cùng cách đọc, **sâu hơn đúng một cấp**:
 
 ```
-Dự án  →  Phương án  →  Phần  →  trỏ tới sản phẩm / size / combo đã có
- ↑ giá đối thủ  ↑ giá bán riêng
+Bảng giá vốn:  Thẻ thương hiệu → Sản phẩm → Size → Combo
+Dự án:         Thẻ dự án       → Sản phẩm → Size → Combo
+                ↑ chính dự án là "sản phẩm tổng", cấp trên cùng
 ```
 
-Một dự án giữ giá con của đối thủ. Bên dưới là vài **phương án** đặt cạnh
-nhau; mỗi phương án là một rổ hàng tick từ những thứ **đã có** trong bảng giá
-vốn. App cộng vốn, chạy qua đúng bộ phí của gian hàng, rồi mọc thêm hai cột trả
-lời câu quan trọng nhất: **ép về bằng giá đối thủ thì còn sống không.**
+Một dự án là một **con hàng ghép để đi cạnh tranh giá**. Bên trong nó là vài
+sản phẩm thật, mỗi con vẫn giữ nguyên size và combo của mình.
 
-**Dự án *trỏ tới* sản phẩm, không *chứa* sản phẩm.** Sáp A thuộc thương hiệu
-Akuma vĩnh viễn, nhưng có thể nằm trong cả *"Đánh giá tháng 10"* lẫn *"Combo
-Tết"*. Nếu dự án giữ bản sao giá vốn thì hai bản sẽ trôi khỏi nhau, và không ai
-phát hiện ra cho tới lúc tính sai tiền thật. Vì thế `projPart()` đọc lại giá
-vốn từ bản gốc **mỗi lần vẽ** — sửa giá nhập ở bảng giá vốn là dự án đổi theo
-ngay.
+**Dự án *trỏ tới* sản phẩm, không *chứa* sản phẩm** — bản ghi chỉ giữ một danh
+sách id (`projects.productIds`). Sáp A thuộc thương hiệu Akuma vĩnh viễn và
+vẫn nằm trong bảng giá vốn như cũ; nằm thêm trong một dự án không nhân bản nó
+ra. Nếu dự án giữ bản sao giá vốn thì hai bản sẽ trôi khỏi nhau, và không ai
+phát hiện ra cho tới lúc tính sai tiền thật.
 
-Một phần bị xoá mất thì bày ra thành dòng `đã bị xoá — vốn đang tính là 0`,
-không lặng lẽ coi như 0đ. Lặng lẽ thì tổng vốn tụt xuống và phương án trông có
-lãi hơn hẳn — sai theo đúng hướng dễ tin nhất.
+Hệ quả thấy được trên màn hình: sửa giá vốn ở một nơi là nơi kia đổi theo
+ngay, và nút **✕** trên dòng sản phẩm chỉ **bỏ khỏi dự án** — con hàng vẫn
+nguyên trong bảng giá vốn. Trang chi tiết sản phẩm cũng có dải *"Nằm trong:"*
+chỉ ngược lên những dự án đang chứa nó, vì đó đúng là lúc người ta tự hỏi
+*"sửa giá vốn đây thì ảnh hưởng chỗ nào nữa"*.
 
-Ô chọn "lấy phần nào" là **một danh sách phẳng** của mọi thứ bán được trong
-mọi sản phẩm, không phải chọn sản phẩm rồi chờ ô thứ hai nạp lại: gõ vài chữ là
-nhảy thẳng tới dòng cần.
+Bảng bên trong dự án dùng **lại `costRow()` nguyên vẹn** thay vì dựng một bảng
+bốn cấp. Bốn mức thụt trong một bảng thì trên điện thoại không ai lần ra dòng
+nào thuộc dòng nào, mà hai bảng vẽ bằng hai đoạn mã thì sớm muộn cũng lệch cột
+nhau.
 
-Kết luận cuối trang viết hẳn ra ba đường khi không phương án nào đánh nổi —
-tìm nguồn rẻ hơn cho phần vốn nặng nhất, bớt hàng kèm, hoặc không đánh giá mà
-đánh bằng thứ khác. **Hạ giá tiếp chỉ là lỗ nhanh hơn**, và đó chính là điều
-người đang thua cuộc chiến giá hay làm.
+Ô *"đối thủ đang bán"* chỉ là **một mốc để nhìn cạnh ROAS min**, không tham gia
+phép tính nào.
+
+> **Bản trước của mục này đã bị thay.** Nó từng có "phương án" và "phần" —
+> mỗi phương án là một rổ hàng tick từ bảng giá vốn, kèm hai cột *"nếu buộc
+> phải bán bằng giá đối thủ"*. Đúng về số nhưng sai về hình: cái cần là thêm
+> một cấp cho giống bảng giá vốn, không phải một cơ chế mới phải học lại.
+> `ensure()` **chuyển bản cũ sang bản mới**: gom id sản phẩm trong mọi phần
+> của mọi phương án thành `productIds`, khử trùng lặp, rồi mới bỏ `plans`.
+> Vứt thẳng đi thì người đã dựng vài phương án mất sạch công mà không có một
+> dòng nào báo.
 
 ### Thương hiệu hiện ra ngoài dưới dạng thẻ
 

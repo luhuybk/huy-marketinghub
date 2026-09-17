@@ -31,7 +31,7 @@ const ui = {
   adNen: null,
   /* Tính chi phí: 'sp' = bảng giá vốn, 'pj' = dự án so giá. costSel là thứ
      đang xem ở trang chi tiết ('' | s:<sid> | c:<cid>). */
-  costTab:'sp', costSel:'', pjPlan:''
+  costTab:'sp', costSel:''
 };
 
 /* Cấu hình Telegram nằm ở máy chủ, không phải trong db — mã bot không bao
@@ -3168,7 +3168,7 @@ function viewCost(){
   let h = `<div class="toolbar">
     <div class="tabs">
       <button class="tab ${pj ? '' : 'on'}" data-act="costtab" data-id="sp">Giá vốn sản phẩm</button>
-      <button class="tab ${pj ? 'on' : ''}" data-act="costtab" data-id="pj">⚔ Dự án so giá${
+      <button class="tab ${pj ? 'on' : ''}" data-act="costtab" data-id="pj">⚔ Dự án${
         nPj ? ' (' + nPj + ')' : ''}</button>
     </div>
   </div>`;
@@ -3301,7 +3301,7 @@ function brandCard(t){
 
    Con KHÔNG có size vẫn chạy y như trước: combo treo thẳng dưới sản phẩm,
    đúng một cấp. Không bắt ai phải tạo một size giả chỉ để có chỗ treo combo. */
-function costRow(r){
+function costRow(r, pjId){
   const p = r.p, c = r.c;
   const szs = c ? (c.sizes || []) : [];
   const mo  = !!ui.costOpen[p.id];
@@ -3315,7 +3315,9 @@ function costRow(r){
   const nhanNut = szs.length
     ? (mo ? '▾' : '▸') + ' ' + szs.length + ' size' + (nCb ? ' · ' + nCb + ' combo' : '')
     : nCb ? (mo ? '▾' : '▸') + ' ' + nCb + ' combo' : '+ size / combo';
-  const nut = `<button class="btn sm" data-act="costtoggle" data-id="${p.id}">${nhanNut}</button>`;
+  const nut = `<button class="btn sm" data-act="costtoggle" data-id="${p.id}">${nhanNut}</button>` +
+    (pjId ? ` <button class="btn sm" data-act="pjdrop" data-id="${pjId}|${p.id}"
+       title="bỏ khỏi dự án — sản phẩm vẫn còn nguyên trong bảng giá vốn">✕</button>` : '');
 
   /* ---------- cấp 1: dòng sản phẩm ---------- */
   let h;
@@ -3340,7 +3342,7 @@ function costRow(r){
       return `<tr data-act="costsp" data-id="${p.id}">
         <td class="nw"><b>${esc(p.name)}</b> ${nut}</td>
         <td colspan="9" class="dim">chưa điền giá bán nên chưa tính được — bấm để điền</td></tr>` +
-        (mo ? costRowFoot(p, '', szs.length) : '');
+        (mo ? costRowFoot(p, szs.length) : '');
     h = `<tr data-act="costsp" data-id="${p.id}">
       <td class="nw"><b>${esc(p.name)}</b>${x.thieuVon
         ? ` <span class="chip warn">chưa có giá vốn</span>` : ''}${
@@ -3379,7 +3381,7 @@ function costRow(r){
   } else {
     combosUnder(p, '').forEach(cb => { h += comboRow(p, cb, 1); });
   }
-  return h + costRowFoot(p, '', szs.length);
+  return h + costRowFoot(p, szs.length);
 }
 
 /* Tám ô số giữa bảng — dùng chung cho sản phẩm, size và combo để ba cấp
@@ -3419,7 +3421,7 @@ function comboRow(p, cb, cap){
 }
 
 /* Dòng chân khi mở một sản phẩm: chỗ thêm size và thêm combo. */
-function costRowFoot(p, sid, coSize){
+function costRowFoot(p, coSize){
   return `<tr class="sub"><td class="nw" colspan="10">
     <button class="btn sm" data-act="newsize" data-id="${p.id}">+ Size cho ${esc(p.name)}</button>
     ${coSize ? '' : `<button class="btn sm" data-act="newcombo" data-id="${p.id}">+ Combo từ ${esc(p.name)}</button>`}
@@ -3430,7 +3432,17 @@ function costRowFoot(p, sid, coSize){
 }
 
 /* ============================================================
-   DỰ ÁN SO GIÁ
+   DỰ ÁN — SẢN PHẨM TỔNG
+
+   Cùng bảng, cùng cách đọc, chỉ sâu hơn một cấp:
+
+     Giá vốn:  thẻ thương hiệu  →  bảng  Sản phẩm → Size → Combo
+     Dự án:    thẻ dự án        →  bảng  Sản phẩm → Size → Combo
+                                  ↑ chính dự án là cấp trên cùng
+
+   Cố ý dùng LẠI costRow() nguyên vẹn thay vì dựng một bảng bốn cấp: bốn mức
+   thụt trong một bảng thì trên điện thoại không ai lần ra dòng nào thuộc dòng
+   nào, mà hai bảng vẽ bằng hai đoạn mã thì sớm muộn cũng lệch cột nhau.
    ============================================================ */
 function viewProjList(shopId){
   const ds = projsOfShop(shopId).map(projCard)
@@ -3440,46 +3452,37 @@ function viewProjList(shopId){
 
   if (!ds.length)
     return `<div class="empty"><b>Chưa có dự án nào</b>
-      Dùng khi có một con của đối thủ đang phá giá mà bạn phải đánh lại.
-      Ghi giá con đó vào, rồi dựng vài <b>phương án</b> — mỗi phương án tick những
-      sản phẩm, size, combo <b>đã có</b> trong bảng giá vốn. App cộng vốn, trừ hết phí,
-      rồi trả lời đúng một câu: <b>bán ở giá của nó thì phương án nào còn sống</b>.
+      Dự án là một <b>sản phẩm tổng</b> — một con hàng ghép để đi cạnh tranh giá.
+      Bên trong nó là vài sản phẩm thật, mỗi con vẫn giữ nguyên size và combo của mình.
+      Sản phẩm không bị nhân bản: dự án chỉ trỏ tới chúng, nên sửa giá vốn một chỗ là
+      cả hai nơi đổi theo.
       <div style="margin-top:14px" class="btns center">
         <button class="btn pri" data-act="newpj">+ Dự án đầu tiên</button></div></div>`;
 
-  let h = `<div class="mod">` + moduleHead('⚔', 'Dự án so giá',
-    ds.length + ' dự án · mỗi thẻ là một con của đối thủ và các cách đánh lại nó');
+  let h = `<div class="mod">` + moduleHead('⚔', 'Dự án',
+    ds.length + ' sản phẩm tổng · bấm một thẻ để mở danh sách bên trong');
   h += `<div class="ideag">` + ds.map(pjCardEl).join('') + `</div></div>`;
   return h;
 }
 
-function pjCardEl(cd){
-  const pj = cd.pj, st = PJ_STAGE(pj.stage);
-  const gd = pj.rival.price;
-  /* Chip trạng thái nói thẳng kết luận, không nói số phương án: câu người ta
-     cần khi liếc qua là "đánh được hay không", còn dựng bao nhiêu phương án
-     là chuyện bên trong. */
-  const chip = !cd.n ? `<span class="chip">chưa có phương án</span>`
-             : cd.mat ? `<span class="chip warn">có phần đã bị xoá</span>`
-             : !gd ? `<span class="chip">chưa ghi giá đối thủ</span>`
-             : cd.nSong ? `<span class="chip ok">${cd.nSong}/${cd.n} đánh được</span>`
-                        : `<span class="chip bad">không phương án nào đánh nổi</span>`;
+function pjCardEl(t){
+  const pj = t.pj, st = PJ_STAGE(pj.stage);
   return `<div class="icard" data-act="pj" data-id="${pj.id}">
     <div class="ic-hd">
       <b class="grow ell">${esc(pj.name || 'Dự án chưa đặt tên')}</b>
-      ${chip}
+      ${t.nLo ? `<span class="chip bad">${t.nLo} lỗ sẵn</span>`
+              : t.nThieu ? `<span class="chip warn">${t.nThieu} thiếu số</span>`
+              : t.n ? `<span class="chip ok">đủ số</span>`
+                    : `<span class="chip">chưa có sản phẩm</span>`}
     </div>
-    <div class="ic-sub">${esc(pj.rival.name || 'chưa ghi tên con của đối thủ')}${
-      st.id !== 'draft' ? ' · ' + esc(st.label) : ''}</div>
+    <div class="ic-sub">${t.n} sản phẩm${t.nSize ? ' · ' + t.nSize + ' size' : ''}${
+      t.nCombo ? ' · ' + t.nCombo + ' combo' : ''}${st.id !== 'draft' ? ' · ' + esc(st.label) : ''}</div>
     <div class="ic-money">
-      <div><span class="dim">Đối thủ bán</span><b>${gd ? moneyShort(gd) : '—'}</b></div>
-      <div><span class="dim">Lãi tốt nhất ở giá đó</span><b class="${
-        cd.best && cd.best.doi ? (cd.best.doi.lo ? 'bad' : 'ok') : ''}">${
-        cd.best && cd.best.doi ? moneyShort(cd.best.doi.lai)
-        : cd.best ? moneyShort(cd.best.x.lai) + ' *' : '—'}</b></div>
+      <div><span class="dim">ROAS min thấp nhất</span><b>${t.roasMin ? xText(t.roasMin) : '—'}</b></div>
+      <div><span class="dim">${pj.rival.price ? 'Đối thủ bán' : '…cao nhất'}</span><b>${
+        pj.rival.price ? moneyShort(pj.rival.price) : (t.roasMax ? xText(t.roasMax) : '—')}</b></div>
     </div>
-    <div class="ic-ft"><span class="chip acc">Mở dự án →</span>
-      ${cd.n ? `<span class="dim">${cd.n} phương án</span>` : ''}</div>
+    <div class="ic-ft"><span class="chip acc">Mở dự án →</span></div>
   </div>`;
 }
 
@@ -3487,15 +3490,14 @@ function viewPj(id){
   const pj = projOf(id);
   if (!pj) return emptyBox('Không tìm thấy dự án này', 'Có thể đã bị xoá.');
   const st = PJ_STAGE(pj.stage);
-  const gd = pj.rival.price;
-  const rows = projPlans(pj);
+  const t  = projCard(pj);
 
   let h = `<div class="toolbar">
-    <button class="btn" data-act="costtabgo" data-id="pj">‹ Dự án so giá</button>
+    <button class="btn" data-act="costtabgo" data-id="pj">‹ Mọi dự án</button>
     <div class="grow"></div>
-    ${pj.rival.url ? `<a class="btn sm" href="${esc(pj.rival.url)}" target="_blank" rel="noopener">Xem con của đối thủ ↗</a>` : ''}
+    ${pj.rival.url ? `<a class="btn sm" href="${esc(pj.rival.url)}" target="_blank" rel="noopener">Con của đối thủ ↗</a>` : ''}
     <button class="btn" data-act="editpj" data-id="${pj.id}">Sửa dự án</button>
-    <button class="btn pri" data-act="newplan" data-id="${pj.id}">+ Phương án</button>
+    <button class="btn pri" data-act="pjadd" data-id="${pj.id}">+ Sản phẩm vào dự án</button>
   </div>`;
 
   h += `<div class="card">
@@ -3504,96 +3506,41 @@ function viewPj(id){
       pj.note ? ' · ' + esc(pj.note) : ''}</div>
   </div>`;
 
-  /* ---- con phải đánh ---- */
   h += `<div class="tiles" style="margin-top:12px">
-    ${tile('Đối thủ đang bán', gd ? moneyShort(gd) : '—',
-           pj.rival.name ? esc(pj.rival.name) : 'chưa ghi tên — bấm Sửa dự án')}
-    ${tile('Phương án đã dựng', dem(rows.length), rows.length ? 'xếp theo lãi mỗi đơn' : 'chưa có cái nào')}
-    ${(() => {
-      const song = rows.filter(r => r.doi ? !r.doi.lo : !r.x.lo);
-      return tile('Đánh được ở giá đó', gd ? dem(song.length) + '/' + rows.length : '—',
-                  gd ? (song.length ? 'còn lãi sau khi trừ hết phí' : 'không cái nào còn lãi')
-                     : 'ghi giá đối thủ vào là tính được',
-                  gd ? (song.length ? 'ok' : 'bad') : '');
-    })()}
-    ${(() => {
-      const b = rows.find(r => r.doi ? !r.doi.lo : !r.x.lo) || rows[0];
-      return tile('ROAS min thấp nhất', b ? xText((b.doi || b.x).roas) : '—',
-                  b ? esc(b.plan.name || 'phương án chưa đặt tên') : 'chưa có phương án');
-    })()}
+    ${tile('Bên trong', dem(t.n) + ' sản phẩm',
+           (t.nSize ? t.nSize + ' size · ' : '') + t.nCombo + ' combo')}
+    ${tile('ROAS min thấp nhất', t.roasMin ? xText(t.roasMin) : '—',
+           t.roasMax && t.roasMax !== t.roasMin ? 'cao nhất ' + xText(t.roasMax) : 'con dễ thở nhất')}
+    ${tile('Đang lỗ sẵn', dem(t.nLo), t.nLo ? 'lỗ dù chưa chạy quảng cáo' : 'không con nào',
+           t.nLo ? 'bad' : 'ok')}
+    ${tile('Đối thủ đang bán', pj.rival.price ? moneyShort(pj.rival.price) : '—',
+           pj.rival.name ? esc(pj.rival.name) : 'ghi vào ở Sửa dự án để có mốc so')}
   </div>`;
 
-  if (!rows.length)
-    return h + `<div class="empty"><b>Chưa có phương án nào</b>
-      Một phương án là một rổ hàng: tick những sản phẩm, size, combo <b>đã có</b> trong bảng
-      giá vốn, app cộng vốn lại. Bạn chỉ điền giá bán, nó trả về lãi mỗi đơn và ROAS min.
+  if (!t.n)
+    return h + `<div class="empty"><b>Dự án này chưa có sản phẩm nào</b>
+      Bấm <b>+ Sản phẩm vào dự án</b> để chọn từ những con đã có trong bảng giá vốn,
+      hoặc tạo một con mới thẳng vào đây.
       <div style="margin-top:14px" class="btns center">
-        <button class="btn pri" data-act="newplan" data-id="${pj.id}">+ Phương án đầu tiên</button></div></div>`;
+        <button class="btn pri" data-act="pjadd" data-id="${pj.id}">+ Sản phẩm vào dự án</button></div></div>`;
 
-  /* ---- bảng phương án ---- */
-  h += `<div class="mod">` + moduleHead('⚖', 'Các phương án',
-    gd ? 'hai cột cuối là kịch bản BUỘC PHẢI bán bằng giá đối thủ ' + moneyShort(gd)
-       : 'ghi giá đối thủ vào phần Sửa dự án là có thêm cột "nếu bán bằng giá nó"');
+  h += `<div class="mod">` + moduleHead('🧮', 'Bên trong ' + (pj.name || 'dự án'),
+    t.n + ' sản phẩm · mỗi con vẫn giữ nguyên size và combo của nó',
+    `<button class="btn sm" data-act="pjadd" data-id="${pj.id}">+ Sản phẩm</button>`);
   h += `<div class="tblwrap"><table class="tbl sm ptbl stick"><thead><tr>
-    <th class="nw">Phương án</th><th class="r">Giá bán</th><th class="r">Voucher</th>
-    <th class="r">Tổng vốn</th><th class="r">Lãi/đơn</th><th class="r">ROAS min</th>
-    ${gd ? `<th class="r">Lãi ở ${moneyShort(gd)}</th><th class="r">ROAS min ở giá đó</th>` : ''}
-  </tr></thead><tbody>` + rows.map(r => pjPlanRow(pj, r, gd)).join('') + `</tbody></table></div>`;
+    <th class="nw">Sản phẩm</th><th class="r">Giá niêm yết</th><th class="r">Voucher</th>
+    <th class="r">Giá bán thực</th><th class="r">Giá vốn</th><th class="r">Thực nhận</th>
+    <th class="r">Lãi/đơn</th><th class="r">ACOS max</th><th class="r">ROAS min</th>
+    <th class="r">ROAS đang chạy</th></tr></thead><tbody>` +
+    t.rows.map(r => costRow(r, pj.id)).join('') + `</tbody></table></div>`;
 
-  /* ---- một câu kết luận ---- */
-  const song = rows.filter(r => r.doi ? !r.doi.lo : !r.x.lo);
-  h += `<div class="explain ${gd && !song.length ? 'warn' : ''}" style="margin-top:10px">${
-    !gd ? 'Chưa ghi giá của đối thủ nên mọi con số ở đây chỉ là lãi theo giá bạn tự đặt. ' +
-          'Điền giá đó vào là bảng mọc thêm hai cột trả lời câu quan trọng hơn: ép về bằng giá nó thì còn sống không.'
-    : song.length
-      ? 'Đánh được bằng <b>' + esc(song[0].plan.name || 'phương án đầu bảng') + '</b>: bán ở ' +
-        moneyShort(gd) + ' vẫn còn <b>' + moneyShort(song[0].doi.lai) + '</b> mỗi đơn, ' +
-        'và quảng cáo phải giữ trên <b>' + xText(song[0].doi.roas) + '</b>. ' +
-        'Dưới mốc đó thì mỗi đơn bán được là một đơn lỗ — đánh giá mà không đặt ngưỡng ROAS là tự thua.'
-      : 'Không phương án nào bán nổi ở ' + moneyShort(gd) + ' — mọi cách ghép đều lỗ ngay từ đơn đầu. ' +
-        'Ba đường ra: tìm nguồn rẻ hơn cho phần vốn nặng nhất, bớt hàng kèm, hoặc không đánh giá mà đánh ' +
-        'bằng thứ khác. Hạ giá tiếp chỉ là lỗ nhanh hơn.'}</div></div>`;
+  h += `<div class="dim" style="margin-top:8px">Sản phẩm ở đây là <b>chính những con</b> trong
+    bảng giá vốn, không phải bản sao — sửa giá vốn ở một nơi là nơi kia đổi theo ngay.
+    Bỏ một con khỏi dự án cũng không xoá nó khỏi bảng giá vốn.</div></div>`;
   return h;
 }
 
-function pjPlanRow(pj, r, gd){
-  const pl = r.plan, x = r.x, d = r.doi;
-  const mo = ui.pjPlan === pl.pid;
-  let h = `<tr data-act="pjplan" data-id="${pl.pid}">
-    <td class="nw"><b>${mo ? '▾' : '▸'} ${esc(pl.name || 'phương án chưa đặt tên')}</b>${
-      x.mat ? ` <span class="chip warn">có phần đã xoá</span>` : ''}${
-      x.trong ? ` <span class="chip warn">chưa tick phần nào</span>` : ''}${
-      pl.gift ? ` <span class="chip">🎁 ${moneyShort(pl.gift)}</span>` : ''}</td>
-    <td class="r">${moneyShort(x.gia)}</td>
-    <td class="r">${x.vPct ? ratePct(x.vPct) : '—'}</td>
-    <td class="r">${x.tongVon ? moneyShort(x.tongVon) : '<span class="dim">—</span>'}
-      <div class="dim" style="font-size:10px">${x.parts.length} phần</div></td>
-    <td class="r"><b class="${x.lo ? 'bad' : 'ok'}">${moneyShort(x.lai)}</b></td>
-    <td class="r"><b>${x.roas == null ? '<span class="bad">—</span>' : xText(x.roas)}</b></td>
-    ${gd ? `<td class="r"><b class="${d && d.lo ? 'bad' : 'ok'}">${d ? moneyShort(d.lai) : '—'}</b></td>
-      <td class="r"><b>${d && d.roas != null ? xText(d.roas) : '<span class="bad">lỗ sẵn</span>'}</b></td>` : ''}
-  </tr>`;
-  if (!mo) return h;
-
-  const nc = gd ? 8 : 6;
-  h += x.parts.map(q => `<tr class="sub">
-    <td class="nw"><span class="dim">↳</span> ${esc(q.nhan)}${
-      q.qty > 1 ? ` <span class="chip">×${q.qty}</span>` : ''}${
-      q.mat ? ` <span class="chip bad">đã bị xoá — vốn đang tính là 0</span>` : ''}</td>
-    <td class="r dim" colspan="${nc - 2}">${q.donVi != null ? 'vốn ' + moneyShort(q.donVi) +
-      (q.qty > 1 ? ' × ' + q.qty : '') : ''}</td>
-    <td class="r">${moneyShort(q.von)}
-      <button class="btn sm" data-act="delpart" data-id="${pj.id}|${pl.pid}|${x.parts.indexOf(q)}">✕</button></td>
-  </tr>`).join('');
-  h += `<tr class="sub"><td colspan="${nc}">
-    <button class="btn sm" data-act="newpart" data-id="${pj.id}|${pl.pid}">+ Thêm phần</button>
-    <button class="btn sm" data-act="editplan" data-id="${pj.id}|${pl.pid}">Sửa giá bán · voucher · quà</button>
-    <span class="dim">giá vốn từng phần đọc thẳng từ bảng giá vốn, không chép — sửa ở đó là ở đây đổi theo</span>
-  </td></tr>`;
-  return h;
-}
-
-/* ---------------- một sản phẩm ---------------- */
+/* ---------------- một sản phẩm ---------------- *//* ---------------- một sản phẩm ---------------- */
 function viewCostSp(id){
   const p = productOf(id);
   if (!p) return emptyBox('Không tìm thấy sản phẩm này', 'Có thể đã bị xoá.');
@@ -3620,11 +3567,19 @@ function viewCostSp(id){
     ${cb || sz ? `<button class="btn sm" data-act="editcostsp" data-id="${p.id}">Voucher · quà · phí</button>` : ''}
   </div>`;
 
+  /* Con này đang nằm trong dự án nào. Không có dòng này thì từ trang sản phẩm
+     không có đường nào lần ngược lên sản phẩm tổng chứa nó, mà đó đúng là lúc
+     người ta hay tự hỏi "sửa giá vốn đây thì ảnh hưởng chỗ nào nữa". */
+  const trongPj = projsOfProduct(p.id);
   h += `<div class="card">
     <h2>${esc(p.name)}</h2>
     <div class="dim">${esc(p.brand || 'chưa gắn thương hiệu')}${
       c && c.shopId ? ' · ' + esc(shopName(c.shopId)) : ' · chưa xếp gian hàng'}${
       p.sku ? ' · SKU ' + esc(p.sku) : ''}</div>
+    ${trongPj.length ? `<div class="chips" style="margin-top:8px">
+      <span class="dim" style="align-self:center;margin-right:2px">Nằm trong:</span>` +
+      trongPj.map(x => `<button class="btn sm" data-act="pj" data-id="${x.id}">⚔ ${
+        esc(x.name || 'dự án')}</button>`).join('') + `</div>` : ''}
   </div>`;
 
   /* ---- chọn xem size nào, combo nào ---- */
