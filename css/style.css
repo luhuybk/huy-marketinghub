@@ -798,5 +798,20 @@ a.plnk:hover{border-color:var(--acc);background:var(--bg4)}
    sản phẩm rời. */
 .tbl.stick tr.sub td:first-child{background:var(--bg3)}
 .tbl.stick tr.sub:hover td:first-child{background:var(--bg4)}
+/* Cấp ba: combo của một size. Thụt sâu hơn và có một vạch dọc ở mép trái —
+   chỉ thụt thêm 14px thì ở bảng nhiều dòng không phân biệt nổi cấp hai với
+   cấp ba, mà đọc nhầm một combo thành một size là đọc nhầm cả giá vốn. */
+.tbl tr.sub2 td{background:var(--bg3);font-size:11.5px;border-bottom-style:dashed;opacity:.94}
+.tbl tr.sub2 td:first-child{padding-left:46px;position:relative}
+.tbl tr.sub2 td:first-child::before{content:'';position:absolute;left:30px;top:3px;bottom:3px;
+  width:2px;border-radius:1px;background:var(--line)}
+.tbl tr.sub2:hover td{background:var(--bg4)}
+/* Phải khai lại CẢ position:sticky, không chỉ nền. Luật ngay trên đặt
+   position:relative cho ô đầu của cấp ba (để cái vạch dọc bám vào nó), mà
+   luật đó lại thắng .tbl.stick td:first-child về độ cụ thể — thiếu dòng này
+   thì đúng những dòng cấp ba rời khỏi cột dính khi cuộn ngang, trong khi mọi
+   dòng khác vẫn đứng yên. */
+.tbl.stick tr.sub2 td:first-child{position:sticky;left:0;z-index:1;background:var(--bg3)}
+.tbl.stick tr.sub2:hover td:first-child{background:var(--bg4)}
 .sechd{font-size:11.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
   color:var(--tx3);margin:14px 0 8px}

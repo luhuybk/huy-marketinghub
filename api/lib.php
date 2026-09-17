@@ -177,6 +177,7 @@ const KH_KIND_PERM = [
   /* shops mang cả bảng phí, nên bên Tính chi phí cũng phải đọc được */
   'shops'     => ['ads','cost'],
   'costs'     => ['cost'],
+  'projects'  => ['cost'],
   'spweeks'   => ['improve','ads'],
   'impacts'   => ['improve'],
   'ideas'     => ['newprod'],
