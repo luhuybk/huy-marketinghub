@@ -84,7 +84,7 @@ const KH_KIND_PERM = {
   bookings:['pipeline','kols','clips'], clips:['clips','pipeline','kols'],
   adperiods:['ads'], actions:['ads'], adcamps:['ads'], addays:['ads'],
   /* shops mang cả bảng phí, nên bên Tính chi phí cũng phải đọc được */
-  shops:['ads','cost'], costs:['cost'],
+  shops:['ads','cost'], costs:['cost'], projects:['cost'],
   orderstats:['ads'], adfixes:['ads'], keywords:['ads'], kwranks:['ads'],
   spweeks:['improve','ads'],
   impacts:['improve'], ideas:['newprod']

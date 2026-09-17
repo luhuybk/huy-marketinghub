@@ -792,13 +792,13 @@ const DEFAULT_POST_TARGETS = {fb:0, tt:0};
 const KEY = 'kolhub.v1';
 const COLLECTIONS = ['kols','bookings','clips','products','adperiods','actions','brands','statuses',
                      'templates','spweeks','impacts','ideas','posts','adcamps','shops','addays',
-                     'orderstats','adfixes','keywords','kwranks','costs'];
+                     'orderstats','adfixes','keywords','kwranks','costs','projects'];
 
 function blank(){
   return {
     kols:[], bookings:[], clips:[], products:[], adperiods:[], actions:[], brands:[], statuses:[],
     templates:[], spweeks:[], impacts:[], ideas:[], posts:[], adcamps:[], shops:[], addays:[],
-    orderstats:[], adfixes:[], keywords:[], kwranks:[], costs:[],
+    orderstats:[], adfixes:[], keywords:[], kwranks:[], costs:[], projects:[],
     settings:{
       theme:'dark',
       myName:'',
@@ -1125,14 +1125,38 @@ function ensure(){
        giá vốn: nó là một quyết định bán hàng có thể bỏ, còn giá vốn thì
        không — gộp lại là mất khả năng thử "bỏ quà thì lãi thêm bao nhiêu". */
     c.gift = parseMoney(c.gift);
+    /* Size của cùng một con hàng — 50gr / 100gr / 150gr. Mảng RỖNG là bình
+       thường và là mặc định: phần lớn sản phẩm không có size, lúc đó giá vốn
+       và giá bán nằm thẳng ở đây như cũ.
+
+       Size chỉ mang BA thứ của riêng nó: tên, giá vốn, giá bán. Voucher, quà,
+       phí ngành hàng, phí đóng gói đều lấy từ sản phẩm mẹ — cùng một ngành
+       hàng, cùng một cái hộp. Cho size ô riêng cho từng thứ nghe có vẻ linh
+       hoạt hơn, nhưng thực tế là bốn chỗ phải sửa mỗi lần Shopee đổi phí, và
+       sót một chỗ thì sai âm thầm. */
+    if (!Array.isArray(c.sizes)) c.sizes = [];
+    c.sizes = c.sizes.filter(x => x && typeof x === 'object').map(x => ({
+      sid:   String(x.sid || uid()),
+      name:  String(x.name != null ? x.name : ''),
+      note:  String(x.note != null ? x.note : ''),
+      cost:  parseMoney(x.cost),
+      price: parseMoney(x.price)
+    }));
+
     /* Combo dựng từ chính sản phẩm này. Để trong bản ghi giá vốn chứ không
        tách bộ riêng: một combo không sống được nếu thiếu sản phẩm chính, và
        giá vốn phần chính nó lấy thẳng từ đây, không chép lại. */
     if (!Array.isArray(c.combos)) c.combos = [];
+    const coSid = new Set(c.sizes.map(x => x.sid));
     c.combos = c.combos.filter(x => x && typeof x === 'object').map(x => {
       const v = +x.voucherPct;
+      /* Combo ghép từ size nào. Size bị xoá thì combo rơi về sản phẩm gốc chứ
+         không biến mất — mất một combo không dấu vết thì tệ hơn nhiều so với
+         một combo tính theo giá vốn gốc mà bảng có nói rõ. */
+      const sid = String(x.sid || '');
       return {
         cid:     String(x.cid || uid()),
+        sid:     coSid.has(sid) ? sid : '',
         name:    String(x.name != null ? x.name : ''),
         note:    String(x.note != null ? x.note : ''),
         price:   parseMoney(x.price),
@@ -1145,6 +1169,35 @@ function ensure(){
     /* Sản phẩm bị xoá thì dòng giá vốn cũng đi theo — giữ lại chỉ tạo ra một
        dòng không tên trong bảng, không tra ngược được là của con nào. */
     if (c.productId && !db.products.some(x => x.id === c.productId && !x.deleted)) c.deleted = true;
+  });
+  db.projects.forEach(pj => {
+    ['shopId','name','note','stage'].forEach(f => { if (typeof pj[f] !== 'string') pj[f] = String(pj[f] == null ? '' : pj[f]); });
+    if (!PJ_STAGES.some(x => x.id === pj.stage)) pj.stage = 'draft';
+    if (pj.shopId && !db.shops.some(x => x.id === pj.shopId && !x.deleted)) pj.shopId = '';
+    const r = pj.rival && typeof pj.rival === 'object' ? pj.rival : {};
+    pj.rival = {name: String(r.name || ''), url: String(r.url || ''), price: parseMoney(r.price)};
+    if (!Array.isArray(pj.plans)) pj.plans = [];
+    pj.plans = pj.plans.filter(x => x && typeof x === 'object').map(x => {
+      const v = +x.voucherPct;
+      return {
+        pid:   String(x.pid || uid()),
+        name:  String(x.name != null ? x.name : ''),
+        note:  String(x.note != null ? x.note : ''),
+        price: parseMoney(x.price),
+        gift:  parseMoney(x.gift),
+        voucherPct: isFinite(v) && v > 0 ? Math.min(v, 90) : 0,
+        /* CỐ Ý không lọc bỏ phần trỏ tới sản phẩm đã xoá ở đây. projPart()
+           bày nó ra thành một dòng "đã xoá" để tổng vốn không lặng lẽ tụt
+           xuống — dọn ở đây thì phương án bỗng dưng có lãi hơn mà không ai
+           biết vì sao. */
+        parts: (Array.isArray(x.parts) ? x.parts : []).filter(q => q && typeof q === 'object').map(q => ({
+          productId: String(q.productId || ''),
+          sid: String(q.sid || ''),
+          cid: String(q.cid || ''),
+          qty: Math.max(1, Math.round(+q.qty || 1))
+        })).filter(q => q.productId)
+      };
+    });
   });
   db.kwranks.forEach(r => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(r.date || '')) r.date = today();
@@ -1443,6 +1496,7 @@ const REVIEW_KINDS = {
   adfixes:   'Việc làm trên chiến dịch quảng cáo',
   keywords:  'Dự án đánh từ khoá',
   costs:     'Giá vốn sản phẩm',
+  projects:  'Dự án so giá',
   adperiods: 'Kỳ số liệu quảng cáo',
   spweeks:   'Tuần số liệu Shopee',
   impacts:   'Hành động cải thiện sản phẩm',
@@ -1537,6 +1591,14 @@ function reviewLabel(kind, rec){
                    (rec.whoName ? ' · phụ trách ' + rec.whoName : '') +
                    (g ? (g.trong ? ' · đã trong top' : ' · còn thiếu ' + dem(g.thieu) + ' đơn/tháng') : ''),
               go: ['kw', rec.id]};
+    }
+    case 'projects': {
+      const cd = projCard(rec);
+      return {title: 'Dự án so giá: ' + (rec.name || 'chưa đặt tên'),
+              sub: (rec.shopId ? shopName(rec.shopId) + ' · ' : '') +
+                   cd.n + ' phương án' +
+                   (rec.rival && rec.rival.price ? ' · đối thủ ' + moneyShort(rec.rival.price) : '') +
+                   (cd.n ? ' · ' + cd.nSong + ' đánh được' : '')};
     }
     case 'costs': {
       const pr = productOf(rec.productId);
@@ -2343,25 +2405,62 @@ function costFrom(o){
    ngành hàng, cùng cái hộp. Chỉ ba thứ là của riêng nó: giá bán, voucher, và
    phần hàng kèm thêm. Giá vốn phần chính KHÔNG chép lại, nó đọc thẳng từ sản
    phẩm mẹ, nên sửa giá nhập một lần là mọi combo tính lại theo. */
-function costCalc(p, cid){
+function costCalc(p, sel){
   if (!p) return null;
   const c  = costOf(p.id);
   const sh = shopOf(c ? c.shopId : '');
-  const cb = cid && c ? (c.combos || []).find(x => x.cid === cid) : null;
-  if (cid && !cb) return null;
+  const szs = c ? (c.sizes || []) : [];
+
+  const cb = sel && sel.cid && c ? (c.combos || []).find(x => x.cid === sel.cid) : null;
+  if (sel && sel.cid && !cb) return null;
+  /* Size lấy từ đâu: combo mang sẵn size nó ghép từ, còn lại là size bạn
+     đang chọn xem. Giá vốn phần chính KHÔNG BAO GIỜ được chép sang combo —
+     đọc thẳng từ size ở đây, để ba tháng nữa đổi giá nhập một chỗ là mọi
+     combo của size đó đổi theo, không phải đi sửa từng cái. */
+  const wid = cb ? cb.sid : (sel && sel.sid ? sel.sid : '');
+  const sz  = wid ? szs.find(x => x.sid === wid) || null : null;
+  if (sel && sel.sid && !sz) return null;
+
   const x = costFrom({
-    gia:     cb ? cb.price : parseMoney(p.price),
+    gia:     cb ? cb.price : sz ? sz.price : parseMoney(p.price),
     F:       shopFees(sh),
     vPct:    cb ? cb.voucherPct : (c ? c.voucherPct : 0),
     feePct:  c ? c.feePct   : 0,
     pack:    c ? c.packCost : 0,
-    von:     c ? c.cost : 0,
+    von:     sz ? sz.cost : (c ? c.cost : 0),
     vonThem: cb ? cb.addCost : 0,
     gift:    cb ? cb.gift : (c ? c.gift : 0)
   });
-  return x ? Object.assign(x, {p, c, sh, cb}) : null;
+  return x ? Object.assign(x, {p, c, sh, cb, sz}) : null;
 }
 const combosOf = p => { const c = costOf(p.id); return c ? (c.combos || []) : []; };
+const sizesOf  = p => { const c = costOf(p.id); return c ? (c.sizes  || []) : []; };
+/* Combo treo dưới size nào. sid rỗng = treo thẳng dưới sản phẩm gốc. */
+const combosUnder = (p, sid) => combosOf(p).filter(cb => (cb.sid || '') === (sid || ''));
+
+/* Mọi thứ BÁN ĐƯỢC của một sản phẩm, xếp đúng thứ tự hiện trên màn hình:
+   sản phẩm gốc (nếu chưa có size) hoặc từng size, và combo nằm ngay dưới cái
+   nó ghép từ. Gom vào một chỗ vì ba nơi cần đúng danh sách này — bảng danh
+   sách, dải ROAS min của thẻ thương hiệu, và cảnh báo dưới ngưỡng — mà ba nơi
+   tự đi lấy thì sớm muộn cũng lệch nhau. */
+function costUnits(p){
+  const szs = sizesOf(p), out = [];
+  const them = (sel, cap, nhan) => {
+    const x = costCalc(p, sel);
+    if (x) out.push({x, cap, nhan, sel});
+  };
+  if (szs.length) szs.forEach(sz => {
+    them({sid: sz.sid}, 1, sz.name || 'Size chưa đặt tên');
+    combosUnder(p, sz.sid).forEach(cb => them({cid: cb.cid}, 2, cb.name || 'Combo chưa đặt tên'));
+  });
+  else them(null, 0, p.name);
+  /* Combo treo thẳng dưới sản phẩm gốc. Con không có size thì đây là chỗ mọi
+     combo của nó nằm. Con CÓ size thì đây là combo mồ côi — chưa gắn size,
+     hoặc size của nó vừa bị xoá — vẫn phải bày ra, nếu không nó biến mất khỏi
+     mọi bảng trong khi vẫn nằm trong dữ liệu. */
+  combosUnder(p, '').forEach(cb => them({cid: cb.cid}, 1, cb.name || 'Combo chưa đặt tên'));
+  return out;
+}
 
 /* Chiến dịch của một sản phẩm — chiều ngược của adcampProduct(), khớp theo
    đúng hai khoá ấy để hai bên không bao giờ nối khác nhau. */
@@ -2386,7 +2485,10 @@ function costRoasNow(p){
 function costRows(shopId){
   return products().filter(p => !p.archived).map(p => {
     const c = costOf(p.id);
-    return {p, c, calc: costCalc(p), shopId: c ? c.shopId : ''};
+    /* units = mọi thứ bán được của con này (size, combo). Tính sẵn ở đây vì
+       cả bảng, thẻ thương hiệu lẫn cảnh báo đều cần, mà costCalc quét lại
+       toàn bộ danh sách giá vốn mỗi lần gọi. */
+    return {p, c, calc: costCalc(p), units: costUnits(p), shopId: c ? c.shopId : ''};
   }).filter(r => r.shopId === shopId)
     .sort((a,b) => norm(a.p.name).localeCompare(norm(b.p.name), 'vi'));
 }
@@ -2406,18 +2508,17 @@ function costByBrand(shopId){
    chảy đi, dù nó chỉ là một dòng con. */
 function costBrandCards(shopId){
   return costByBrand(shopId).map(g => {
-    let nCombo = 0, nLo = 0, nThieu = 0;
+    let nCombo = 0, nSize = 0, nLo = 0, nThieu = 0;
     const roas = [];
     g.rows.forEach(r => {
-      const cbs = r.c ? (r.c.combos || []) : [];
-      nCombo += cbs.length;
-      if (!r.calc || r.calc.thieuVon) nThieu++;
-      [r.calc].concat(cbs.map(cb => costCalc(r.p, cb.cid))).forEach(x => {
-        if (!x) return;
-        if (x.lo) nLo++; else if (x.roas) roas.push(x.roas);
-      });
+      nCombo += r.c ? (r.c.combos || []).length : 0;
+      nSize  += r.c ? (r.c.sizes  || []).length : 0;
+      /* "Thiếu số" đọc từ chính danh sách đơn vị bán: con có size mà chưa
+         điền vốn cho size nào thì cũng là thiếu, dù ô giá vốn gốc có số. */
+      if (!r.units.length || r.units.some(u => u.x.thieuVon)) nThieu++;
+      r.units.forEach(u => { if (u.x.lo) nLo++; else if (u.x.roas) roas.push(u.x.roas); });
     });
-    return {brand: g.brand, rows: g.rows, n: g.rows.length, nCombo, nLo, nThieu,
+    return {brand: g.brand, rows: g.rows, n: g.rows.length, nCombo, nSize, nLo, nThieu,
             roasMin: roas.length ? Math.min.apply(null, roas) : null,
             roasMax: roas.length ? Math.max.apply(null, roas) : null};
   });
@@ -2428,11 +2529,146 @@ function costBrandCards(shopId){
    tự đặt. Đây là thứ đáng tiền nhất cả trang này tìm ra. */
 function costUnderMin(){
   return products().filter(p => !p.archived && p.roasTarget).map(p => {
-    const x = costCalc(p);
+    /* Lấy đơn vị bán có ROAS min CAO NHẤT, không phải sản phẩm gốc. Một
+       ngưỡng đặt chung cho cả con hàng phải đỡ được cả size khó nhằn nhất —
+       so với size dễ thở nhất thì mọi thứ đều xanh, đúng lúc size kia đang
+       lỗ từng đơn. */
+    let x = null;
+    costUnits(p).forEach(u => { if (u.x.roas && (!x || u.x.roas > x.roas)) x = u.x; });
     return x && x.roas && p.roasTarget < x.roas ? {p, calc:x} : null;
   }).filter(Boolean).sort((a,b) => (b.calc.roas - b.p.roasTarget) - (a.calc.roas - a.p.roasTarget));
 }
 
+
+/* Khoá một chiều của "đang xem thứ gì": rỗng = sản phẩm gốc, s:… = một size,
+   c:… = một combo. Một chuỗi thay vì hai biến vì nó còn phải sống trong
+   data-id của nút bấm và trong ui — hai biến thì sớm muộn cũng có chỗ đặt
+   cái này mà quên cái kia. */
+const selKey   = sel => !sel ? '' : sel.sid ? 's:' + sel.sid : sel.cid ? 'c:' + sel.cid : '';
+const selParse = k => !k ? null : k.slice(0,2) === 's:' ? {sid: k.slice(2)}
+                    : k.slice(0,2) === 'c:' ? {cid: k.slice(2)} : null;
+
+/* Mọi thứ bán được của MỌI sản phẩm, làm danh sách chọn cho phương án dự án.
+   Một danh sách phẳng thay vì hai ô chọn nối nhau: gõ vài chữ trong ô chọn
+   của trình duyệt là nhảy tới đúng dòng, nhanh hơn chọn sản phẩm rồi chờ ô
+   thứ hai nạp lại. */
+function costUnitOptions(){
+  const out = [];
+  products().filter(p => !p.archived).forEach(p => {
+    const c = costOf(p.id);
+    if (!c) return;
+    const sh = c.shopId ? shopName(c.shopId) : 'chưa xếp gian hàng';
+    costUnits(p).forEach(u => {
+      const q = u.sel || {};
+      out.push({v: [p.id, q.sid || '', q.cid || ''].join('|'),
+                label: p.name + (u.cap ? ' — ' + u.nhan : ''),
+                von: u.x.tongVon, sh, brand: p.brand || ''});
+    });
+  });
+  return out.sort((a,b) => norm(a.label).localeCompare(norm(b.label), 'vi'));
+}
+
+/* ============================================================
+   DỰ ÁN SO GIÁ (projects)
+
+   Câu hỏi nó sinh ra để trả lời: *đối thủ đang bán 279k, mình ghép được thứ
+   gì để đánh lại mà vẫn sống?*
+
+   Một dự án gồm giá con đối thủ, và vài PHƯƠNG ÁN bán đặt cạnh nhau. Mỗi
+   phương án là một rổ hàng tick từ những sản phẩm / size / combo ĐÃ CÓ trong
+   bảng giá vốn, cộng lại ra tổng vốn, rồi chạy qua đúng bộ phí của gian hàng
+   như một sản phẩm thường.
+
+   Nguyên tắc không được phá: dự án **trỏ tới** sản phẩm, không **chứa** sản
+   phẩm. Sáp A thuộc thương hiệu Akuma vĩnh viễn, nhưng có thể nằm trong cả
+   "Đánh giá tháng 10" lẫn "Combo Tết". Nếu dự án giữ bản sao giá vốn thì hai
+   bản sẽ trôi khỏi nhau, và không ai phát hiện ra cho tới lúc tính sai tiền
+   thật. Vì thế projPart() luôn đọc lại giá vốn từ bản gốc, mỗi lần vẽ.
+   ============================================================ */
+const PJ_STAGES = [
+  {id:'draft', label:'Đang dựng',  cls:''},
+  {id:'run',   label:'Đang bán',   cls:'ok'},
+  {id:'drop',  label:'Bỏ',         cls:'dim'}
+];
+const PJ_STAGE = id => PJ_STAGES.find(x => x.id === id) || PJ_STAGES[0];
+
+const projects   = () => alive(db.projects);
+const projOf     = id => projects().find(p => p.id === id) || null;
+const projsOfShop = shopId => projects().filter(p => (p.shopId || '') === (shopId || ''));
+
+/* Một phần của phương án → giá vốn thật của nó, đọc lại từ bảng giá vốn gốc.
+   Trả về cả `mat` khi thứ được tick đã bị xoá: phải bày ra chứ không được âm
+   thầm coi như 0đ, vì lúc đó tổng vốn tụt xuống và phương án trông có lãi
+   hơn hẳn — sai theo đúng hướng dễ tin nhất. */
+function projPart(pt){
+  const qty = Math.max(1, Math.round(+pt.qty || 1));
+  const p = products().find(x => x.id === pt.productId);
+  if (!p) return {pt, qty, mat:true, von:0, nhan:'Sản phẩm đã xoá'};
+  const c = costOf(p.id);
+  const cb = pt.cid && c ? (c.combos || []).find(x => x.cid === pt.cid) : null;
+  const sz = pt.sid && c ? (c.sizes  || []).find(x => x.sid === pt.sid) : null;
+  if (pt.cid && !cb) return {pt, p, qty, mat:true, von:0, nhan: p.name + ' — combo đã xoá'};
+  if (pt.sid && !sz) return {pt, p, qty, mat:true, von:0, nhan: p.name + ' — size đã xoá'};
+
+  /* Combo: vốn của nó = vốn phần chính (của đúng size nó ghép từ) + hàng kèm
+     thêm + quà. Lấy qua costCalc để không phải chép lại phép cộng đó. */
+  let von, nhan = p.name;
+  if (cb){
+    const x = costCalc(p, {cid: cb.cid});
+    von = x ? x.tongVon : 0;
+    nhan += ' — ' + (cb.name || 'combo');
+  } else if (sz){
+    von = sz.cost;
+    nhan += ' — ' + (sz.name || 'size');
+  } else {
+    von = c ? c.cost : 0;
+  }
+  return {pt, p, c, cb, sz, qty, von: Math.round(von) * qty, donVi: Math.round(von), nhan};
+}
+
+/* Một phương án → đủ bộ số như một sản phẩm thường.
+   `gia` để trống thì tính theo giá của phương án; truyền vào một con số khác
+   (giá đối thủ) thì ra kịch bản "nếu phải bán bằng giá nó thì sao". */
+function projCalc(pj, pid, gia){
+  if (!pj) return null;
+  const plan = (pj.plans || []).find(x => x.pid === pid);
+  if (!plan) return null;
+  const sh = shopOf(pj.shopId);
+  const parts = (plan.parts || []).map(projPart);
+  const von   = parts.reduce((t, x) => t + x.von, 0);
+  const x = costFrom({
+    gia:  gia == null ? plan.price : gia,
+    F:    shopFees(sh),
+    vPct: plan.voucherPct,
+    feePct: 0, pack: 0,
+    von,  gift: plan.gift
+  });
+  return x ? Object.assign(x, {pj, plan, sh, parts,
+                               mat: parts.some(q => q.mat),
+                               trong: !parts.length}) : null;
+}
+
+/* Mọi phương án của một dự án, kèm luôn kịch bản bán ở giá đối thủ.
+   Sắp theo lãi mỗi đơn giảm dần — câu hỏi ở đây là "đánh bằng con nào", nên
+   con lời nhất phải nằm trên cùng, không phải con nhập trước nhất. */
+function projPlans(pj){
+  const gd = pj.rival && pj.rival.price > 0 ? pj.rival.price : null;
+  return (pj.plans || []).map(pl => ({
+    plan: pl,
+    x:    projCalc(pj, pl.pid),
+    doi:  gd == null ? null : projCalc(pj, pl.pid, gd)
+  })).filter(r => r.x)
+     .sort((a, b) => b.x.lai - a.x.lai);
+}
+
+/* Thẻ ngoài: đủ để biết dự án này đã có lời giải chưa. */
+function projCard(pj){
+  const rows = projPlans(pj);
+  const song = rows.filter(r => r.doi ? !r.doi.lo : !r.x.lo);
+  return {pj, rows, n: rows.length, nSong: song.length,
+          best: song.length ? song[0] : (rows[0] || null),
+          mat: rows.some(r => r.x.mat)};
+}
 
 /* Bốn dấu hiệu cần soi. Trả về mảng mã, có thể nhiều cái cùng lúc. */
 function adcampIssues(c){

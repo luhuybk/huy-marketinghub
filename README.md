@@ -1386,9 +1386,14 @@ Một câu hỏi duy nhất: **con này chạy quảng cáo tới ROAS bao nhiê
 Mọi thứ trên trang chỉ là đường đi tới con số đó.
 
 ```
-Gian hàng  →  Thương hiệu  →  Sản phẩm  →  bảng bóc phí
-   ↑ bảng phí riêng           ↑ giá vốn + giá bán
+Gian hàng → Thương hiệu → Sản phẩm →  Size  → Combo → bảng bóc phí
+  ↑ bảng phí riêng         ↑ vốn+giá   ↑ vốn+giá riêng
+                           (khi con đó không có size)
 ```
+
+Size là cấp **tuỳ chọn**: con nào không có size thì combo treo thẳng dưới sản
+phẩm, đúng như trước. Cạnh bảng giá vốn còn một tab thứ hai — **⚔ Dự án so
+giá** — dùng khi phải đánh lại một con đang phá giá của đối thủ.
 
 ### Mốc tính phí là GIÁ BÁN THỰC, không phải giá niêm yết
 
@@ -1522,6 +1527,90 @@ Trên bảng danh sách, combo là dòng con thụt vào có dấu `↳`, cột 
 rõ `100k + 70k`. Trên trang chi tiết có dải tab **Sản phẩm chính | từng combo**
 — chọn cái nào thì cả bảng bóc phí, ô số và thang ROAS tính lại cho cái đó.
 
+### Size — một cấp nữa, chỉ mọc ra khi cần
+
+Một con hàng có thể bán ba khối lượng, mỗi khối lượng một giá vốn và một giá
+bán khác nhau, và combo thì mọc ra từ **một size cụ thể**. Đó là ba bài toán
+giá chứ không phải một.
+
+Size nằm trong `costs.sizes`, và **mảng rỗng là mặc định** — phần lớn sản phẩm
+không có size, lúc đó giá vốn và giá bán nằm thẳng ở bản ghi gốc như cũ.
+
+Size chỉ mang **ba thứ** của riêng nó:
+
+| Của riêng size | Dùng chung với sản phẩm mẹ |
+|---|---|
+| Tên (50gr, 100gr…) | Voucher của shop |
+| Giá vốn | Quà tặng kèm |
+| Giá niêm yết | Phí ngành hàng · phí đóng gói · bảng phí gian hàng |
+
+Cho size một ô riêng cho từng thứ nghe linh hoạt hơn, nhưng thực tế là **bốn
+chỗ phải sửa mỗi lần Shopee đổi phí**, và sót một chỗ thì sai âm thầm.
+
+Vì sao không tách thành ba sản phẩm *"Butterfly 50gr / 100gr / 150gr"*: danh
+sách dài gấp ba, tên lặp lại, đổi phí đóng gói phải sửa ba lần, và không còn
+chỗ nào trả lời được *"cả con Butterfly lời thế nào"*.
+
+**Ba nếp được viết sẵn để không ai mất số:**
+
+- **Size đầu tiên mượn luôn số đang có.** Bấm *+ Size* trên một con chưa có
+  size thì hai ô giá vốn / giá bán đã điền sẵn bằng số của bản ghi gốc. Không
+  làm thế thì hai con số bạn đã gõ bỗng thành vô dụng mà không ai nói ra.
+- **Combo cũ tự gắn vào size đầu tiên.** Nếu không, chúng thành combo mồ côi,
+  tính bằng một giá vốn không còn ai bán.
+- **Xoá một size thì combo của nó rơi về giá vốn gốc, không biến mất** — và
+  đeo chip `chưa gắn size` để bạn thấy mà gắn lại. Mất một combo không dấu vết
+  tệ hơn nhiều so với một combo tính sai mà bảng có nói rõ.
+
+Từ lúc có size, giá vốn và giá bán ở bản ghi gốc **không dùng tới nữa**; trang
+chi tiết nói thẳng câu đó ra, vì một ô đã điền mà không ảnh hưởng gì tới kết
+quả là kiểu nhầm lẫn khó lần ra nhất.
+
+Trên bảng danh sách, dòng sản phẩm thành dòng **tóm tắt** — chip `3 size`, dải
+`ROAS min 3,4x – 5,8x` — và đóng sẵn. Bấm mới mở size, bấm tiếp mới mở combo
+của size đó. Ba cấp mở sẵn thì một gian hàng ba mươi con là một trang cuộn mãi
+không hết, và đúng con đang lỗ lại trôi mất giữa đám đông.
+
+Cảnh báo 🚨 *"ngưỡng đặt thấp hơn điểm hoà vốn"* so với **size khó nhằn nhất**,
+không phải sản phẩm gốc: một ngưỡng đặt chung cho cả con hàng phải đỡ được cả
+size nặng nhất. So với size dễ thở nhất thì mọi thứ đều xanh, đúng lúc size kia
+đang lỗ từng đơn.
+
+### ⚔ Dự án so giá
+
+Câu hỏi nó sinh ra để trả lời: **đối thủ đang bán 199k, mình ghép được thứ gì
+để đánh lại mà vẫn sống?**
+
+```
+Dự án  →  Phương án  →  Phần  →  trỏ tới sản phẩm / size / combo đã có
+ ↑ giá đối thủ  ↑ giá bán riêng
+```
+
+Một dự án giữ giá con của đối thủ. Bên dưới là vài **phương án** đặt cạnh
+nhau; mỗi phương án là một rổ hàng tick từ những thứ **đã có** trong bảng giá
+vốn. App cộng vốn, chạy qua đúng bộ phí của gian hàng, rồi mọc thêm hai cột trả
+lời câu quan trọng nhất: **ép về bằng giá đối thủ thì còn sống không.**
+
+**Dự án *trỏ tới* sản phẩm, không *chứa* sản phẩm.** Sáp A thuộc thương hiệu
+Akuma vĩnh viễn, nhưng có thể nằm trong cả *"Đánh giá tháng 10"* lẫn *"Combo
+Tết"*. Nếu dự án giữ bản sao giá vốn thì hai bản sẽ trôi khỏi nhau, và không ai
+phát hiện ra cho tới lúc tính sai tiền thật. Vì thế `projPart()` đọc lại giá
+vốn từ bản gốc **mỗi lần vẽ** — sửa giá nhập ở bảng giá vốn là dự án đổi theo
+ngay.
+
+Một phần bị xoá mất thì bày ra thành dòng `đã bị xoá — vốn đang tính là 0`,
+không lặng lẽ coi như 0đ. Lặng lẽ thì tổng vốn tụt xuống và phương án trông có
+lãi hơn hẳn — sai theo đúng hướng dễ tin nhất.
+
+Ô chọn "lấy phần nào" là **một danh sách phẳng** của mọi thứ bán được trong
+mọi sản phẩm, không phải chọn sản phẩm rồi chờ ô thứ hai nạp lại: gõ vài chữ là
+nhảy thẳng tới dòng cần.
+
+Kết luận cuối trang viết hẳn ra ba đường khi không phương án nào đánh nổi —
+tìm nguồn rẻ hơn cho phần vốn nặng nhất, bớt hàng kèm, hoặc không đánh giá mà
+đánh bằng thứ khác. **Hạ giá tiếp chỉ là lỗ nhanh hơn**, và đó chính là điều
+người đang thua cuộc chiến giá hay làm.
+
 ### Thương hiệu hiện ra ngoài dưới dạng thẻ
 
 Bày phẳng cả trăm dòng thì không ai tìm ra con mình cần. Nên màn ngoài là lưới
@@ -1549,6 +1638,16 @@ ngày thì app nhắc đi đối chiếu lại.
 và luật đó **đè mất** màu nhạt của dòng con — đúng vào cái ô mang dấu thụt vào.
 Phải khai lại `.tbl.stick tr.sub td:first-child`, không thì combo nhìn y hệt
 một sản phẩm rời.
+
+Cấp ba (`tr.sub2`, combo của một size) thụt 46px và có một vạch dọc ở mép
+trái. Chỉ thụt thêm 14px thì ở bảng nhiều dòng không phân biệt nổi cấp hai với
+cấp ba, mà đọc nhầm một combo thành một size là đọc nhầm cả giá vốn.
+
+Cái vạch đó là `::before` đặt tuyệt đối, nên ô phải là một phần tử **đã được
+định vị**. Khai `position:relative` cho nó thì luật đó thắng
+`.tbl.stick td:first-child` về độ cụ thể và **giết mất `position:sticky`** —
+đúng những dòng cấp ba rời khỏi cột dính khi cuộn ngang, trong khi mọi dòng
+khác đứng yên. Phải khai lại cả `position:sticky` ở luật `.tbl.stick tr.sub2`.
 
 ### Giá vốn tách khỏi `products` — và đây là lý do
 
