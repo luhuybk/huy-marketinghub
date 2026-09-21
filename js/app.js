@@ -348,7 +348,7 @@ function fieldHTML(f, val){
     default:
       inner = `<input ${common} type="${f.t === 'url' ? 'url' : f.t === 'tel' ? 'tel' :
                  f.t === 'password' ? 'password' : 'text'}"
-                 ${f.t === 'password' ? 'autocomplete="new-password"' : ''}"
+                 ${f.t === 'password' ? 'autocomplete="new-password"' : ''}
                  value="${esc(val||'')}" placeholder="${esc(f.ph||'')}"
                  ${f.list ? `list="dl_${id}"` : ''} ${f.req ? 'required' : ''}>` +
         (f.list ? `<datalist id="dl_${id}">${f.list.map(x => `<option value="${esc(x)}">`).join('')}</datalist>` : '');
@@ -2959,6 +2959,10 @@ function searchModal(){
    ============================================================ */
 function delKol(id){
   const k = kolOf(id);
+  /* Bản ghi có thể đã bị xoá ở máy khác rồi đồng bộ về, trong lúc nút cũ
+     vẫn còn trên màn hình chưa vẽ lại. Không chặn ở đây thì bấm vào là ném
+     lỗi và cả trang đứng im, không ai hiểu vì sao. */
+  if (!k){ toast('Hồ sơ này không còn nữa'); render(); return false; }
   const n = bookingsOf(id).length, c = clipsOf(id).length;
   if (!confirm(`Xoá "${k.name}"?` + (n||c ? `\n${n} booking và ${c} clip gắn với người này vẫn giữ nguyên nhưng sẽ mất tên.` : ''))) return false;
   const rec = db.kols.find(x => x.id === id);
@@ -2967,6 +2971,7 @@ function delKol(id){
 }
 function delProduct(id){
   const p = productOf(id);
+  if (!p){ toast('Sản phẩm này không còn nữa'); render(); return false; }
   const n = periodsOf(id).length, a = actionsOf(id).length, bk = productBookings(id).length;
   if (!confirm(`Xoá "${p.name}"?` +
     (n || a ? `\n${n} kỳ số liệu và ${a} hành động trong nhật ký cũng bị xoá.` : '') +
@@ -4380,4 +4385,4 @@ function checkBuild(){
   }
 })();
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "f036a2b5"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "65241615"]);

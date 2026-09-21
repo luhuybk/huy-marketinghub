@@ -4243,4 +4243,4 @@ function searchAll(q, limit){
 const KIND_LABEL = {kol:'KOL/KOC', booking:'Booking', clip:'Clip', product:'Sản phẩm',
                     idea:'Sản phẩm mới', kwgo:'Từ khoá'};
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "f036a2b5"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "65241615"]);
