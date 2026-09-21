@@ -1134,6 +1134,33 @@ function ensure(){
        hàng, cùng một cái hộp. Cho size ô riêng cho từng thứ nghe có vẻ linh
        hoạt hơn, nhưng thực tế là bốn chỗ phải sửa mỗi lần Shopee đổi phí, và
        sót một chỗ thì sai âm thầm. */
+    /* ★ Key SKU / hero — con hàng gánh doanh số, đáng theo giá đối thủ hằng
+       tuần. Chỉ là một DẤU trên sản phẩm đã có, không phải một kho thứ hai:
+       hai bản giá vốn của cùng một con sẽ trôi khỏi nhau, và không ai phát
+       hiện cho tới lúc tính sai tiền thật. */
+    c.hero = !!c.hero;
+
+    /* Năm ô đối thủ LUÔN có mặt, kể cả khi trống — giống ba ô trong mục Đánh
+       từ khoá. Nhờ vậy chỗ nào vẽ cũng đọc thẳng c.rivals[3] được mà không
+       phải hỏi "có tồn tại không", và ô trống vẫn là một chỗ mời điền chứ
+       không phải một nút "thêm dòng" nữa phải đi tìm. */
+    if (!Array.isArray(c.rivals)) c.rivals = [];
+    c.rivals = c.rivals.slice(0, RIVAL_SLOTS).map((r, i) => ({
+      rid:   RIVAL_IDS[i],
+      name:  String(r && r.name  != null ? r.name  : ''),
+      shop:  String(r && r.shop  != null ? r.shop  : ''),
+      url:   String(r && r.url   != null ? r.url   : ''),
+      promo: String(r && r.promo != null ? r.promo : ''),
+      price: parseMoney(r && r.price),
+      /* Ngày kiểm giá. Bắt buộc có vì giá đối thủ ôi thiu nhanh hơn bảng phí
+         Shopee nhiều — không có mốc này thì ba tuần sau vẫn đang quyết định
+         bằng giá của tháng trước mà không biết. */
+      at:    /^\d{4}-\d{2}-\d{2}$/.test(r && r.at) ? r.at : ''
+    }));
+    while (c.rivals.length < RIVAL_SLOTS)
+      c.rivals.push({rid: RIVAL_IDS[c.rivals.length], name:'', shop:'', url:'',
+                     promo:'', price:0, at:''});
+
     if (!Array.isArray(c.sizes)) c.sizes = [];
     c.sizes = c.sizes.filter(x => x && typeof x === 'object').map(x => ({
       sid:   String(x.sid || uid()),
@@ -2528,6 +2555,94 @@ function costUnderMin(){
 const selKey   = sel => !sel ? '' : sel.sid ? 's:' + sel.sid : sel.cid ? 'c:' + sel.cid : '';
 const selParse = k => !k ? null : k.slice(0,2) === 's:' ? {sid: k.slice(2)}
                     : k.slice(0,2) === 'c:' ? {cid: k.slice(2)} : null;
+
+/* ============================================================
+   ★ KEY SKU / HERO — theo giá đối thủ
+
+   Con hero là con gánh doanh số. Câu hỏi của mục này không còn là "bán bao
+   nhiêu thì sống" (bảng giá vốn đã trả lời) mà là **"đối thủ đang ép mình ở
+   mức nào, và đuổi theo giá nó thì có sống nổi không"**.
+
+   Mọi so sánh đều lấy mốc là GIÁ BÁN THỰC của mình — giá niêm yết trừ
+   voucher, đúng con số khách thật sự trả. So bằng giá niêm yết là so hai thứ
+   khác nhau: giá treo của mình với giá thật của nó, và lúc nào cũng thấy
+   mình đắt hơn thực tế.
+   ============================================================ */
+const RIVAL_SLOTS = 5;
+const RIVAL_IDS   = Array.from({length: RIVAL_SLOTS}, (_, i) => 'r' + (i + 1));
+/* Bao nhiêu ngày thì coi là giá đối thủ đã cũ. Shopee đổi giá theo tuần, nên
+   hai tuần là đã đủ để một bảng trông vẫn đầy đủ mà thật ra đã sai hết. */
+const RIVAL_STALE = 14;
+
+const rivalsOf   = p => { const c = costOf(p.id); return c ? (c.rivals || []) : []; };
+const rivalFill  = p => rivalsOf(p).filter(r => r.name || r.price);
+const isHero     = p => { const c = costOf(p.id); return !!(c && c.hero); };
+
+/* Đối thủ rẻ nhất trong những ô đã điền giá. */
+function rivalLow(p){
+  const ds = rivalFill(p).filter(r => r.price > 0);
+  if (!ds.length) return null;
+  return ds.reduce((a, b) => b.price < a.price ? b : a);
+}
+/* Tình trạng kiểm giá của cả bảng.
+
+   Đếm TỪNG DÒNG cũ chứ không chỉ nhìn dòng mới nhất: kiểm lại một con hôm
+   nay không làm bốn con kia mới ra, mà "lần kiểm gần nhất: hôm nay" thì nghe
+   như cả bảng vừa được rà. Dòng chưa ghi ngày cũng tính là cũ — không biết
+   kiểm lúc nào thì phải coi như chưa kiểm. */
+function rivalFresh(p){
+  const ds = rivalFill(p);
+  if (!ds.length) return null;
+  const co = ds.map(r => r.at).filter(Boolean).sort();
+  const at = co.length ? co[co.length - 1] : '';
+  const cuRoi = ds.filter(r => !r.at || -dayDiff(r.at) > RIVAL_STALE).length;
+  return {at, n: ds.length, nCu: cuRoi, cu: cuRoi > 0,
+          ngay: at ? -dayDiff(at) : null};
+}
+
+/* Bảng so giá cho MỘT đơn vị bán (sản phẩm gốc, một size, hay một combo).
+
+   `x` là kết quả costCalc của đúng đơn vị đang xem. Nhờ thế bấm qua lại
+   50gr / 100gr là cả cột so sánh nhảy theo, mà không thêm một ô nào phải
+   điền: con 199k của đối thủ đang đánh vào size nào là tự nó lộ ra. */
+function rivalRows(p, x){
+  if (!x) return [];
+  return rivalsOf(p).map(r => {
+    const co  = !!(r.name || r.price);
+    const gap = r.price > 0 && x.gbt ? x.gbt - r.price : null;   // >0 = mình đắt hơn
+    /* Hạ về đúng giá nó thì còn gì. Giá của đối thủ là giá KHÁCH TRẢ, nên
+       đem vào làm giá bán thực luôn (vPct 0) — không phải giá niêm yết rồi
+       trừ voucher lần nữa. Mọi khoản khác giữ nguyên của đơn vị đang xem. */
+    const duoi = r.price > 0 ? costFrom({
+      gia: r.price, F: x.F, vPct: 0, feePct: x.feePct, pack: x.pack,
+      von: x.von, vonThem: x.vonThem, gift: x.gift
+    }) : null;
+    return {r, co, gap,
+            gapPct: gap != null && r.price ? gap / r.price * 100 : null,
+            duoi,
+            cu: r.at ? -dayDiff(r.at) > RIVAL_STALE : !!co};
+  });
+}
+
+/* Con hero của một gian hàng, kèm đủ số để vẽ thẻ ngoài. */
+function heroCards(shopId){
+  return costRows(shopId).filter(r => r.c && r.c.hero).map(r => {
+    const low = rivalLow(r.p), fresh = rivalFresh(r.p);
+    const ros = r.units.map(u => u.x.roas).filter(Boolean);
+    /* Mốc đem so ở màn ngoài là đơn vị RẺ NHẤT của mình — đó là con đối thủ
+       thật sự phải nhìn khi khách đứng giữa hai gian hàng. So bằng đơn vị
+       đắt nhất thì lúc nào cũng thấy mình bị ép giá. */
+    let re = null;
+    r.units.forEach(u => { if (u.x.gbt && (!re || u.x.gbt < re.x.gbt)) re = u; });
+    const gap = low && re ? re.x.gbt - low.price : null;
+    return {r, p: r.p, low, fresh, re, gap,
+            gapPct: gap != null && low.price ? gap / low.price * 100 : null,
+            nRival: rivalFill(r.p).length,
+            lo: r.units.some(u => u.x.lo),
+            roasMin: ros.length ? Math.min.apply(null, ros) : null,
+            roasMax: ros.length ? Math.max.apply(null, ros) : null};
+  }).sort((a,b) => (b.gap == null ? -1e12 : b.gap) - (a.gap == null ? -1e12 : a.gap));
+}
 
 /* ============================================================
    DỰ ÁN — SẢN PHẨM TỔNG
@@ -4128,4 +4243,4 @@ function searchAll(q, limit){
 const KIND_LABEL = {kol:'KOL/KOC', booking:'Booking', clip:'Clip', product:'Sản phẩm',
                     idea:'Sản phẩm mới', kwgo:'Từ khoá'};
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "2524f906"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "f036a2b5"]);

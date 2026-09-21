@@ -224,11 +224,17 @@ function renderBar(){
     s.textContent = k ? tierOf(k).label + ' · ' + num(followers(k)) + ' người theo dõi' : '';
   } else if (route.page === 'costsp'){
     const pr = productOf(route.id);
-    const x  = pr ? costCalc(pr) : null;
+    /* Con có size thì costCalc(pr) trơn đọc bản ghi gốc — giá 0, nên dòng
+       phụ báo "chưa có giá bán" trong khi cả ba size đều đã điền đủ. Lấy
+       đúng đơn vị đang mở, không có thì lấy cái đầu tiên. */
+    const dv = pr ? costUnits(pr) : [];
+    const x  = pr ? (costCalc(pr, selParse(ui.costSel)) ||
+                     (dv[0] ? dv[0].x : null)) : null;
     t.textContent = pr ? pr.name : 'Chi phí sản phẩm';
     s.textContent = !x ? 'chưa có giá bán'
-      : x.lo ? 'đang lỗ ' + money(-x.lai) + ' mỗi đơn'
-             : 'ROAS min ' + xText(x.roas) + ' · lãi ' + money(x.lai) + '/đơn';
+      : (x.sz ? (x.sz.name || 'size') + ' · ' : x.cb ? (x.cb.name || 'combo') + ' · ' : '') +
+        (x.lo ? 'đang lỗ ' + money(-x.lai) + ' mỗi đơn'
+              : 'ROAS min ' + xText(x.roas) + ' · lãi ' + money(x.lai) + '/đơn');
   } else if (route.page === 'pj'){
     const pj = projOf(route.id);
     const cd = pj ? projCard(pj) : null;
@@ -3257,7 +3263,10 @@ function costSpForm(id){
     cost: c ? c.cost : 0, gift: c ? c.gift : 0,
     voucherPct: c ? c.voucherPct : Fmd.voucherPct,
     feePct: c ? c.feePct : 0, packCost: c ? c.packCost : 0,
-    note: c ? c.note : ''
+    note: c ? c.note : '',
+    /* Thêm sản phẩm từ chính tab Key SKU thì gần như chắc chắn là đang thêm
+       một con hero — đánh dấu sẵn, khỏi phải bấm thêm một nút nữa. */
+    hero: c ? !!c.hero : ui.costTab === 'hero'
   };
 
   const el = formModal({
@@ -3282,6 +3291,9 @@ function costSpForm(id){
        hint:'Để tăng tỉ lệ chốt. Tính vào giá vốn như mọi khoản khác — bỏ quà là lãi thêm đúng khoản này.'},
       {k:'roasTarget', l:'ROAS đã tối ưu (nếu đã chốt)', t:'text', half:true, ph:'vd 8,5',
        hint:'App sẽ báo nếu mốc này nằm DƯỚI điểm hoà vốn'},
+      /* nhãn nhìn thấy của ô tick nằm ở ph, không phải l */
+      {k:'hero', l:'', t:'check', half:true,
+       ph:'★ Key SKU — con gánh doanh số, theo giá đối thủ hằng tuần'},
       {t:'sec', l:'Riêng con này khác gian hàng — để 0 là theo bảng phí chung'},
       {k:'feePct', l:'Phí cố định ngành hàng riêng', t:'number', half:true, ph:'0',
        hint:'Kem đánh răng và sáp vuốt tóc là hai ngành hàng, hai mức phí'},
@@ -3301,7 +3313,7 @@ function costSpForm(id){
       const cu = costs().find(x => x.productId === pr.id);
       const cr = cu ? db.costs.find(x => x.id === cu.id) : stamp({productId: pr.id});
       cr.shopId = v.shopId; cr.cost = v.cost; cr.gift = v.gift; cr.voucherPct = v.voucherPct;
-      cr.feePct = v.feePct; cr.packCost = v.packCost; cr.note = v.note;
+      cr.feePct = v.feePct; cr.packCost = v.packCost; cr.note = v.note; cr.hero = !!v.hero;
       stamp(cr);
       if (!cu) db.costs.push(cr);
 
@@ -3463,6 +3475,112 @@ function comboForm(pid, cid, sidMacDinh){
    Không biểu mẫu nào ở đây hỏi lại giá vốn — hỏi lại là tạo ra bản sao thứ
    hai, và hai bản sao thì sớm muộn cũng lệch nhau mà không ai biết.
    ============================================================ */
+/* ============================================================
+   ★ KEY SKU — dấu hero và bảng giá đối thủ
+   ============================================================ */
+/* Bật/tắt dấu ★. Không hỏi lại: nó không xoá gì, chỉ quyết định con này có
+   nằm trong tab Key SKU hay không, và bấm lại mất đúng một giây. */
+function toggleHero(pid){
+  const p = productOf(pid);
+  if (!p){ toast('Không tìm thấy sản phẩm'); return; }
+  const cu = costOf(pid);
+  if (!cu){ toast('Điền giá vốn cho con này đã rồi hãy đánh dấu Key SKU'); costSpForm(pid); return; }
+  const rec = db.costs.find(x => x.id === cu.id);
+  rec.hero = !rec.hero;
+  stamp(rec); ensure(); save(); render();
+  toast(rec.hero ? '★ ' + p.name + ' vào Key SKU' : 'Đã bỏ dấu Key SKU của ' + p.name);
+}
+
+/* Một ô đối thủ. Năm ô có sẵn nên đây luôn là SỬA, không bao giờ là "thêm" —
+   không có nút xoá dòng, xoá tên đi là ô trở lại trống.
+
+   Ngày kiểm điền sẵn hôm nay: người ta mở biểu mẫu này đúng lúc vừa vào xem
+   giá bên kia, nên mặc định đó gần như luôn đúng. Bắt gõ tay thì chín lần
+   trên mười ô ngày sẽ bị bỏ trống, và bảng mất luôn cái mốc "còn đúng không". */
+function rivalForm(pid, rid){
+  const p = productOf(pid);
+  if (!p){ toast('Không tìm thấy sản phẩm'); return; }
+  const c = costOf(p.id);
+  if (!c){ toast('Điền giá vốn cho con này đã'); costSpForm(pid); return; }
+  const i = RIVAL_IDS.indexOf(rid);
+  if (i < 0){ toast('Không tìm thấy ô đối thủ này'); return; }
+  const cu = c.rivals[i];
+
+  /* Mốc để so trong ô xem trước: đúng đơn vị đang mở ở trang chi tiết. */
+  const sel = selParse(ui.costSel);
+  const x = costCalc(p, sel) || costCalc(p) ||
+            (costUnits(p)[0] ? costUnits(p)[0].x : null);
+  const nhan = !x ? p.name
+             : x.cb ? (x.cb.name || 'combo') : x.sz ? (x.sz.name || 'size') : p.name;
+
+  const el = formModal({
+    title: 'Đối thủ ' + (i + 1) + ' của ' + p.name,
+    wide: true, saveLabel: 'Lưu',
+    values: cu.name || cu.price
+      ? Object.assign({}, cu, {at: cu.at || today()})
+      : {name:'', shop:'', url:'', price:0, promo:'', at: today()},
+    extra: x ? `<div class="explain">Giá bán thực của <b>${esc(nhan)}</b> đang là
+      <b>${money(x.gbt)}</b>. Điền giá bán của đối thủ — <b>giá khách thật sự trả</b>, đã trừ
+      voucher của shop bên đó — app so ngay và tính hộ hạ về giá đó thì lãi còn bao nhiêu.</div>`
+      : `<div class="explain">Con này chưa có giá bán nên chưa so được. Điền giá đối thủ
+         trước cũng không sao, so sánh sẽ hiện ra khi bạn điền giá bán của mình.</div>`,
+    fields: [
+      {k:'name', l:'Tên con hàng của đối thủ', t:'text', ph:'Sáp Akuma Matte 100gr',
+       hint:'Để trống là ô này trở lại trống'},
+      {k:'shop', l:'Tên gian hàng', t:'text', half:true, ph:'Akuma Official'},
+      {k:'price', l:'Giá bán — giá khách trả', t:'money', half:true, ph:'199.000',
+       hint:'Giá sau voucher của shop bên đó, không phải giá gạch ngang'},
+      {k:'promo', l:'Chương trình khuyến mãi · ghi chú', t:'textarea', rows:3,
+       ph:'Mua 2 tặng gôm mini · freeship extra · đang chạy livestream'},
+      {k:'url', l:'Link', t:'text', half:true, ph:'https://shopee.vn/…'},
+      {k:'at', l:'Ngày kiểm giá', t:'date', half:true,
+       hint:'Quá ' + RIVAL_STALE + ' ngày là app báo bảng đã cũ'}
+    ],
+    onSave(v){
+      const rec = db.costs.find(z => z.id === c.id);
+      if (!rec) return false;
+      rec.rivals[i] = {rid, name: (v.name || '').trim(), shop: v.shop, url: v.url,
+                       price: v.price, promo: v.promo,
+                       at: (v.name || v.price) ? (v.at || today()) : ''};
+      /* Điền đối thủ cho một con nghĩa là đang theo dõi nó — bật luôn ★ để
+         nó xuất hiện ở tab Key SKU, thay vì bắt nhớ bấm thêm một nút nữa. */
+      if ((v.name || v.price) && !rec.hero) rec.hero = true;
+      stamp(rec); ensure(); save();
+      toast(v.name || v.price ? 'Đã lưu' : 'Đã xoá ô đối thủ này');
+    }
+  });
+
+  /* Ô xem trước: hạ về đúng giá vừa gõ thì còn gì. */
+  if (!x) return;
+  const box = document.createElement('div');
+  box.className = 'explain';
+  box.style.marginTop = '4px';
+  el.querySelector('.mbody').appendChild(box);
+  const doc = () => {
+    const g = k => { const z = el.querySelector(`[data-f="${k}"]`); return z ? z.value : ''; };
+    const gia = parseMoney(g('price'));
+    if (!gia){ box.innerHTML = 'Điền <b>giá bán</b> của đối thủ thì ô này hiện kết quả ngay khi bạn gõ.'; return; }
+    const gap = x.gbt - gia;
+    const d = costFrom({gia, F: x.F, vPct: 0, feePct: x.feePct, pack: x.pack,
+                        von: x.von, vonThem: x.vonThem, gift: x.gift});
+    box.innerHTML = (gap > 0
+        ? `Mình đang <b class="bad">đắt hơn ${money(gap)}</b> (${pctText(gap / gia * 100, 0)})`
+        : gap < 0 ? `Mình đang <b class="ok">rẻ hơn ${money(-gap)}</b> (${pctText(-gap / gia * 100, 0)})`
+                  : `Hai bên <b>bằng giá nhau</b>`) + `<br>` +
+      /* "Hạ về" chỉ đúng khi mình đang đắt hơn. Đối thủ bán cao hơn mà vẫn
+         viết "hạ về" thì câu đó sai, và sai kiểu ai đọc cũng thấy. */
+      (!d ? '' : (nhanGia => d.lo
+        ? `<span class="bad"><b>${nhanGia} ${money(gia)} là lỗ ${money(-d.lai)} mỗi đơn</b> dù không chạy
+           quảng cáo — con này không đuổi giá được.</span>`
+        : `${nhanGia} ${money(gia)}: lãi ${gap > 0 ? 'còn' : 'thành'} <b>${money(d.lai)}</b> mỗi đơn ·
+           <b>ROAS min ${xText(d.roas)}</b> <span class="dim">(đang là ${xText(x.roas)})</span>`
+      )(gap > 0 ? 'Hạ về' : gap < 0 ? 'Bán ngang' : 'Ở'));
+  };
+  el.addEventListener('input', doc);
+  el.addEventListener('change', doc);
+  doc();
+}
+
 /* ============================================================
    DỰ ÁN — SẢN PHẨM TỔNG
 
@@ -3750,6 +3868,10 @@ const ACTIONS = {
   editpj:      id => pjForm(id),
   pjadd:       id => pjAddForm(id),
   pjdrop:      id => pjDrop(id),
+
+  /* ★ Key SKU */
+  costhero:    id => toggleHero(id),
+  editrival:   id => { const [a, b] = id.split('|'); rivalForm(a, b); },
 
   /* dự án đánh từ khoá */
   kwgo:    id => go('kw', id),
@@ -4258,4 +4380,4 @@ function checkBuild(){
   }
 })();
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "2524f906"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "f036a2b5"]);
