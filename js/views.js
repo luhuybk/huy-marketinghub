@@ -13,7 +13,7 @@ const ui = {
   kolQ:'', kolFlag:'', kolTier:'', kolNiche:'', kolStatus:'', kolSort:'score',
   pipeBrand:'', pipeQ:'',
   clipQ:'', clipSort:'date', clipKol:'',
-  postQ:'', postFlow:'', postState:'', postMonthOnly:false,
+  postQ:'', postState:'', postMonthOnly:false,
   adYm:'', adQ:'', adIssue:'', adOnlyBad:false, adShop:'', adTab:'day', adDate:'', adGioYm:'',
   adGioQ:'', adGioSp:'', adSoSanh:'', adGon:false,
   resTab:'brands', resQ:'',
@@ -3514,8 +3514,10 @@ function rivalBlock(p, x){
   const co = ds.filter(z => z.co);
   const nhan = x.cb ? (x.cb.name || 'combo') : x.sz ? (x.sz.name || 'size') : p.name;
 
+  /* moduleHead escape ĐỐI SỐ THỨ HAI (tiêu đề) chứ không escape đối số thứ ba
+     (dòng phụ) — tên sản phẩm đi vào đây phải tự escape. */
   let h = `<div class="mod">` + moduleHead('⚖', 'Top 5 đối thủ cùng ngành',
-    'so với giá bán thực của ' + nhan + ' — ' + moneyShort(x.gbt),
+    'so với giá bán thực của ' + esc(nhan) + ' — ' + moneyShort(x.gbt),
     `<button class="btn sm" data-act="editrival" data-id="${p.id}|r1">✎ Điền</button>`);
 
   if (!co.length)
