@@ -3159,7 +3159,9 @@ function feeSummary(F){
 function viewCost(){
   const {ds, chua, cur} = costShopTabs();
   const pj = ui.costTab === 'pj';
+  const hero = ui.costTab === 'hero';
   const nPj = projects().length;
+  const nHero = costs().filter(c => c.hero).length;
 
   /* Hai việc khác nhau dùng chung một bảng phí, nên chúng ở chung một trang
      chứ không tách thành hai mục ngoài thanh bên: bảng giá vốn trả lời "con
@@ -3167,9 +3169,11 @@ function viewCost(){
      của nó". Tách ra là sớm muộn có hai bảng phí lệch nhau. */
   let h = `<div class="toolbar">
     <div class="tabs">
-      <button class="tab ${pj ? '' : 'on'}" data-act="costtab" data-id="sp">Giá vốn sản phẩm</button>
+      <button class="tab ${!pj && !hero ? 'on' : ''}" data-act="costtab" data-id="sp">Giá vốn sản phẩm</button>
       <button class="tab ${pj ? 'on' : ''}" data-act="costtab" data-id="pj">⚔ Dự án${
         nPj ? ' (' + nPj + ')' : ''}</button>
+      <button class="tab ${ui.costTab === 'hero' ? 'on' : ''}" data-act="costtab" data-id="hero">★ Key SKU${
+        nHero ? ' (' + nHero + ')' : ''}</button>
     </div>
   </div>`;
 
@@ -3183,7 +3187,8 @@ function viewCost(){
     <button class="btn pri" data-act="${pj ? 'newpj' : 'newcostsp'}">+ ${pj ? 'Dự án' : 'Sản phẩm'}</button>
   </div>`;
 
-  if (pj) return h + feeBlock(ds, cur) + viewProjList(cur);
+  if (pj)   return h + feeBlock(ds, cur) + viewProjList(cur);
+  if (hero) return h + feeBlock(ds, cur) + viewHeroList(cur);
 
   if (!products().filter(p => !p.archived).length)
     return h + `<div class="empty"><b>Chưa có sản phẩm nào</b>
@@ -3315,7 +3320,10 @@ function costRow(r, pjId){
   const nhanNut = szs.length
     ? (mo ? '▾' : '▸') + ' ' + szs.length + ' size' + (nCb ? ' · ' + nCb + ' combo' : '')
     : nCb ? (mo ? '▾' : '▸') + ' ' + nCb + ' combo' : '+ size / combo';
+  const sao = !!(c && c.hero);
   const nut = `<button class="btn sm" data-act="costtoggle" data-id="${p.id}">${nhanNut}</button>` +
+    ` <button class="btn sm ${sao ? 'pri' : ''}" data-act="costhero" data-id="${p.id}"
+       title="${sao ? 'đang là Key SKU — bấm để bỏ dấu' : 'đánh dấu Key SKU để theo giá đối thủ'}">★</button>` +
     (pjId ? ` <button class="btn sm" data-act="pjdrop" data-id="${pjId}|${p.id}"
        title="bỏ khỏi dự án — sản phẩm vẫn còn nguyên trong bảng giá vốn">✕</button>` : '');
 
@@ -3429,6 +3437,165 @@ function costRowFoot(p, coSize){
       ? 'mỗi size một giá vốn và một giá bán riêng; combo treo dưới size nó ghép từ'
       : 'con nào có nhiều size (50gr, 100gr…) thì thêm size, mỗi size tự mang giá của nó'}</span>
   </td></tr>`;
+}
+
+/* ============================================================
+   ★ KEY SKU — thẻ ngoài, bảng đối thủ ở trang chi tiết
+   ============================================================ */
+function viewHeroList(shopId){
+  const ds = heroCards(shopId);
+
+  if (!ds.length)
+    return `<div class="empty"><b>Chưa đánh dấu con nào là Key SKU</b>
+      Key SKU là con gánh doanh số — con đáng theo giá đối thủ hằng tuần.
+      Sang tab <b>Giá vốn sản phẩm</b>, bấm nút <b>★</b> trên dòng nào thì con đó vào đây.
+      Nó vẫn nằm nguyên trong bảng giá vốn, ★ chỉ là một cái dấu.</div>`;
+
+  const cu = ds.filter(t => t.fresh && t.fresh.cu).length;   // số CON có dòng cũ
+  const bi = ds.filter(t => t.gap != null && t.gap > 0).length;
+  let h = `<div class="mod">` + moduleHead('★', 'Key SKU',
+    ds.length + ' con · xếp theo mức đang bị ép giá nặng nhất');
+
+  h += `<div class="tiles" style="margin-bottom:12px">
+    ${tile('Đang đắt hơn đối thủ rẻ nhất', dem(bi) + '/' + ds.length,
+           bi ? 'bấm vào thẻ để xem hạ giá có sống nổi không' : 'không con nào bị ép giá',
+           bi ? 'warn' : 'ok')}
+    ${tile('Giá đối thủ đã cũ', dem(cu),
+           cu ? 'quá ' + RIVAL_STALE + ' ngày chưa kiểm lại' : 'đều còn mới', cu ? 'warn' : 'ok')}
+    ${tile('Chưa điền đối thủ nào', dem(ds.filter(t => !t.nRival).length),
+           'mỗi con nên có tối đa 5 đối thủ cùng ngành')}
+    ${tile('Đang lỗ sẵn', dem(ds.filter(t => t.lo).length),
+           'lỗ dù chưa chạy quảng cáo', ds.some(t => t.lo) ? 'bad' : 'ok')}
+  </div>`;
+  h += `<div class="ideag">` + ds.map(heroCardEl).join('') + `</div></div>`;
+  return h;
+}
+
+function heroCardEl(t){
+  const p = t.p;
+  /* Chip nói đúng một điều quan trọng nhất của con này, theo thứ tự ưu tiên:
+     lỗ sẵn > chưa có số để so > đang bị ép giá > giá đã cũ > ổn. Bày cả bốn
+     cùng lúc thì không cái nào được đọc. */
+  const chip = t.lo ? `<span class="chip bad">lỗ sẵn</span>`
+    : !t.nRival ? `<span class="chip">chưa điền đối thủ</span>`
+    : t.gap == null ? `<span class="chip">đối thủ chưa có giá</span>`
+    : t.gap > 0 ? `<span class="chip warn">đắt hơn ${pctText(Math.abs(t.gapPct), 0)}</span>`
+    : `<span class="chip ok">rẻ hơn ${pctText(Math.abs(t.gapPct), 0)}</span>`;
+
+  return `<div class="icard" data-act="costsp" data-id="${p.id}">
+    <div class="ic-hd"><b class="grow ell">${esc(p.name)}</b>${chip}</div>
+    <div class="ic-sub">${esc(p.brand || 'chưa gắn thương hiệu')}${
+      t.re && t.re.cap ? ' · so theo ' + esc(t.re.nhan) : ''}${
+      t.nRival ? ' · ' + t.nRival + '/' + RIVAL_SLOTS + ' đối thủ' : ''}</div>
+    <div class="ic-money">
+      <div><span class="dim">Giá bán thực của mình</span><b>${
+        t.re ? moneyShort(t.re.x.gbt) : '—'}</b></div>
+      <div><span class="dim">Đối thủ rẻ nhất</span><b class="${
+        t.gap == null ? '' : t.gap > 0 ? 'bad' : 'ok'}">${
+        t.low ? moneyShort(t.low.price) : '—'}</b></div>
+    </div>
+    <div class="ic-ft">
+      <span class="chip acc">Mở để so →</span>
+      ${!t.fresh ? ''
+        : t.fresh.cu
+          ? `<span class="dim warn">⚠︎ ${t.fresh.nCu}/${t.fresh.n} dòng đã cũ</span>`
+          : `<span class="dim">kiểm ${t.fresh.ngay <= 0 ? 'hôm nay' : t.fresh.ngay + ' ngày trước'}</span>`}
+    </div>
+  </div>`;
+}
+
+/* ---- bảng Top 5 đối thủ, nằm ngay dưới bốn ô số của trang sản phẩm ----
+
+   Luôn hiện, không nấp sau một tab: giá đối thủ là thứ phải nằm CẠNH giá của
+   mình mới có tác dụng. Và vì nó so với đơn vị đang chọn ở dải tab, bấm qua
+   lại 50gr / 100gr là cả cột so sánh nhảy theo ngay trước mắt. */
+function rivalBlock(p, x){
+  const ds = rivalRows(p, x);
+  const co = ds.filter(z => z.co);
+  const nhan = x.cb ? (x.cb.name || 'combo') : x.sz ? (x.sz.name || 'size') : p.name;
+
+  let h = `<div class="mod">` + moduleHead('⚖', 'Top 5 đối thủ cùng ngành',
+    'so với giá bán thực của ' + nhan + ' — ' + moneyShort(x.gbt),
+    `<button class="btn sm" data-act="editrival" data-id="${p.id}|r1">✎ Điền</button>`);
+
+  if (!co.length)
+    return h + `<div class="card dim">Chưa điền đối thủ nào. Ghi <b>giá bán</b> và
+      <b>chương trình khuyến mãi</b> của tối đa 5 con cùng ngành, app so ngay với giá bán thực
+      của mình và tính hộ: hạ về bằng giá nó thì lãi còn bao nhiêu.
+      <div class="btns" style="margin-top:10px">
+        <button class="btn sm pri" data-act="editrival" data-id="${p.id}|r1">+ Đối thủ đầu tiên</button>
+      </div></div></div>`;
+
+  h += `<div class="tblwrap"><table class="tbl sm ptbl stick"><thead><tr>
+    <th class="nw">Đối thủ</th><th class="r">Giá bán</th><th class="r">So với mình</th>
+    <th class="r">Nếu mình đuổi giá</th><th class="nw">CTKM · ghi chú</th><th class="r">Kiểm</th>
+  </tr></thead><tbody>` + ds.map(z => {
+    const r = z.r;
+    if (!z.co)
+      return `<tr class="sub" data-act="editrival" data-id="${p.id}|${r.rid}">
+        <td class="nw dim">＋ ô trống</td><td colspan="5" class="dim">bấm để điền đối thủ thứ ${
+          r.rid.slice(1)}</td></tr>`;
+    const d = z.duoi;
+    return `<tr data-act="editrival" data-id="${p.id}|${r.rid}">
+      <td class="nw"><b>${esc(r.name || 'chưa đặt tên')}</b>${
+        r.shop ? `<div class="dim">${esc(r.shop)}</div>` : ''}</td>
+      <td class="r"><b>${r.price ? moneyShort(r.price) : '<span class="dim">—</span>'}</b></td>
+      <td class="r">${z.gap == null ? '<span class="dim">—</span>'
+        : `<b class="${z.gap > 0 ? 'bad' : z.gap < 0 ? 'ok' : ''}">${
+            z.gap > 0 ? '+' : ''}${moneyShort(z.gap)}</b>
+           <div class="dim" style="font-size:10px">${z.gap > 0 ? 'mình đắt hơn ' : z.gap < 0 ? 'mình rẻ hơn ' : 'bằng nhau'}${
+            z.gap ? pctText(Math.abs(z.gapPct), 0) : ''}</div>`}</td>
+      <td class="r">${!d ? '<span class="dim">—</span>'
+        : d.lo ? `<b class="bad">lỗ ${moneyShort(-d.lai)}</b>
+                  <div class="dim" style="font-size:10px">không đuổi nổi</div>`
+        : `<b>${xText(d.roas)}</b>
+           <div class="dim" style="font-size:10px">lãi còn ${moneyShort(d.lai)}</div>`}</td>
+      <td class="nw" style="white-space:normal;max-width:260px">${
+        r.promo ? esc(r.promo) : '<span class="dim">—</span>'}${
+        r.url ? ` <a href="${esc(r.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">↗</a>` : ''}</td>
+      <td class="r nw ${z.cu ? 'bad' : 'dim'}">${r.at ? esc(fmtShort(r.at)) : 'chưa ghi'}</td>
+    </tr>`;
+  }).join('') + `</tbody></table></div>`;
+
+  /* Một câu kết luận, để không phải tự đọc năm dòng số.
+
+     Con dẫn dắt kết luận là con RẺ NHẤT — đó là người đang lấy mất khách.
+     Nhưng nếu hạ tới đó là lỗ thì nói tiếp con rẻ nhất mà mình CÒN ĐUỔI NỔI:
+     "không đuổi được" một mình là một câu cụt, còn kèm mức giá thấp nhất
+     mình chịu được thì đó là một quyết định. */
+  const bi = co.filter(z => z.gap != null && z.gap > 0).sort((a,b) => b.gap - a.gap);
+  const re = bi[0];
+  if (re){
+    const d = re.duoi;
+    const duoc = bi.filter(z => z.duoi && !z.duoi.lo).sort((a,b) => a.r.price - b.r.price)[0];
+    h += `<div class="explain ${d && d.lo ? 'warn' : ''}" style="margin-top:10px">
+      Đang đắt hơn <b>${esc(re.r.name || 'đối thủ rẻ nhất')}</b> ${moneyShort(re.gap)}
+      (${pctText(Math.abs(re.gapPct), 0)}). ${!d ? ''
+        : d.lo ? `Hạ về ${moneyShort(re.r.price)} là <b>lỗ ${moneyShort(-d.lai)} mỗi đơn</b> dù
+                  không chạy quảng cáo — con này không đuổi giá được, phải đánh bằng thứ khác:
+                  quà kèm, combo, hoặc nội dung.` +
+                 (duoc ? ` Mức thấp nhất còn sống được là <b>${moneyShort(duoc.r.price)}</b>
+                  (ngang ${esc(duoc.r.name || 'một đối thủ khác')}) — lãi ${moneyShort(duoc.duoi.lai)},
+                  ROAS min ${xText(duoc.duoi.roas)}.` : '')
+               : `Hạ về ${moneyShort(re.r.price)} thì còn lãi <b>${moneyShort(d.lai)}</b> mỗi đơn,
+                  nhưng quảng cáo phải giữ trên <b>${xText(d.roas)}</b> thay vì ${xText(x.roas)}.
+                  Đuổi giá mà quên nâng ngưỡng ROAS là lỗ mà bảng vẫn xanh.`}</div>`;
+  } else if (co.some(z => z.gap != null)){
+    h += `<div class="dim" style="margin-top:8px">Đang rẻ hơn mọi đối thủ đã ghi. Chỗ đáng xem
+      lại là cột CTKM — rẻ hơn mà vẫn thua đơn thì thường là thua ở chương trình khuyến mãi
+      hoặc ở trang sản phẩm, không phải ở giá.</div>`;
+  }
+
+  /* Đếm từng dòng cũ, không chỉ nhìn dòng mới nhất: kiểm lại một con hôm nay
+     không làm bốn con kia mới ra, mà "lần kiểm gần nhất: hôm nay" thì nghe
+     như cả bảng vừa được rà. */
+  const cuRoi = co.filter(z => z.cu);
+  if (cuRoi.length)
+    h += `<div class="explain warn" style="margin-top:8px">⚠︎ ${cuRoi.length}/${co.length} dòng
+      <b>quá ${RIVAL_STALE} ngày chưa kiểm lại</b>${
+      cuRoi.some(z => !z.r.at) ? ' (có dòng chưa ghi ngày)' : ''}. Shopee đổi giá theo tuần —
+      bảng vẫn trông đầy đủ nhưng đã không còn đúng. Bấm vào dòng đỏ ở cột <b>Kiểm</b> để cập nhật.</div>`;
+  return h + `</div>`;
 }
 
 /* ============================================================
@@ -3612,6 +3779,11 @@ function viewCostSp(id){
     ${tile('ROAS min', x.roas == null ? '—' : xText(x.roas),
            x.acos == null ? 'lỗ sẵn, không có ngưỡng' : 'ACOS max ' + pctText(x.acos, 1))}
   </div>`;
+
+  /* Giá đối thủ nằm NGAY dưới bốn ô số, không nấp sau một tab: nó chỉ có tác
+     dụng khi đặt cạnh giá của mình. Và vì nó so với đơn vị đang chọn ở dải
+     tab trên, bấm qua lại 50gr / 100gr là cả cột so sánh nhảy theo. */
+  h += rivalBlock(p, x);
 
   /* ---- bảng bóc phí, dựng đúng thứ tự Shopee ghi trên đơn ---- */
   h += `<div class="mod">` + moduleHead('🧾', 'Bóc từng khoản' + (cb ? ' — ' + (cb.name || 'combo') : sz ? ' — ' + (sz.name || 'size') : ''),

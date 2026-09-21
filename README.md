@@ -1392,9 +1392,9 @@ Gian hàng → Thương hiệu → Sản phẩm →  Size  → Combo → bảng 
 ```
 
 Size là cấp **tuỳ chọn**: con nào không có size thì combo treo thẳng dưới sản
-phẩm, đúng như trước. Cạnh bảng giá vốn còn một tab thứ hai — **⚔ Dự án** —
-chính là bảng này thêm một cấp nữa ở trên, cho một *sản phẩm tổng* ghép từ
-nhiều con.
+phẩm, đúng như trước. Cạnh bảng giá vốn còn hai tab nữa — **⚔ Dự án** là bảng
+này thêm một cấp ở trên cho một *sản phẩm tổng*, còn **★ Key SKU** là những
+con gánh doanh số, có thêm bảng giá của đối thủ.
 
 ### Mốc tính phí là GIÁ BÁN THỰC, không phải giá niêm yết
 
@@ -1618,6 +1618,97 @@ phép tính nào.
 > của mọi phương án thành `productIds`, khử trùng lặp, rồi mới bỏ `plans`.
 > Vứt thẳng đi thì người đã dựng vài phương án mất sạch công mà không có một
 > dòng nào báo.
+
+### ★ Key SKU — theo giá đối thủ
+
+Key SKU (hero) là con gánh doanh số — con đáng theo giá đối thủ hằng tuần.
+Câu hỏi của tab này không còn là *"bán bao nhiêu thì sống"* (bảng giá vốn đã
+trả lời) mà là **"đối thủ đang ép mình ở mức nào, và đuổi theo giá nó thì có
+sống nổi không"**.
+
+**Hero chỉ là một cái dấu trên sản phẩm đã có**, không phải kho sản phẩm thứ
+hai. Bấm ★ trên dòng nào thì con đó vào tab Key SKU, vẫn nguyên chỗ cũ trong
+bảng giá vốn với nguyên size và combo. Lý do là lý do đã đúng ba lần trong mục
+này: hai bản giá vốn của cùng một con sẽ trôi khỏi nhau, và không ai phát hiện
+cho tới lúc tính sai tiền thật.
+
+#### Bảng Top 5 đối thủ
+
+Năm ô **luôn có mặt kể cả khi trống**, giống ba ô đối thủ trong mục Đánh từ
+khoá — điền tới đâu hiện tới đó, không có nút "thêm dòng" phải đi tìm.
+
+| Cột | Ghi gì |
+|---|---|
+| Đối thủ | tên con hàng · tên gian hàng · link |
+| Giá bán | **giá khách thật sự trả**, đã trừ voucher bên đó, không phải giá gạch ngang |
+| So với mình | chênh lệch tiền và %, so với **giá bán thực** của mình |
+| Nếu mình đuổi giá | hạ về đúng giá nó thì lãi còn bao nhiêu, ROAS min thành bao nhiêu — hoặc lỗ sẵn |
+| CTKM · ghi chú | chương trình khuyến mãi, và bất cứ thứ gì đáng nhớ |
+| Kiểm | ngày kiểm giá, đỏ khi quá 14 ngày |
+
+Mốc so sánh là **giá bán thực** = giá niêm yết − voucher. So bằng giá niêm yết
+là so hai thứ khác nhau — giá treo của mình với giá thật của nó — và lúc nào
+cũng thấy mình đắt hơn thực tế.
+
+#### Cột "Nếu mình đuổi giá" là thứ bảng tính tay không làm được
+
+Giá của đối thủ là **giá khách trả**, nên đem vào làm giá bán thực luôn
+(voucher 0), rồi chạy qua đúng bộ phí và đúng giá vốn của đơn vị đang xem.
+
+Ví dụ thật, sáp 100gr giá bán thực 259.470 (vốn 100.000 + quà 8.000), ROAS min
+đang là **4,12x**:
+
+| Đối thủ | Giá nó | Lệch | Đuổi theo thì |
+|---|---|---|---|
+| Sáp Akuma Matte | 199.000 | mình đắt hơn 60.470 | lãi còn 20.600 · ROAS min **9,66x** |
+| Sáp Bumble Clay | 289.000 | mình rẻ hơn 29.530 | — |
+| Sáp X phá giá | 119.000 | mình đắt hơn 140.470 | **lỗ 35.400 mỗi đơn** |
+
+Kết luận app tự viết: không đuổi nổi 119.000, nhưng **mức thấp nhất còn sống
+được là 199.000**. Nói "không đuổi được" một mình là một câu cụt; kèm mức giá
+thấp nhất mình chịu được thì đó là một quyết định.
+
+Và câu cảnh báo quan trọng nhất: *"đuổi giá mà quên nâng ngưỡng ROAS là lỗ mà
+bảng vẫn xanh"* — vì hạ giá thì ROAS min bốc lên, mà mục tiêu ROAS trong tài
+khoản quảng cáo thì không tự đổi theo.
+
+#### So với đơn vị đang chọn, không so với "sản phẩm"
+
+Con hero có size thì nó có **ba giá bán thực**, không phải một. Bảng đối thủ so
+với **size đang chọn** ở dải tab: bấm 50gr thì cả cột so sánh nhảy theo 50gr.
+
+Không thêm một ô nào phải điền, mà vẫn trả lời đúng câu *"con 199k của nó đang
+đánh vào size nào của mình"*. Trong ví dụ trên, cùng con 119.000 đó: với size
+100gr là lỗ, còn với size 50gr thì **có lãi 5.000 nhưng ROAS min thành 25,87x**
+— đúng về số, và con số đó tự nó nói rằng đừng làm.
+
+#### Ngày kiểm giá là bắt buộc
+
+Giá đối thủ ôi thiu nhanh hơn bảng phí Shopee nhiều. Mỗi dòng mang ngày kiểm,
+điền sẵn hôm nay khi bạn mở biểu mẫu — người ta sửa ô này đúng lúc vừa xem
+xong trang bên kia, nên mặc định đó gần như luôn đúng. Bắt gõ tay thì chín lần
+trên mười ô ngày sẽ bị bỏ trống, và bảng mất luôn cái mốc "còn đúng không".
+
+App đếm **từng dòng cũ**, không chỉ nhìn dòng mới nhất: kiểm lại một con hôm
+nay không làm bốn con kia mới ra, mà *"lần kiểm gần nhất: hôm nay"* thì nghe
+như cả bảng vừa được rà.
+
+#### Bảng đối thủ hiện ở MỌI sản phẩm, ★ chỉ quyết định tab
+
+Ai cũng có thể ghi giá đối thủ cho một con bất kỳ. Dấu ★ chỉ quyết định con đó
+có nằm trong tab Key SKU hay không. Ngược lại, điền đối thủ đầu tiên cho một
+con thì app **tự bật ★** — đang theo dõi nó thì nó là hero, không cần bấm thêm
+một nút nữa.
+
+#### Khác gì với 3 ô đối thủ trong mục Đánh từ khoá
+
+Hai chỗ cùng ghi tên/link/giá đối thủ nhưng hỏi hai câu khác nhau:
+
+| | Đánh từ khoá | ★ Key SKU |
+|---|---|---|
+| Đi theo | **từ khoá** | **sản phẩm của mình** |
+| Câu hỏi | ai đang top từ khoá này, bán bao nhiêu đơn/tháng | con hero của mình đang bị con nào ép giá |
+| Số quan trọng | đơn/tháng → khe hở để chen vào top | giá bán → đuổi theo có sống không |
 
 ### Thương hiệu hiện ra ngoài dưới dạng thẻ
 
