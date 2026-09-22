@@ -29,6 +29,10 @@ const ui = {
   /* Mốc so sánh của báo cáo ngày. null = tháng gần nhất (mặc định),
      'moi' = mọi tháng đã nạp, hoặc một mảng tháng bạn tự chọn. */
   adNen: null,
+  /* Ngày đang xem ở trang một chiến dịch. Rỗng = ngày mới nhất con đó có. */
+  campDate:'',
+  /* Ô tìm sản phẩm trong tab Tính chi phí — dùng chung cho cả ba tab con. */
+  costQ:'',
   /* Tính chi phí: 'sp' = bảng giá vốn, 'pj' = dự án so giá. costSel là thứ
      đang xem ở trang chi tiết ('' | s:<sid> | c:<cid>). */
   costTab:'sp', costSel:''
@@ -1401,6 +1405,77 @@ function adDayMonthTable(shopId, date, rp){
   return h;
 }
 
+/* ---- một chiến dịch: ngày đã nạp so với từng tháng của chính nó ----
+
+   Trước khi có khối này, trang chiến dịch chỉ nói được "mới có một ngày, nạp
+   thêm vài ngày nữa là có đường để nhìn" — tức là phải chờ cả tuần mới biết
+   file vừa nạp sáng nay có gì bất thường, trong khi số để so đã nằm sẵn
+   trong kho từ lâu: chính các tháng của con này. Một ngày là đủ, miễn là đem
+   so với đúng thứ.                                                        */
+function adcampDayTable(c){
+  return dayMonthBlock(adcampDayVsMonths(c, ui.campDate),
+    'Ghi một việc ở khối trên rồi hẹn ngày đo lại.');
+}
+
+/* Phần vẽ dùng chung cho cả trang chiến dịch lẫn trang sản phẩm: cùng một
+   bảng, cùng một cách đọc. Vẽ hai bảng riêng ở hai nơi thì sớm muộn có người
+   đọc bảng này bằng thói quen của bảng kia. */
+function dayMonthBlock(v, loiKhuyen){
+  if (!v) return '';
+  const d = (nay, bau) => bau && nay != null && isFinite(bau) ? (nay - bau) / bau * 100 : null;
+
+  let h = sectionTitle('Ngày ' + esc(fmtDate(v.date)) + ' so với từng tháng',
+    `<span class="dim">mỗi tháng quy về trung bình một ngày${
+      v.nCamp > 1 ? ' · cộng ' + v.nCamp + ' chiến dịch' : ''}</span>`);
+
+  /* Nạp nhiều ngày thì cho bấm qua lại. Ngày mới nhất đứng cuối dải, đúng
+     chiều thời gian của mọi biểu đồ trong app. */
+  if (v.dates.length > 1)
+    h += `<div class="chips" style="margin-bottom:10px">
+      <span class="dim" style="align-self:center;margin-right:2px">Ngày:</span>` +
+      v.dates.slice(-10).map(x => `<button class="btn sm ${x === v.date ? 'pri' : ''}"
+        data-act="campdate" data-id="${x}">${esc(fmtShort(x))}</button>`).join('') + `</div>`;
+
+  if (!v.rows.length)
+    return h + `<div class="card dim">Chưa có tháng nào nằm trước ngày ${esc(fmtDate(v.date))}
+      nên chưa có mốc để so. Nạp file tháng vào tab <b>Theo tháng</b> là bảng so hiện ra ngay,
+      không phải chờ gom đủ ba mươi ngày.</div>`;
+
+  h += `<div class="tblwrap"><table class="tbl sm ptbl stick"><thead><tr>
+    <th class="nw">Chỉ số</th>
+    <th class="r nw">Ngày ${esc(fmtShort(v.date))}</th>` +
+    v.rows.map(r => `<th class="r nw">${esc(monthLabel(r.ym))}<div class="dim"
+       style="font-weight:400">tb 1 ngày · ${r.ngay} ngày</div></th>`).join('') +
+    `</tr></thead><tbody>` +
+    AD_SS.map(x => `<tr>
+      <td class="nw"><b>${x.l}</b><div class="dim">${x.p}</div></td>
+      <td class="r nw"><b>${x.f(v.cur[x.k])}</b></td>` +
+      v.rows.map(r => `<td class="r nw"><span class="dim">${x.f(r.b[x.k])}</span>
+        <div>${deltaChip(d(v.cur[x.k], r.b[x.k]), x.tot) || '—'}</div></td>`).join('') +
+    `</tr>`).join('') + `</tbody></table></div>`;
+
+  /* Ảnh chụp giữa chừng thì mọi con số của ngày đều thấp giả — và thấp theo
+     một chiều cố định nên nhìn mãi vẫn thấy hợp lý. Phải nói trước khi người
+     xem kịp kết luận là con này đang hỏng. */
+  if (v.partial)
+    h += `<div class="explain warn" style="margin-top:8px">⚠︎ File của ngày này là ảnh chụp
+      giữa chừng${v.atHour != null ? ' (lúc ' + v.atHour + ' giờ)' : ''} — chi phí, doanh số
+      và số đơn đều chưa đủ cả ngày, nên mọi mức chênh bên dưới đang thấp giả. Nạp lại file
+      đầy đủ của ngày đó rồi hãy kết luận.</div>`;
+
+  const xau = (x, t) => t != null && (x.tot === false ? t >= 10 : t <= -10);
+  const deu = AD_SS.filter(x => x.tot != null &&
+                v.rows.every(r => xau(x, d(v.cur[x.k], r.b[x.k]))));
+  h += deu.length
+    ? `<div class="explain warn" style="margin-top:8px">⚠︎ <b>${esc(deu.map(x => x.l).join(', '))}</b>
+       của con này kém hơn <b>mọi tháng</b> đã nạp, không riêng tháng gần nhất — đây là chuyện
+       kéo dài chứ không phải một ngày xấu. ${esc(loiKhuyen || '')}</div>`
+    : `<div class="dim" style="margin-top:8px">Kém hơn tháng này mà ngang tháng kia thì
+       <b>tháng kia mới là tháng cần xem lại</b> — tháng đó có sale, đứt hàng hay đổi ngân sách
+       không — trước khi lấy nó làm chuẩn cho hôm nay.</div>`;
+  return h;
+}
+
 function viewAdDay(shopId){
   const shopIds = adcampShopIds();
   const dates = adDayDates(shopId);
@@ -1939,7 +2014,9 @@ function viewAdcamp(id){
         }) + `</div>`
       : `<div class="card dim">Mới có một ngày (${esc(fmtDate(ngayS[0].date))}) — chi
           ${moneyShort(ngayS[0].cost)}, doanh số ${moneyShort(ngayS[0].gmv)}.
-          Nạp thêm vài ngày nữa là có đường để nhìn.</div>`;
+          Nạp thêm vài ngày nữa là có đường để nhìn — nhưng bảng ngay bên dưới
+          đã so được ngày đó với từng tháng rồi, không phải chờ.</div>`;
+    h += adcampDayTable(c);
   }
 
   if (!p && c.sku)
@@ -2208,6 +2285,36 @@ function viewProduct(id){
   </div>`;
 
   h += roasTargetCard(p);
+
+  /* ---- ngày đã nạp so với từng tháng, cộng mọi chiến dịch của sản phẩm ----
+
+     Đặt ngay dưới thẻ ROAS mục tiêu, TRƯỚC cả nhật ký hành động: đây là số
+     thật lấy thẳng từ file Shopee, còn phần bên dưới là những kỳ tự ghi. Mở
+     trang sản phẩm ra mà câu đầu tiên trả lời được là "hôm qua con này có
+     sao không" thì mọi thứ bên dưới đọc bằng con mắt khác.
+
+     Nằm trên cả nhánh "chưa theo dõi gì" bên dưới là có chủ ý: sản phẩm chưa
+     ghi kỳ đo nào vẫn có thể đã chạy quảng cáo cả tháng trời, và trước đây
+     trang này trả về một khối rỗng trong khi số của nó nằm sẵn trong kho. */
+  const vNgay = adProductDayVsMonths(p, ui.campDate);
+  if (vNgay){
+    const cs = campsOfProduct(p);
+    const moi = {};
+    cs.forEach(c => { const k = adcampKey(c);
+      if (!moi[k] || c.ym > moi[k].ym) moi[k] = c; });
+    const ten = Object.keys(moi).map(k => moi[k]);
+    h += dayMonthBlock(vNgay, ten.length > 1
+      ? 'Mở từng chiến dịch bên dưới để xem con nào kéo xuống.'
+      : 'Mở chiến dịch bên dưới rồi ghi một việc, app sẽ nhắc quay lại đo.');
+    h += `<div class="dim" style="margin-top:8px">Số ở bảng này lấy thẳng từ file Shopee
+      bạn nạp ở tab <b>Shopee Ads</b>, không phải các kỳ đo bạn tự ghi bên dưới — hai nguồn
+      để riêng nên không có chỗ nào cộng trùng.</div>`;
+    if (ten.length)
+      h += `<div class="chips" style="margin-top:8px">
+        <span class="dim" style="align-self:center;margin-right:2px">Chiến dịch:</span>` +
+        ten.map(c => `<button class="btn sm" data-act="adcamp" data-id="${c.id}">${
+          esc(c.name)}</button>`).join('') + `</div>`;
+  }
 
   if (!ws.length && !acts.length){
     h += emptyBox('Chưa theo dõi gì cho sản phẩm này',
@@ -3175,6 +3282,10 @@ function viewCost(){
       <button class="tab ${ui.costTab === 'hero' ? 'on' : ''}" data-act="costtab" data-id="hero">★ Key SKU${
         nHero ? ' (' + nHero + ')' : ''}</button>
     </div>
+    <div class="grow"></div>
+    <input class="inp sm" data-inp="costQ" value="${esc(ui.costQ)}"
+           placeholder="Tìm sản phẩm, size, combo…" style="max-width:230px">
+    ${ui.costQ ? `<button class="btn sm" data-act="costqclear" title="Xoá ô tìm">✕</button>` : ''}
   </div>`;
 
   h += `<div class="toolbar">
@@ -3234,6 +3345,12 @@ function feeBlock(ds, cur){
 }
 
 function viewCostList(cur){
+  /* Đang tìm thì cả trang chỉ còn một việc: bày đúng những con khớp. Giữ lại
+     thẻ thương hiệu và khối cảnh báo ở trên thì người gõ vào ô tìm phải cuộn
+     qua chúng mới tới thứ mình vừa gõ. */
+  const tim = costSearch(ui.costQ, cur);
+  if (tim) return costFoundList(tim, cur);
+
   let h = '';
   /* ---- ngưỡng đang đặt thấp hơn điểm hoà vốn ---- */
   const duoi = costUnderMin();
@@ -3275,6 +3392,39 @@ function viewCostList(cur){
     <th class="r">ROAS đang chạy</th></tr></thead><tbody>` +
     dangMo.rows.map(r => costRow(r)).join('') + `</tbody></table></div></div>`;
   return h;
+}
+
+/* Bảng phẳng: không gom theo thương hiệu, không gom theo gian hàng. Người
+   đang tìm đã biết mình tìm con nào, thêm một cấp phải bấm mở nữa là thêm
+   một lần bấm cho mỗi lần tra. Size và combo vẫn nở ra được y như bảng
+   thường, vì costRow là cùng một hàm. */
+function costFoundList(tim, cur){
+  const q = esc(tim.q);
+  let h = `<div class="mod">` + moduleHead('🔎', 'Kết quả tìm',
+    tim.trong.length
+      ? tim.trong.length + ' sản phẩm khớp “' + q + '” trong gian hàng đang mở'
+      : 'Không có sản phẩm nào khớp “' + q + '” trong gian hàng đang mở',
+    `<button class="btn sm" data-act="costqclear">✕ Xoá ô tìm</button>`);
+
+  h += tim.trong.length
+    ? `<div class="tblwrap"><table class="tbl sm ptbl stick"><thead><tr>
+        <th class="nw">Sản phẩm</th><th class="r">Giá niêm yết</th><th class="r">Voucher</th>
+        <th class="r">Giá bán thực</th><th class="r">Giá vốn</th><th class="r">Thực nhận</th>
+        <th class="r">Lãi/đơn</th><th class="r">ACOS max</th><th class="r">ROAS min</th>
+        <th class="r">ROAS đang chạy</th></tr></thead><tbody>` +
+      tim.trong.map(r => costRow(r)).join('') + `</tbody></table></div>`
+    : `<div class="card dim">Ô tìm soi tên sản phẩm, thương hiệu, mã SKU, mã Shopee,
+        và cả tên size lẫn tên combo.</div>`;
+
+  /* Con nằm ở gian hàng khác thì nói ra kèm nút nhảy sang. Trả về "không
+     thấy" trong khi nó vẫn nằm trong app là câu trả lời sai. */
+  if (tim.khac.length)
+    h += `<div class="explain" style="margin-top:10px">Còn
+      <b>${tim.khac.reduce((a, x) => a + x.n, 0)} kết quả</b> ở gian hàng khác:
+      ${tim.khac.map(x => `<button class="btn sm" data-act="costshop" data-id="${esc(x.shopId)}">${
+        esc(x.shopId ? shopName(x.shopId) : 'Chưa xếp')} (${x.n})</button>`).join(' ')}</div>`;
+
+  return h + `</div>`;
 }
 
 function brandCard(t){
@@ -3443,7 +3593,18 @@ function costRowFoot(p, coSize){
    ★ KEY SKU — thẻ ngoài, bảng đối thủ ở trang chi tiết
    ============================================================ */
 function viewHeroList(shopId){
-  const ds = heroCards(shopId);
+  /* Ô tìm dùng chung với tab Giá vốn: gõ một lần rồi bấm qua lại giữa hai tab
+     mà không phải gõ lại. Ở đây nó chỉ lọc bớt thẻ chứ không đổi cách bày —
+     Key SKU vốn đã ít con, cần lọc chứ không cần một màn kết quả riêng. */
+  const k = norm(ui.costQ || '');
+  const tat = heroCards(shopId);
+  const ds  = k ? tat.filter(t => costMatch(t.r, k)) : tat;
+  if (k && !ds.length)
+    return `<div class="empty"><b>Không có Key SKU nào khớp “${esc(ui.costQ)}”</b>
+      ${tat.length ? 'Gian hàng này có ' + tat.length + ' con Key SKU, không con nào khớp.'
+                   : 'Gian hàng này chưa đánh dấu con nào là Key SKU.'}
+      <div style="margin-top:14px" class="btns center">
+        <button class="btn" data-act="costqclear">✕ Xoá ô tìm</button></div></div>`;
 
   if (!ds.length)
     return `<div class="empty"><b>Chưa đánh dấu con nào là Key SKU</b>
@@ -3454,7 +3615,8 @@ function viewHeroList(shopId){
   const cu = ds.filter(t => t.fresh && t.fresh.cu).length;   // số CON có dòng cũ
   const bi = ds.filter(t => t.gap != null && t.gap > 0).length;
   let h = `<div class="mod">` + moduleHead('★', 'Key SKU',
-    ds.length + ' con · xếp theo mức đang bị ép giá nặng nhất');
+    k ? ds.length + '/' + tat.length + ' con khớp “' + esc(ui.costQ) + '”'
+      : ds.length + ' con · xếp theo mức đang bị ép giá nặng nhất');
 
   h += `<div class="tiles" style="margin-bottom:12px">
     ${tile('Đang đắt hơn đối thủ rẻ nhất', dem(bi) + '/' + ds.length,
@@ -3614,10 +3776,20 @@ function rivalBlock(p, x){
    nào, mà hai bảng vẽ bằng hai đoạn mã thì sớm muộn cũng lệch cột nhau.
    ============================================================ */
 function viewProjList(shopId){
-  const ds = projsOfShop(shopId).map(projCard)
+  const k = norm(ui.costQ || '');
+  const tat = projsOfShop(shopId).map(projCard)
     .sort((a,b) => PJ_STAGES.findIndex(x => x.id === a.pj.stage) -
                    PJ_STAGES.findIndex(x => x.id === b.pj.stage) ||
                    norm(a.pj.name).localeCompare(norm(b.pj.name), 'vi'));
+  /* Dự án khớp khi TÊN DỰ ÁN khớp, hoặc khi một sản phẩm bên trong nó khớp —
+     vế thứ hai mới là vế hay dùng: "con Butterfly đang nằm trong dự án nào". */
+  const ds = k ? tat.filter(t => norm(t.pj.name || '').includes(k) ||
+                                 t.rows.some(r => costMatch(r, k))) : tat;
+  if (k && !ds.length)
+    return `<div class="empty"><b>Không có dự án nào khớp “${esc(ui.costQ)}”</b>
+      Ô tìm soi cả tên dự án lẫn tên những sản phẩm nằm bên trong nó.
+      <div style="margin-top:14px" class="btns center">
+        <button class="btn" data-act="costqclear">✕ Xoá ô tìm</button></div></div>`;
 
   if (!ds.length)
     return `<div class="empty"><b>Chưa có dự án nào</b>
@@ -3629,7 +3801,8 @@ function viewProjList(shopId){
         <button class="btn pri" data-act="newpj">+ Dự án đầu tiên</button></div></div>`;
 
   let h = `<div class="mod">` + moduleHead('⚔', 'Dự án',
-    ds.length + ' sản phẩm tổng · bấm một thẻ để mở danh sách bên trong');
+    k ? ds.length + '/' + tat.length + ' dự án khớp “' + esc(ui.costQ) + '”'
+      : ds.length + ' sản phẩm tổng · bấm một thẻ để mở danh sách bên trong');
   h += `<div class="ideag">` + ds.map(pjCardEl).join('') + `</div></div>`;
   return h;
 }
@@ -4643,4 +4816,4 @@ function viewSettings(){
   return h;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "65241615"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "5cf28b0e"]);
