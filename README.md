@@ -1303,6 +1303,46 @@ gãy hôm nào.
 Chiến dịch mới chỉ xuất hiện trong file ngày, chưa có tháng nào, vẫn mở được
 trang — chỉ là chưa có phần theo tháng.
 
+### Một ngày là đủ, miễn là so với đúng thứ
+
+Trước đây bấm vào một chiến dịch rồi cuộn xuống phần **Theo ngày** mà mới nạp
+một file thì app chỉ nói được: *"Mới có một ngày — nạp thêm vài ngày nữa là có
+đường để nhìn."* Tức là phải chờ cả tuần mới biết file nạp sáng nay có gì bất
+thường, trong khi số để so đã nằm sẵn trong kho từ lâu: **chính các tháng của
+con đó**.
+
+Giờ ngay dưới phần Theo ngày là bảng **"Ngày … so với từng tháng"** — cùng tám
+chỉ số, cùng cách đọc với bảng ở trang Báo cáo ngày, chỉ khác là nó hẹp lại còn
+đúng một chiến dịch. Cần bảng riêng chứ không dùng bảng của gian hàng được: cả
+gian hàng đứng yên mà một con tụt phân nửa là chuyện thường ngày — số của nó bị
+mấy chục con khác pha loãng tới mức không còn nhìn thấy trong bảng tổng.
+
+Nạp nhiều ngày thì có dải ngày để bấm qua lại. Mỗi tháng vẫn chia cho **số ngày
+của chính nó**, đúng như bảng của gian hàng, để hai bảng không bao giờ nói hai
+điều khác nhau về cùng một con số. Và chỉ lấy tháng nằm **trước** ngày đang
+xem: tháng đang chạy dở thì trung bình một ngày của nó tính trên số ngày đầy đủ
+nên lúc nào cũng thấp giả, đem làm mốc thì hôm nào cũng hoá ra ngày đẹp.
+
+File giữa ngày (`partial`) được nói ra ngay trên dòng kết luận — mọi mức chênh
+của một tệp chụp lúc 16 giờ đều thấp giả, mà thấp theo một chiều cố định nên
+nhìn mãi vẫn thấy hợp lý.
+
+### Cùng bảng đó trong trang một sản phẩm
+
+Một sản phẩm thường chạy **vài chiến dịch cùng lúc**. Tắt bớt con này rồi bơm
+con kia thì từng chiến dịch nhìn như vừa sập vừa bùng nổ, trong khi sản phẩm
+không đổi gì cả. Nên trang sản phẩm (tab **Shopee Ads** › một sản phẩm) có cùng
+bảng ấy nhưng **cộng mọi chiến dịch của nó lại** — đó mới là câu trả lời cho
+"con hàng này hôm qua có sao không". Dưới bảng là dải nút nhảy thẳng vào từng
+chiến dịch.
+
+Bảng nằm ngay dưới thẻ ROAS mục tiêu, **trên cả** khối "chưa theo dõi gì": sản
+phẩm chưa ghi kỳ đo nào vẫn có thể đã chạy quảng cáo cả tháng trời, và trước
+đây trang này trả về một khối rỗng trong khi số của nó nằm sẵn trong kho.
+
+Số ở bảng này lấy thẳng từ file Shopee, **không** trộn với các kỳ đo bạn tự ghi
+ở khối bên dưới — hai nguồn để riêng nên không có chỗ nào cộng trùng.
+
 ## Khung giờ mua hàng
 
 Mục con thứ ba của tab Báo cáo Ads. Đọc từ **bản xuất đơn hàng** (Kênh Người
@@ -1709,6 +1749,32 @@ Hai chỗ cùng ghi tên/link/giá đối thủ nhưng hỏi hai câu khác nhau
 | Đi theo | **từ khoá** | **sản phẩm của mình** |
 | Câu hỏi | ai đang top từ khoá này, bán bao nhiêu đơn/tháng | con hero của mình đang bị con nào ép giá |
 | Số quan trọng | đơn/tháng → khe hở để chen vào top | giá bán → đuổi theo có sống không |
+
+### Ô tìm sản phẩm
+
+Góc phải hàng tab đầu tiên. Gõ vào là cả ba tab con cùng lọc theo — gõ một lần
+rồi bấm qua lại giữa **Giá vốn / Dự án / Key SKU** mà không phải gõ lại.
+
+Ô tìm soi **tên sản phẩm, thương hiệu, mã SKU, mã Shopee, và cả tên size lẫn
+tên combo**. Gõ `320ml` mà không ra gì trong khi đúng cái size ấy đang nằm
+trong bảng là kiểu hụt khiến người ta thôi dùng ô tìm hẳn.
+
+Ba tab con lọc theo ba cách khác nhau, vì chúng bày ba thứ khác nhau:
+
+* **Giá vốn sản phẩm** — bỏ hẳn màn thẻ thương hiệu, trả về một **bảng phẳng**
+  những con khớp. Người đang tìm đã biết mình tìm con nào; thêm một cấp phải
+  bấm mở nữa là thêm một lần bấm cho mỗi lần tra. Size và combo vẫn nở ra
+  được y như bảng thường — cùng một hàm vẽ dòng.
+* **⚔ Dự án** — lọc thẻ dự án, khớp theo **tên dự án hoặc tên một sản phẩm nằm
+  bên trong nó**. Vế thứ hai mới là vế hay dùng: "con Butterfly đang nằm trong
+  dự án nào".
+* **★ Key SKU** — lọc thẻ, đầu khối ghi `3/8 con khớp` để biết mình đang nhìn
+  một phần chứ không phải toàn bộ.
+
+Tìm chạy trên **toàn bộ gian hàng**, không riêng gian hàng đang mở. Con nằm ở
+tab khác thì app nói ra kèm nút nhảy sang — *"Còn 1 kết quả ở gian hàng khác:
+Waxshop - Men Zone (1)"*. Trả về "không thấy" trong khi nó vẫn nằm trong app là
+một câu trả lời sai.
 
 ### Thương hiệu hiện ra ngoài dưới dạng thẻ
 

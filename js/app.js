@@ -3860,6 +3860,10 @@ const ACTIONS = {
   costtoggle:  id => { ui.costOpen[id] = !ui.costOpen[id]; render(); },
   costsel:     id => { ui.costSel = id; render(); },
   costtab:     id => { ui.costTab = id; ui.costBrand = null; render(); },
+  /* Xoá ô tìm. Trả luôn về màn thẻ thương hiệu: đang xem một bảng kết quả mà
+     xoá ô tìm thì thứ hợp lý để thấy tiếp theo là màn ngoài, không phải
+     thương hiệu nào đó mở dở từ trước lúc gõ. */
+  costqclear:  () => { ui.costQ = ''; ui.costBrand = null; render(); window.scrollTo(0,0); },
   costtabgo:   id => { ui.costTab = id; go('cost'); },
   /* data-id là "pid" hoặc "pid|sid" — sid là size sẽ gắn combo mới vào. */
   newcombo:    id => { const [a, b] = id.split('|'); comboForm(a, '', b || ''); },
@@ -3963,6 +3967,10 @@ const ACTIONS = {
     }
     render();
   },
+  /* Đổi ngày đang xem ở trang một chiến dịch. Không đụng tới ui.adDate của
+     báo cáo ngày: hai chỗ hỏi hai câu khác nhau, dùng chung một biến thì mở
+     một chiến dịch xong quay ra là báo cáo ngày đã nhảy sang ngày khác. */
+  campdate:    id => { ui.campDate = id; render(); },
   adtg:        id => sendDayReport(id),
   adshop:      id => { ui.adShop = id || ''; ui.adYm = ''; ui.adIssue = '';
                        ui.adOnlyBad = false; ui.adSoSanh = ''; render(); },

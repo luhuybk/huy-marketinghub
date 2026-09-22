@@ -2504,15 +2504,49 @@ function costRoasNow(p){
 /* Sản phẩm của một gian hàng, kèm bảng tính. shopId rỗng = nhóm "chưa xếp",
    gồm cả sản phẩm chưa có dòng giá vốn nào — nếu không, thêm một sản phẩm
    xong sẽ không thấy nó ở đâu cả và người dùng tưởng bấm lưu bị trôi. */
-function costRows(shopId){
+function costAllRows(){
   return products().filter(p => !p.archived).map(p => {
     const c = costOf(p.id);
     /* units = mọi thứ bán được của con này (size, combo). Tính sẵn ở đây vì
        cả bảng, thẻ thương hiệu lẫn cảnh báo đều cần, mà costCalc quét lại
        toàn bộ danh sách giá vốn mỗi lần gọi. */
     return {p, c, calc: costCalc(p), units: costUnits(p), shopId: c ? c.shopId : ''};
-  }).filter(r => r.shopId === shopId)
+  });
+}
+function costRows(shopId){
+  return costAllRows().filter(r => r.shopId === shopId)
     .sort((a,b) => norm(a.p.name).localeCompare(norm(b.p.name), 'vi'));
+}
+
+/* ---- ô tìm của tab Tính chi phí ----
+
+   Tìm cả trong tên size và tên combo, không chỉ tên sản phẩm. Gõ "320ml" mà
+   không ra gì trong khi đúng cái size ấy đang nằm trong bảng là kiểu hụt
+   khiến người ta thôi dùng ô tìm hẳn.
+
+   Và tìm trên TOÀN BỘ gian hàng chứ không riêng gian hàng đang mở. Sản phẩm
+   nằm ở tab khác thì vẫn nói ra là có, kèm nút nhảy sang — thay vì trả về
+   "không thấy" trong khi nó vẫn nằm trong app. */
+function costMatch(r, k){
+  const co = v => norm(v || '').includes(k);
+  const p = r.p, c = r.c;
+  return co(p.name) || co(p.brand) || co(p.sku) || co(p.shopeeSku) || co(p.shopeeName) ||
+         !!(c && (c.sizes  || []).some(x => co(x.name))) ||
+         !!(c && (c.combos || []).some(x => co(x.name)));
+}
+function costSearch(q, shopId){
+  const k = norm(q || '');
+  if (!k) return null;
+  const khop = costAllRows().filter(r => costMatch(r, k))
+    .sort((a,b) => norm(a.p.name).localeCompare(norm(b.p.name), 'vi'));
+  const sid = shopId || '';
+  /* Không đặt tên biến này là dem — dem() là hàm định dạng số dùng khắp app,
+     che nó đi trong một hàm là kiểu lỗi chỉ lộ ra khi có người thêm dòng mới. */
+  const soKhac = {};
+  khop.filter(r => r.shopId !== sid).forEach(r => soKhac[r.shopId] = (soKhac[r.shopId] || 0) + 1);
+  return {q, k, trong: khop.filter(r => r.shopId === sid), n: khop.length,
+          khac: Object.keys(soKhac).map(id => ({shopId:id, n:soKhac[id]}))
+                      .sort((a,b) => b.n - a.n)};
 }
 /* Gom theo thương hiệu trong một gian hàng. */
 function costByBrand(shopId){
@@ -3024,6 +3058,89 @@ function adDayVsMonths(shopId, date, tyLe){
     return {ym: m, b, ngay: +monthEnd(m).slice(8,10)};
   });
   return {date, cur, rows, thangs: co};
+}
+
+/* ---- cùng phép so ấy nhưng cho MỘT chiến dịch ----
+
+   Bảng trên trang báo cáo ngày trả lời câu hỏi của cả gian hàng. Câu hỏi của
+   trang chiến dịch hẹp hơn nhiều và cũng đắt hơn nhiều: CHÍNH con này hôm đó
+   chạy khác gì với nhịp thường của nó. Gian hàng đứng yên mà một con tụt
+   phân nửa là chuyện hoàn toàn bình thường — số của nó bị mấy chục con khác
+   pha loãng tới mức không còn nhìn thấy trong bảng tổng.
+
+   Mỗi tháng vẫn chia cho số ngày của chính nó, đúng như bảng của gian hàng,
+   để hai bảng không bao giờ nói hai điều khác nhau về cùng một con số.
+
+   Chỉ lấy tháng nằm TRƯỚC ngày đang xem. Tháng đang chạy dở thì trung bình
+   một ngày của nó tính trên số ngày đầy đủ của tháng, nên lúc nào cũng thấp
+   giả — đem làm mốc thì hôm nào cũng hoá ra ngày đẹp. */
+/* Ngày của một SẢN PHẨM — cộng mọi chiến dịch của nó lại.
+
+   Khác với bảng của một chiến dịch ở đúng một điểm, nhưng là điểm quyết
+   định: một sản phẩm thường chạy vài chiến dịch cùng lúc, và tắt bớt một con
+   rồi bơm con kia thì từng chiến dịch nhìn như vừa sập vừa bùng nổ, trong
+   khi sản phẩm không đổi gì cả. Chỉ số cộng lại mới trả lời được câu "con
+   hàng này hôm qua có sao không".
+
+   Nối vào chiến dịch bằng đúng hai khoá của adcampProduct() — mã Shopee rồi
+   tới tên — để hai chiều không bao giờ nối khác nhau. */
+function dayRowsOfProduct(p){
+  const sku = norm(p.shopeeSku || p.sku), nm = norm(p.shopeeName);
+  if (!sku && !nm) return [];
+  return addays().filter(c => (sku && norm(c.sku) === sku) || (nm && norm(c.name) === nm));
+}
+/* Bỏ bản trùng: cùng một chiến dịch trong cùng một mốc thì chỉ giữ bản mới
+   nhất. Nạp đè một file hai lần mà cộng cả hai là nhân đôi mọi con số, và
+   con số nhân đôi vẫn trông rất bình thường. */
+function adDedup(list, moc){
+  const t = {};
+  list.forEach(x => {
+    const k = adcampKey(x) + '|' + x[moc];
+    const cu = t[k];
+    if (!cu || (x.updatedAt || '') > (cu.updatedAt || '')) t[k] = x;
+  });
+  return Object.keys(t).map(k => t[k]);
+}
+function adProductDayVsMonths(p, date){
+  const ds = adDedup(dayRowsOfProduct(p), 'date');
+  if (!ds.length) return null;
+  const dates = Array.from(new Set(ds.map(x => x.date))).sort();
+  const d = date && dates.includes(date) ? date : dates[dates.length - 1];
+  const ban = ds.filter(x => x.date === d);
+  const ym = d.slice(0, 7);
+  const cs = adDedup(campsOfProduct(p), 'ym');
+  const rows = Array.from(new Set(cs.map(c => c.ym))).filter(m => m < ym).sort().map(m => {
+    const n = +monthEnd(m).slice(8, 10);
+    const t = adSum(cs.filter(c => c.ym === m));
+    const b = adMetrics({impressions: t.impressions/n, clicks: t.clicks/n, orders: t.orders/n,
+                         cost: t.cost/n, gmv: t.gmv/n});
+    return {ym: m, b, ngay: n, nCamp: cs.filter(c => c.ym === m).length};
+  });
+  const nua = ban.filter(x => x.partial);
+  return {date: d, dates, cur: adSum(ban), rows, nCamp: ban.length,
+          partial: nua.length > 0,
+          atHour: nua.length ? Math.max.apply(null, nua.map(x => x.atHour || 0)) : null};
+}
+
+function adcampDayVsMonths(c, date){
+  /* Mỗi ngày chỉ giữ MỘT bản ghi, bản mới nhất — cùng lý do với adcampSeries:
+     nạp đè cùng một ngày hai lần thì cộng cả hai là nhân đôi mọi con số. */
+  const ngay = adDedup(adDaySeries(c), 'date');
+  if (!ngay.length) return null;
+  const theoNgay = {};
+  ngay.forEach(x => theoNgay[x.date] = x);
+  const dates = Object.keys(theoNgay).sort();
+  const d = date && theoNgay[date] ? date : dates[dates.length - 1];
+  const ban = theoNgay[d];
+  const ym = d.slice(0, 7);
+  const rows = adcampSeries(c).filter(x => x.ym < ym).map(x => {
+    const n = +monthEnd(x.ym).slice(8, 10);
+    const b = adMetrics({impressions:(x.impressions||0)/n, clicks:(x.clicks||0)/n,
+                         orders:(x.orders||0)/n, cost:(x.cost||0)/n, gmv:(x.gmv||0)/n});
+    return {ym: x.ym, b, ngay: n};
+  });
+  return {date: d, dates, cur: adMetrics(ban), ban, rows,
+          partial: !!ban.partial, atHour: ban.atHour || null};
 }
 
 /* ============================================================
