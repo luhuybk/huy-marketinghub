@@ -29,8 +29,10 @@ const ui = {
   /* Mốc so sánh của báo cáo ngày. null = tháng gần nhất (mặc định),
      'moi' = mọi tháng đã nạp, hoặc một mảng tháng bạn tự chọn. */
   adNen: null,
-  /* Ngày đang xem ở trang một chiến dịch. Rỗng = ngày mới nhất con đó có. */
-  campDate:'',
+  /* Ngày đang xem ở trang một chiến dịch / một sản phẩm. Rỗng = ngày mới nhất
+     con đó có. campDay2 / adDay2 = ngày thứ hai để so ngày với ngày, rỗng =
+     chỉ so với tháng. */
+  campDate:'', campDay2:'', adDay2:'',
   /* Ô tìm sản phẩm trong tab Tính chi phí — dùng chung cho cả ba tab con. */
   costQ:'',
   /* Tính chi phí: 'sp' = bảng giá vốn, 'pj' = dự án so giá. costSel là thứ
@@ -1352,56 +1354,111 @@ function adDayRow(r){
   </tr>`;
 }
 
-/* ---- ngày này so với TỪNG tháng, mỗi tháng một cột ----
+/* ---- ngày so với từng tháng — bảng NGANG ----
 
-   Khối "So với mức thường" ở trên gộp các tháng lại thành một mốc. Bảng này
-   tách chúng ra. Hai bảng trả lời hai câu khác nhau, và câu thứ hai mới là
-   câu quyết định có phải đi sửa hay không:
+   Mỗi DÒNG là một mốc (ngày đang xem, ngày khác, từng tháng), mỗi CỘT là một
+   chỉ số — đúng hình của bảng "Từng tháng" ngay phía trên nó. Bản đầu làm
+   dọc (chỉ số xuống dòng, tháng sang cột), nên hai bảng nằm sát nhau mà đọc
+   theo hai chiều ngược nhau: mắt vừa quen đọc "Tháng 7: view, chi phí, doanh
+   số…" theo hàng thì xuống dưới phải đổi sang đọc theo cột.
 
-     · gộp:  hôm nay có khác thường không
-     · tách: khác từ bao giờ — tụt so với cả T7 lẫn T8 là đang trôi dốc,
-             chỉ tụt so với T8 thì phải xem lại xem T8 có gì bất thường
+   Ngang còn một cái lợi nữa: thêm một mốc là thêm một DÒNG, bảng dài ra chứ
+   không phình bề ngang. Chọn thêm một ngày để so thì trên điện thoại vẫn đọc
+   được, không phải kéo ngang thêm một cột nữa.
 
-   Cột "so T7" nằm ngay cạnh số của T7 chứ không dồn xuống một hàng riêng:
-   mắt đọc ngang một dòng là xong một chỉ số, không phải nhảy lên nhảy xuống
-   giữa hai hàng cách nhau vài chục điểm ảnh.                              */
+   Ô ở dòng mốc ghi số của mốc đó, mũi tên bên dưới là NGÀY ĐANG XEM so với
+   mốc ấy — không phải mốc so với ngày đang xem. Nói ra ở đầu bảng, vì đọc
+   ngược chiều là đọc ngược cả kết luận.
+
+   Các gọi:  nay  — số của ngày đang xem
+             nhan — nhãn của dòng đầu
+             moc  — [{nhan, phu, b, thang}]  thang=true để dòng đó được tính
+                    vào câu "kém hơn mọi tháng" */
+const dayDelta = (nay, bau) => bau && nay != null && isFinite(bau) ? (nay - bau) / bau * 100 : null;
+function dayCmpTable(nay, nhan, phu, moc){
+  return `<div class="tblwrap"><table class="tbl sm ptbl stick"><thead><tr>
+    <th class="nw">Mốc</th>` +
+    /* Đầu cột một dòng, giống hệt bảng "Từng tháng" phía trên — dòng giải
+       nghĩa thứ hai làm mỗi cột phình ra gấp rưỡi và cả bảng phải kéo ngang
+       ngay trên máy tính. Giải nghĩa chuyển vào title, rê chuột là thấy. */
+    AD_SS.map(x => `<th class="r nw" title="${x.p}">${x.l}</th>`).join('') +
+    `</tr></thead><tbody>
+    <tr><td class="nw"><b>${esc(nhan)}</b><div class="dim">${esc(phu)}</div></td>` +
+      AD_SS.map(x => `<td class="r nw"><b>${x.f(nay[x.k])}</b></td>`).join('') + `</tr>` +
+    moc.map(m => `<tr><td class="nw">${esc(m.nhan)}<div class="dim">${esc(m.phu)}</div></td>` +
+      AD_SS.map(x => `<td class="r nw"><span class="dim">${x.f(m.b[x.k])}</span>
+        <div>${deltaChip(dayDelta(nay[x.k], m.b[x.k]), x.tot) || '—'}</div></td>`).join('') +
+      `</tr>`).join('') +
+    `</tbody></table></div>
+    <div class="dim" style="margin-top:6px">Mũi tên ở mỗi dòng là <b>${esc(nhan.toLowerCase())}</b>
+      so với mốc của dòng đó. Tháng quy về trung bình một ngày của chính nó.</div>`;
+}
+
+/* Hai ô chọn: ngày đang xem, và một ngày thứ hai để so ngày với ngày.
+   Dùng ô chọn chứ không dùng dải nút: dải nút chỉ hiện được khi đã nạp từ
+   hai ngày trở lên, nên đúng lúc mới nạp một file người ta không thấy có
+   chỗ nào để chọn — và tưởng tính năng không có. Ô chọn thì lúc nào cũng
+   nằm đó, một ngày cũng hiện.
+   Ngày mới nhất đứng đầu danh sách: gần như mọi lần mở là để xem hôm qua. */
+function dayPickers(dates, cur, cur2, k1, k2){
+  const moi = dates.slice().sort().reverse();
+  const opt = (x, chon) => `<option value="${esc(x)}" ${x === chon ? 'selected' : ''}>${
+    esc(thuNgay(x))}</option>`;
+  const khac = moi.filter(x => x !== cur);
+  return `<div class="toolbar" style="margin:0 0 10px">
+    <label class="inpl">Ngày xem
+      <select class="inp sm" data-inp="${k1}">${moi.map(x => opt(x, cur)).join('')}</select></label>
+    <label class="inpl">So thêm với ngày
+      <select class="inp sm" data-inp="${k2}" ${khac.length ? '' : 'disabled'}>
+        <option value="">${khac.length ? '— chỉ so với tháng —' : 'mới nạp 1 ngày'}</option>${
+        khac.map(x => opt(x, cur2)).join('')}</select></label>
+  </div>`;
+}
+/* "T2 22/09/2026" — thứ trong tuần đứng trước, vì so thứ Hai với Chủ nhật
+   là so hai nhịp mua khác nhau, mà nhìn mỗi con số ngày thì không ai nhớ. */
+function thuNgay(d){
+  const t = new Date(d + 'T00:00:00').getDay();
+  return (t === 0 ? 'CN' : 'T' + (t + 1)) + ' ' + fmtDate(d);
+}
+
+/* Một câu đọc hộ: chỉ số nào xấu đi so với MỌI tháng thì đó là xu hướng,
+   không phải một ngày xấu. Chỉ kể tên khi mọi tháng cùng nói một điều.
+   Dòng "ngày khác" không được tính vào đây — một ngày không phải một xu hướng.
+
+   "Xấu" phải theo đúng chiều tốt của từng chỉ số. CPC thấp đi là mừng, mà
+   nó cũng là một con số tụt 10% — bắt theo dấu trừ thì tháng nào rẻ tiền
+   click cũng bị báo động. */
+function dayVerdict(nay, thangs, dong, loiKhuyen, macDinh){
+  const xau = (x, t) => t != null && (x.tot === false ? t >= 10 : t <= -10);
+  const deu = thangs.length ? AD_SS.filter(x => x.tot != null &&
+                thangs.every(b => xau(x, dayDelta(nay[x.k], b[x.k])))) : [];
+  return deu.length
+    ? `<div class="explain warn" style="margin-top:8px">⚠︎ <b>${esc(deu.map(x => x.l).join(', '))}</b>
+       ${dong}kém hơn <b>mọi tháng</b> đã nạp, không riêng tháng gần nhất — đây là chuyện kéo dài
+       chứ không phải một ngày xấu. ${esc(loiKhuyen || '')}</div>`
+    : `<div class="dim" style="margin-top:8px">${macDinh}</div>`;
+}
+
 function adDayMonthTable(shopId, date, rp){
   const v = adDayVsMonths(shopId, date, null);
-  if (v.rows.length < 2) return '';        // một tháng thì khối ở trên đã đủ
+  const dates = adDayDates(shopId);
+  if (v.rows.length < 2 && dates.length < 2) return '';   // một tháng, một ngày: khối ở trên đã đủ
 
-  const d = (nay, bau) => bau && nay != null && isFinite(bau) ? (nay - bau) / bau * 100 : null;
+  const d2 = ui.adDay2 && ui.adDay2 !== date && dates.includes(ui.adDay2) ? ui.adDay2 : '';
+  const moc = [];
+  if (d2) moc.push({nhan: 'Ngày ' + fmtShort(d2), phu: thuNgay(d2).split(' ')[0] + ' · ngày bạn chọn',
+                    b: adSum(adDaysIn(d2, shopId))});
+  v.rows.forEach(r => moc.push({nhan: monthLabel(r.ym), phu: 'tb/ngày · ' + r.ngay + ' ngày', b: r.b}));
+
   let h = sectionTitle('Ngày này so với từng tháng',
-    `<span class="dim">mỗi tháng quy về trung bình một ngày</span>`);
-
-  h += `<div class="tblwrap"><table class="tbl sm ptbl stick"><thead><tr>
-    <th class="nw">Chỉ số</th>
-    <th class="r nw">Ngày ${esc(fmtShort(date))}</th>` +
-    v.rows.map(r => `<th class="r nw">${esc(monthLabel(r.ym))}<div class="dim"
-       style="font-weight:400">tb 1 ngày · ${r.ngay} ngày</div></th>`).join('') +
-    `</tr></thead><tbody>` +
-    AD_SS.map(x => `<tr>
-      <td class="nw"><b>${x.l}</b><div class="dim">${x.p}</div></td>
-      <td class="r nw"><b>${x.f(v.cur[x.k])}</b></td>` +
-      v.rows.map(r => `<td class="r nw"><span class="dim">${x.f(r.b[x.k])}</span>
-        <div>${deltaChip(d(v.cur[x.k], r.b[x.k]), x.tot) || '—'}</div></td>`).join('') +
-    `</tr>`).join('') + `</tbody></table></div>`;
-
-  /* Một câu đọc hộ: chỉ số nào xấu đi so với MỌI tháng thì đó là xu hướng,
-     không phải một ngày xấu. Chỉ kể tên khi mọi tháng cùng nói một điều.
-
-     "Xấu" phải theo đúng chiều tốt của từng chỉ số. CPC thấp đi là mừng, mà
-     nó cũng là một con số tụt 10% — bắt theo dấu trừ thì tháng nào rẻ tiền
-     click cũng bị báo động. */
-  const xau = (x, t) => t != null && (x.tot === false ? t >= 10 : t <= -10);
-  const deu = AD_SS.filter(x => x.tot != null &&
-                v.rows.every(r => xau(x, d(v.cur[x.k], r.b[x.k]))));
-  h += deu.length
-    ? `<div class="explain warn" style="margin-top:8px">⚠︎ <b>${esc(deu.map(x => x.l).join(', '))}</b>
-       kém hơn <b>mọi tháng</b> đã nạp, không riêng tháng gần nhất — đây là chuyện kéo dài chứ
-       không phải một ngày xấu. Mở bảng chiến dịch bên dưới xem con nào kéo xuống.</div>`
-    : `<div class="dim" style="margin-top:8px">Một chỉ số lệch so với tháng này mà ngang tháng
-       kia thì <b>tháng kia mới là tháng cần xem lại</b> — có sale, đứt hàng hay đổi ngân sách
-       không — trước khi lấy nó làm chuẩn cho hôm nay.</div>`;
+    `<span class="dim">cả gian hàng</span>`);
+  h += dayPickers(dates, date, d2, 'adDate', 'adDay2');
+  h += dayCmpTable(v.cur, 'Ngày ' + fmtShort(date), thuNgay(date).split(' ')[0] + ' · đang xem', moc);
+  h += dayVerdict(v.cur, v.rows.map(r => r.b), '',
+    'Mở bảng chiến dịch bên dưới xem con nào kéo xuống.',
+    `Một chỉ số lệch so với tháng này mà ngang tháng kia thì <b>tháng kia mới là tháng cần
+     xem lại</b> — có sale, đứt hàng hay đổi ngân sách không — trước khi lấy nó làm chuẩn
+     cho hôm nay.`);
   return h;
 }
 
@@ -1413,7 +1470,7 @@ function adDayMonthTable(shopId, date, rp){
    trong kho từ lâu: chính các tháng của con này. Một ngày là đủ, miễn là đem
    so với đúng thứ.                                                        */
 function adcampDayTable(c){
-  return dayMonthBlock(adcampDayVsMonths(c, ui.campDate),
+  return dayMonthBlock(adcampDayVsMonths(c, ui.campDate, ui.campDay2),
     'Ghi một việc ở khối trên rồi hẹn ngày đo lại.');
 }
 
@@ -1422,37 +1479,24 @@ function adcampDayTable(c){
    đọc bảng này bằng thói quen của bảng kia. */
 function dayMonthBlock(v, loiKhuyen){
   if (!v) return '';
-  const d = (nay, bau) => bau && nay != null && isFinite(bau) ? (nay - bau) / bau * 100 : null;
 
   let h = sectionTitle('Ngày ' + esc(fmtDate(v.date)) + ' so với từng tháng',
-    `<span class="dim">mỗi tháng quy về trung bình một ngày${
-      v.nCamp > 1 ? ' · cộng ' + v.nCamp + ' chiến dịch' : ''}</span>`);
+    `<span class="dim">${v.nCamp > 1 ? 'cộng ' + v.nCamp + ' chiến dịch' : 'mỗi tháng quy về trung bình một ngày'}</span>`);
+  h += dayPickers(v.dates, v.date, v.date2, 'campDate', 'campDay2');
 
-  /* Nạp nhiều ngày thì cho bấm qua lại. Ngày mới nhất đứng cuối dải, đúng
-     chiều thời gian của mọi biểu đồ trong app. */
-  if (v.dates.length > 1)
-    h += `<div class="chips" style="margin-bottom:10px">
-      <span class="dim" style="align-self:center;margin-right:2px">Ngày:</span>` +
-      v.dates.slice(-10).map(x => `<button class="btn sm ${x === v.date ? 'pri' : ''}"
-        data-act="campdate" data-id="${x}">${esc(fmtShort(x))}</button>`).join('') + `</div>`;
+  const moc = [];
+  if (v.cur2) moc.push({nhan: 'Ngày ' + fmtShort(v.date2),
+    phu: thuNgay(v.date2).split(' ')[0] + (v.partial2 ? ' · chụp giữa chừng' : ' · ngày bạn chọn'),
+    b: v.cur2});
+  v.rows.forEach(r => moc.push({nhan: monthLabel(r.ym), phu: 'tb/ngày · ' + r.ngay + ' ngày', b: r.b}));
 
-  if (!v.rows.length)
+  if (!moc.length)
     return h + `<div class="card dim">Chưa có tháng nào nằm trước ngày ${esc(fmtDate(v.date))}
       nên chưa có mốc để so. Nạp file tháng vào tab <b>Theo tháng</b> là bảng so hiện ra ngay,
       không phải chờ gom đủ ba mươi ngày.</div>`;
 
-  h += `<div class="tblwrap"><table class="tbl sm ptbl stick"><thead><tr>
-    <th class="nw">Chỉ số</th>
-    <th class="r nw">Ngày ${esc(fmtShort(v.date))}</th>` +
-    v.rows.map(r => `<th class="r nw">${esc(monthLabel(r.ym))}<div class="dim"
-       style="font-weight:400">tb 1 ngày · ${r.ngay} ngày</div></th>`).join('') +
-    `</tr></thead><tbody>` +
-    AD_SS.map(x => `<tr>
-      <td class="nw"><b>${x.l}</b><div class="dim">${x.p}</div></td>
-      <td class="r nw"><b>${x.f(v.cur[x.k])}</b></td>` +
-      v.rows.map(r => `<td class="r nw"><span class="dim">${x.f(r.b[x.k])}</span>
-        <div>${deltaChip(d(v.cur[x.k], r.b[x.k]), x.tot) || '—'}</div></td>`).join('') +
-    `</tr>`).join('') + `</tbody></table></div>`;
+  h += dayCmpTable(v.cur, 'Ngày ' + fmtShort(v.date),
+    thuNgay(v.date).split(' ')[0] + (v.partial ? ' · chụp giữa chừng' : ' · đang xem'), moc);
 
   /* Ảnh chụp giữa chừng thì mọi con số của ngày đều thấp giả — và thấp theo
      một chiều cố định nên nhìn mãi vẫn thấy hợp lý. Phải nói trước khi người
@@ -1460,19 +1504,12 @@ function dayMonthBlock(v, loiKhuyen){
   if (v.partial)
     h += `<div class="explain warn" style="margin-top:8px">⚠︎ File của ngày này là ảnh chụp
       giữa chừng${v.atHour != null ? ' (lúc ' + v.atHour + ' giờ)' : ''} — chi phí, doanh số
-      và số đơn đều chưa đủ cả ngày, nên mọi mức chênh bên dưới đang thấp giả. Nạp lại file
+      và số đơn đều chưa đủ cả ngày, nên mọi mức chênh ở trên đang thấp giả. Nạp lại file
       đầy đủ của ngày đó rồi hãy kết luận.</div>`;
 
-  const xau = (x, t) => t != null && (x.tot === false ? t >= 10 : t <= -10);
-  const deu = AD_SS.filter(x => x.tot != null &&
-                v.rows.every(r => xau(x, d(v.cur[x.k], r.b[x.k]))));
-  h += deu.length
-    ? `<div class="explain warn" style="margin-top:8px">⚠︎ <b>${esc(deu.map(x => x.l).join(', '))}</b>
-       của con này kém hơn <b>mọi tháng</b> đã nạp, không riêng tháng gần nhất — đây là chuyện
-       kéo dài chứ không phải một ngày xấu. ${esc(loiKhuyen || '')}</div>`
-    : `<div class="dim" style="margin-top:8px">Kém hơn tháng này mà ngang tháng kia thì
-       <b>tháng kia mới là tháng cần xem lại</b> — tháng đó có sale, đứt hàng hay đổi ngân sách
-       không — trước khi lấy nó làm chuẩn cho hôm nay.</div>`;
+  h += dayVerdict(v.cur, v.rows.map(r => r.b), 'của con này ', loiKhuyen,
+    `Kém hơn tháng này mà ngang tháng kia thì <b>tháng kia mới là tháng cần xem lại</b> —
+     tháng đó có sale, đứt hàng hay đổi ngân sách không — trước khi lấy nó làm chuẩn cho hôm nay.`);
   return h;
 }
 
@@ -2296,7 +2333,7 @@ function viewProduct(id){
      Nằm trên cả nhánh "chưa theo dõi gì" bên dưới là có chủ ý: sản phẩm chưa
      ghi kỳ đo nào vẫn có thể đã chạy quảng cáo cả tháng trời, và trước đây
      trang này trả về một khối rỗng trong khi số của nó nằm sẵn trong kho. */
-  const vNgay = adProductDayVsMonths(p, ui.campDate);
+  const vNgay = adProductDayVsMonths(p, ui.campDate, ui.campDay2);
   if (vNgay){
     const cs = campsOfProduct(p);
     const moi = {};
@@ -4816,4 +4853,4 @@ function viewSettings(){
   return h;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "5cf28b0e"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "e2a66660"]);

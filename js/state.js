@@ -515,6 +515,8 @@ const TPL_VARS = [
 
 /* Id cố định, cùng lý do với DEFAULT_STATUSES: hai máy khởi tạo lần đầu
    phải ra đúng cùng bộ id thì đồng bộ mới gộp được thay vì nhân đôi. */
+/* Mốc giờ của mọi bản ghi mặc định — xem lý do ở chỗ nạp bộ mặc định. */
+const MOC_MAC_DINH = '2000-01-01T00:00:00.000Z';
 const DEFAULT_TEMPLATES = [
   {id:'tpl_hello', cat:'hello', name:'Chào hỏi lần đầu',
    body:'Chào {ten} nhé, mình là {toi}.\nMình theo dõi {kenh} của bạn ({follow} follow) và thấy nội dung rất hợp với sản phẩm bên mình.\nBên mình đang tìm KOC review {sanpham} của {brand}. Bạn cho mình xin bảng giá booking video với ạ?\nCảm ơn bạn nhiều!'},
@@ -894,10 +896,18 @@ function migrate(raw){
   });
   if (db.settings.brands) delete db.settings.brands;
 
-  /* 3. tình trạng KOL/KOC: nạp bộ mặc định lần đầu */
+  /* 3. tình trạng KOL/KOC: nạp bộ mặc định lần đầu.
+
+     Đóng dấu bằng MOC_MAC_DINH chứ không phải now(). Đồng bộ trộn theo "ai
+     mới hơn thì thắng", nên một máy vừa mở với kho trống — máy mới, xoá bộ
+     nhớ trình duyệt, hay chỉ là bị đăng xuất — mà đóng dấu bộ mặc định bằng
+     giờ hiện tại thì lượt đẩy đầu tiên sẽ đè lên bản trên máy chủ: tên tình
+     trạng bạn đã đổi quay về mặc định, mẫu tin đã sửa mất nội dung, mẫu đã
+     xoá sống lại. Mốc thật cũ thì bản nào trên máy chủ cũng mới hơn nó —
+     máy chủ luôn thắng, còn kho mới tinh vẫn có bộ mặc định để dùng. */
   DEFAULT_STATUSES.forEach((s, i) => {
     if (db.statuses.some(x => x.id === s.id)) return;
-    db.statuses.push(Object.assign({}, s, {order:i, updatedAt: now(), deleted:false}));
+    db.statuses.push(Object.assign({}, s, {order:i, updatedAt: MOC_MAC_DINH, deleted:false}));
   });
 
   /* 4. mẫu tin nhắn: nạp bộ mặc định lần đầu.
@@ -905,7 +915,7 @@ function migrate(raw){
      không mọc lại — kiểm theo id chứ không kiểm theo danh sách đang sống. */
   DEFAULT_TEMPLATES.forEach((t, i) => {
     if (db.templates.some(x => x.id === t.id)) return;
-    db.templates.push(Object.assign({order:i, updatedAt: now(), deleted:false}, t));
+    db.templates.push(Object.assign({order:i, updatedAt: MOC_MAC_DINH, deleted:false}, t));
   });
 
   /* 5. booking/clip: nối vào bản ghi sản phẩm thay vì chỉ giữ tên tự do */
@@ -3101,7 +3111,7 @@ function adDedup(list, moc){
   });
   return Object.keys(t).map(k => t[k]);
 }
-function adProductDayVsMonths(p, date){
+function adProductDayVsMonths(p, date, date2){
   const ds = adDedup(dayRowsOfProduct(p), 'date');
   if (!ds.length) return null;
   const dates = Array.from(new Set(ds.map(x => x.date))).sort();
@@ -3117,12 +3127,15 @@ function adProductDayVsMonths(p, date){
     return {ym: m, b, ngay: n, nCamp: cs.filter(c => c.ym === m).length};
   });
   const nua = ban.filter(x => x.partial);
+  const ban2 = date2 && date2 !== d ? ds.filter(x => x.date === date2) : [];
   return {date: d, dates, cur: adSum(ban), rows, nCamp: ban.length,
+          date2: ban2.length ? date2 : '', cur2: ban2.length ? adSum(ban2) : null,
+          partial2: ban2.some(x => x.partial),
           partial: nua.length > 0,
           atHour: nua.length ? Math.max.apply(null, nua.map(x => x.atHour || 0)) : null};
 }
 
-function adcampDayVsMonths(c, date){
+function adcampDayVsMonths(c, date, date2){
   /* Mỗi ngày chỉ giữ MỘT bản ghi, bản mới nhất — cùng lý do với adcampSeries:
      nạp đè cùng một ngày hai lần thì cộng cả hai là nhân đôi mọi con số. */
   const ngay = adDedup(adDaySeries(c), 'date');
@@ -3139,8 +3152,13 @@ function adcampDayVsMonths(c, date){
                          orders:(x.orders||0)/n, cost:(x.cost||0)/n, gmv:(x.gmv||0)/n});
     return {ym: x.ym, b, ngay: n};
   });
+  /* Ngày thứ hai để so ngày với ngày — chỉ nhận khi nó có thật và khác ngày
+     đang xem. So một ngày với chính nó thì mọi ô ra 0% và trông như "ổn". */
+  const ban2 = date2 && date2 !== d ? theoNgay[date2] || null : null;
   return {date: d, dates, cur: adMetrics(ban), ban, rows,
-          partial: !!ban.partial, atHour: ban.atHour || null};
+          partial: !!ban.partial, atHour: ban.atHour || null,
+          date2: ban2 ? date2 : '', cur2: ban2 ? adMetrics(ban2) : null,
+          partial2: !!(ban2 && ban2.partial)};
 }
 
 /* ============================================================
@@ -4360,4 +4378,4 @@ function searchAll(q, limit){
 const KIND_LABEL = {kol:'KOL/KOC', booking:'Booking', clip:'Clip', product:'Sản phẩm',
                     idea:'Sản phẩm mới', kwgo:'Từ khoá'};
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "5cf28b0e"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "e2a66660"]);
