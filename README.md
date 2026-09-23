@@ -297,6 +297,19 @@ Không đổi gì mà chạy lại lệnh thì nó nhận ra nhánh `deploy` đ�
 có và không tạo commit rỗng. Chưa bật hPanel cũng chạy được: lệnh vẫn đẩy lên
 GitHub, bạn upload tay như cũ.
 
+### Máy mới mở app không được đè lên dữ liệu cũ
+
+Kho trống trên một máy — máy mới, trình duyệt vừa xoá bộ nhớ, hay chỉ là bị
+đăng xuất — sẽ tự nạp bộ **tình trạng KOC** và **mẫu tin nhắn** mặc định để có
+cái mà dùng. Trước đây bộ mặc định đó được đóng dấu **giờ hiện tại**. Đồng bộ
+trộn theo "bản nào mới hơn thì thắng", nên lượt đẩy đầu tiên của máy đó đè lên
+bản trên máy chủ: tên tình trạng bạn đã đổi quay về mặc định, mẫu tin đã sửa
+mất nội dung, mẫu đã xoá sống lại.
+
+Giờ bộ mặc định mang mốc `2000-01-01` (`MOC_MAC_DINH` trong `state.js`). Bản
+nào trên máy chủ cũng mới hơn mốc đó, nên máy chủ luôn thắng — còn một kho
+thật sự mới tinh vẫn có bộ mặc định để dùng.
+
 ### Vẫn nên sao lưu
 
 **Cài đặt → Xuất sao lưu (.json)** tải toàn bộ dữ liệu về máy thành một file.
@@ -1076,7 +1089,8 @@ trong bảng, đường ROAS mức thường trên biểu đồ, và khối "So 
 ### Bảng "Ngày này so với từng tháng"
 
 Dải **So với:** gộp các tháng thành một mốc. Bảng này tách chúng ra, mỗi tháng
-một cột, đủ tám chỉ số. Hai bảng trả lời hai câu khác nhau, và câu thứ hai mới
+một **dòng**, đủ tám chỉ số theo cột — cùng hình với bảng "Từng tháng" nằm ngay
+trên nó, nên hai bảng đọc theo cùng một chiều. Hai bảng trả lời hai câu khác nhau, và câu thứ hai mới
 là câu quyết định có phải đi sửa hay không:
 
 * **gộp** — hôm nay có khác thường không
@@ -1317,7 +1331,34 @@ chỉ số, cùng cách đọc với bảng ở trang Báo cáo ngày, chỉ kh�
 gian hàng đứng yên mà một con tụt phân nửa là chuyện thường ngày — số của nó bị
 mấy chục con khác pha loãng tới mức không còn nhìn thấy trong bảng tổng.
 
-Nạp nhiều ngày thì có dải ngày để bấm qua lại. Mỗi tháng vẫn chia cho **số ngày
+#### Bảng nằm ngang, và chọn được ngày để so
+
+Mỗi **dòng** là một mốc, mỗi **cột** là một chỉ số — đúng hình bảng "Từng
+tháng" ngay phía trên. Bản đầu làm dọc (chỉ số xuống dòng, tháng sang cột),
+nên hai bảng nằm sát nhau mà đọc theo hai chiều ngược nhau. Ngang còn một cái
+lợi: thêm một mốc là thêm một **dòng**, bảng dài ra chứ không phình bề ngang,
+nên trên điện thoại vẫn đọc được.
+
+Mũi tên ở mỗi dòng là **ngày đang xem so với mốc của dòng đó** — ghi ngay dưới
+bảng, vì đọc ngược chiều là đọc ngược cả kết luận.
+
+Hai ô chọn nằm ngay trên bảng:
+
+* **Ngày xem** — ngày nào trong những ngày đã nạp của chiến dịch/sản phẩm này.
+* **So thêm với ngày** — thêm một dòng "Ngày …" để so **ngày với ngày**, ví dụ
+  hôm qua với thứ Bảy tuần trước. Dòng này không được tính vào câu "kém hơn
+  mọi tháng": một ngày không phải một xu hướng.
+
+Dùng ô chọn chứ không dùng dải nút, vì dải nút chỉ hiện khi đã nạp từ hai ngày
+trở lên — đúng lúc mới nạp một file thì không thấy chỗ nào để chọn, và người
+ta tưởng tính năng không có. Mỗi ngày ghi kèm **thứ** (`T7 05/09/2026`): so thứ
+Hai với Chủ nhật là so hai nhịp mua khác nhau, mà nhìn con số ngày thì không ai
+nhớ hôm đó là thứ mấy.
+
+Tab **Hôm qua** của Báo cáo Ads dùng đúng bảng này và đúng hai ô chọn này, cho
+cả gian hàng.
+
+Nạp nhiều ngày thì ô **Ngày xem** có đủ các ngày để chọn qua lại. Mỗi tháng vẫn chia cho **số ngày
 của chính nó**, đúng như bảng của gian hàng, để hai bảng không bao giờ nói hai
 điều khác nhau về cùng một con số. Và chỉ lấy tháng nằm **trước** ngày đang
 xem: tháng đang chạy dở thì trung bình một ngày của nó tính trên số ngày đầy đủ

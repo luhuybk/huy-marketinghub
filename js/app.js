@@ -3967,10 +3967,6 @@ const ACTIONS = {
     }
     render();
   },
-  /* Đổi ngày đang xem ở trang một chiến dịch. Không đụng tới ui.adDate của
-     báo cáo ngày: hai chỗ hỏi hai câu khác nhau, dùng chung một biến thì mở
-     một chiến dịch xong quay ra là báo cáo ngày đã nhảy sang ngày khác. */
-  campdate:    id => { ui.campDate = id; render(); },
   adtg:        id => sendDayReport(id),
   adshop:      id => { ui.adShop = id || ''; ui.adYm = ''; ui.adIssue = '';
                        ui.adOnlyBad = false; ui.adSoSanh = ''; render(); },
@@ -4202,7 +4198,14 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('change', e => {
   const el = e.target.closest('[data-inp]');
-  if (el){ ui[el.dataset.inp] = el.value; render(); return; }
+  if (el){
+    ui[el.dataset.inp] = el.value;
+    /* Đổi ngày ở báo cáo ngày bằng ô chọn phải dọn đúng những gì nút addate
+       dọn: phạm vi đang so là id của bản ghi ngày cũ, mang sang ngày khác là
+       trỏ vào một id không còn tồn tại. */
+    if (el.dataset.inp === 'adDate') ui.adSoSanh = '';
+    render(); return;
+  }
 
   const w = e.target.closest('[data-w]');
   if (w){ db.settings.weights[w.dataset.w] = clamp(+w.value || 0, 0, 100); save(); render(); return; }
