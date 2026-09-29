@@ -3678,7 +3678,7 @@ function viewCostBook(shopId){
     <th class="nw">Cập nhật</th><th class="r">So với lần trước</th>
     <th class="r" title="ROAS hoà vốn tính bằng giá vốn đang dùng">ROAS min</th>
     <th></th></tr></thead><tbody>` +
-    ds.map(costBookRow).join('') + `</tbody></table></div>`;
+    costBookTree(ds).map(costBookBrand).join('') + `</tbody></table></div>`;
 
   if (nChua)
     h += `<div class="dim" style="margin-top:8px">“Chưa có ngày” là mã có giá vốn từ trước khi có sổ, hoặc bị sửa
@@ -3717,7 +3717,77 @@ function costDeltaText(d, cu){
     cu ? ' · ' + pctText(Math.abs(d) / cu * 100, 1) : ''}</span>`;
 }
 
-function costBookRow(u){
+/* Gom sổ thành ba tầng: thương hiệu → sản phẩm → size. Cùng thứ tự với cách
+   người ta nghĩ về hàng ("dòng Butterfly, con sáp, size 100gr"), và cùng
+   thứ tự với thẻ thương hiệu bên tab Giá vốn sản phẩm. Nhóm chưa gắn
+   thương hiệu đứng cuối — nó là chỗ chờ gắn, không phải một thương hiệu. */
+function costBookTree(ds){
+  const by = new Map();
+  ds.forEach(u => {
+    const b = u.p.brand || '';
+    if (!by.has(b)) by.set(b, new Map());
+    const m = by.get(b);
+    if (!m.has(u.p.id)) m.set(u.p.id, []);
+    m.get(u.p.id).push(u);
+  });
+  return [...by.keys()]
+    .sort((a, b) => !a ? 1 : !b ? -1 : norm(a).localeCompare(norm(b), 'vi'))
+    .map(b => ({brand: b, sps: [...by.get(b).values()]}));
+}
+
+/* Dòng thương hiệu. Mở sẵn — sổ đọc để rà, gập sẵn thì mỗi lần mở tab là
+   bấm thêm vài cái mới thấy số. Khoá 'logbx:' = đang GẬP. */
+function costBookBrand(g){
+  const key = 'logbx:' + g.brand;
+  const gap = !!ui.costOpen[key];
+  const us  = [].concat.apply([], g.sps);
+  const nChua = us.filter(u => u.cost && (!u.logs.length || u.lech)).length;
+  const nCu   = us.filter(u => u.cu).length;
+  const nSize = us.filter(u => u.sid).length;
+  let h = `<tr class="grp" data-act="costtoggle" data-id="${esc(key)}">
+    <td class="nw" colspan="6"><span class="dim">${gap ? '▸' : '▾'}</span>
+      <b>${esc(g.brand || 'Chưa gắn thương hiệu')}</b>
+      <span class="dim">· ${g.sps.length} sản phẩm${nSize ? ' · ' + nSize + ' size' : ''}</span>${
+      nCu ? ` <span class="chip warn">${nCu} lâu chưa kiểm</span>` : ''}${
+      nChua ? ` <span class="chip warn">${nChua} chưa có ngày</span>` : ''}</td>
+  </tr>`;
+  if (gap) return h;
+  g.sps.forEach(sp => { h += costBookSp(sp); });
+  return h;
+}
+
+/* Dòng sản phẩm. Không có size thì chính nó là dòng có giá. Có size thì nó
+   là dòng TÓM TẮT (khoảng giá, lần cập nhật gần nhất của các size), size nằm
+   ngay dưới — giống bảng giá vốn: dòng mẹ không bày một giá không ai mua. */
+function costBookSp(us){
+  if (us.length === 1 && !us[0].sid) return costBookRow(us[0], 0);
+  const p = us[0].p;
+  const key = 'logpx:' + p.id;
+  const gap = !!ui.costOpen[key];
+  const gia = us.map(u => u.cost).filter(Boolean);
+  const lo  = gia.length ? Math.min.apply(null, gia) : 0, hi = gia.length ? Math.max.apply(null, gia) : 0;
+  const at  = us.map(u => u.at).filter(Boolean).sort().pop() || '';
+  const ros = us.map(u => u.calc && u.calc.roas).filter(Boolean);
+  const nChua = us.filter(u => u.cost && (!u.logs.length || u.lech)).length;
+  let h = `<tr data-act="costtoggle" data-id="${esc(key)}">
+    <td class="nw"><span class="dim">${gap ? '▸' : '▾'}</span> <b>${esc(p.name)}</b>
+      <span class="chip">${us.length} size</span></td>
+    <td class="r"><b>${!gia.length ? '<span class="dim">—</span>'
+      : lo === hi ? money(lo) : moneyShort(lo) + ' – ' + moneyShort(hi)}</b></td>
+    <td class="nw">${at ? `<span class="dim">gần nhất</span> ${esc(fmtDate(at))}` : ''}${
+      nChua ? ` <span class="chip warn">${nChua} chưa có ngày</span>` : ''}</td>
+    <td class="r dim">${gap ? 'bấm để mở' : ''}</td>
+    <td class="r">${ros.length ? xText(Math.min.apply(null, ros)) + (ros.length > 1 ? ' – ' + xText(Math.max.apply(null, ros)) : '') : '<span class="dim">—</span>'}</td>
+    <td></td>
+  </tr>`;
+  if (gap) return h;
+  us.forEach(u => { h += costBookRow(u, 1); });
+  return h;
+}
+
+/* Một dòng có giá: sản phẩm không size (tầng 0) hoặc một size (tầng 1).
+   Lịch sử nở ngay dưới, thụt thêm một cấp so với chính dòng đó. */
+function costBookRow(u, tang){
   const key = 'log:' + u.p.id + '|' + u.sid;
   const mo  = !!ui.costOpen[key];
   const x   = u.calc;
@@ -3727,9 +3797,9 @@ function costBookRow(u){
     : u.lech ? `<span class="chip warn" title="sổ ghi ${esc(money(u.last.cost))} ngày ${esc(fmtDate(u.last.date))}, nhưng giá đang dùng đã khác — có người sửa mà sổ không biết ngày">lệch sổ</span>`
     : !u.cost ? '<span class="dim">chưa có giá vốn</span>'
     : '<span class="chip warn">chưa có ngày</span>';
-  let h = `<tr data-act="costtoggle" data-id="${esc(key)}">
-    <td class="nw"><span class="dim">${mo ? '▾' : '▸'}</span> <b>${esc(u.p.name)}</b>${
-      u.sid ? ' <span class="dim">· ' + esc(u.nhan) + '</span>' : ''}${
+  const lop = tang ? 'sub2' : 'sub';
+  let h = `<tr${tang ? ' class="sub"' : ''} data-act="costtoggle" data-id="${esc(key)}">
+    <td class="nw"><span class="dim">${tang ? '↳ ' : ''}${mo ? '▾' : '▸'}</span> <b>${esc(tang ? u.nhan : u.p.name)}</b>${
       u.logs.length ? ` <span class="chip" title="số dòng trong sổ">${u.logs.length} lần</span>` : ''}</td>
     <td class="r"><b>${u.cost ? money(u.cost) : '<span class="dim">—</span>'}</b></td>
     <td class="nw">${cap}</td>
@@ -3741,12 +3811,12 @@ function costBookRow(u){
   </tr>`;
   if (!mo) return h;
   if (!u.logs.length)
-    return h + `<tr class="sub"><td colspan="6" class="dim">Sổ chưa có dòng nào cho mã này. Bấm
+    return h + `<tr class="${lop}"><td colspan="6" class="dim">Sổ chưa có dòng nào cho mã này. Bấm
       <b>Cập nhật</b> để ghi giá hiện tại kèm ngày nhập.</td></tr>`;
   /* mới nhất trên cùng — đó là câu người ta hỏi trước: "giá bây giờ, từ bao giờ" */
   u.logs.slice().reverse().forEach((l, j, arr) => {
     const truoc = arr[j + 1] || null;
-    h += `<tr class="sub" data-act="costlogedit" data-id="${l.id}" title="bấm để sửa hoặc xoá dòng này">
+    h += `<tr class="${lop}" data-act="costlogedit" data-id="${l.id}" title="bấm để sửa hoặc xoá dòng này">
       <td class="nw">${esc(thuNgay(l.date))}${j === 0 && !u.lech ? ' <span class="chip acc">đang dùng</span>' : ''}</td>
       <td class="r"><b>${money(l.cost)}</b></td>
       <td class="dim">${l.note ? esc(l.note) : '—'}</td>
@@ -5016,4 +5086,4 @@ function viewSettings(){
   return h;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "6cb482b8"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "3f67a84a"]);
