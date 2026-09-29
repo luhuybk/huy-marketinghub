@@ -3317,6 +3317,10 @@ function costSpForm(id){
 
       const cu = costs().find(x => x.productId === pr.id);
       const cr = cu ? db.costs.find(x => x.id === cu.id) : stamp({productId: pr.id});
+      /* Con có size thì giá vốn gốc không dùng tới — đổi nó không phải là
+         đổi giá nhập của thứ gì, nên không ghi sổ. */
+      if (!(cr.sizes || []).length)
+        costLogAuto(pr.id, '', cu ? cu.cost : 0, v.cost, isNew ? 'giá ban đầu' : 'sửa ở bảng giá vốn');
       cr.shopId = v.shopId; cr.cost = v.cost; cr.gift = v.gift; cr.voucherPct = v.voucherPct;
       cr.feePct = v.feePct; cr.packCost = v.packCost; cr.note = v.note; cr.hero = !!v.hero;
       stamp(cr);
@@ -3362,6 +3366,128 @@ function costSpForm(id){
   el.addEventListener('input', doc);
   el.addEventListener('change', doc);
   doc();
+}
+
+/* ============================================================
+   SỔ GIÁ VỐN — biểu mẫu cập nhật
+
+   Hỏi đúng ba thứ: từ ngày nào, giá mới bao nhiêu, vì sao. "Vì sao" không
+   bắt buộc nhưng là thứ đáng giá nhất sau sáu tháng — "NCC tăng 8%" hay
+   "đổi sang hộp giấy mới" là hai chuyện rất khác khi ngồi tính lại giá bán.
+
+   Ngày áp dụng được lùi về trước: nhiều người có sẵn lịch sử trong sổ tay
+   hay trong Excel và muốn chép vào. Mốc lùi về trước KHÔNG kéo giá đang dùng
+   theo — chỉ dòng mới nhất mới là giá đang dùng.
+   ============================================================ */
+function costLogForm(pid, sid, logId){
+  const p = productOf(pid);
+  if (!p){ toast('Không tìm thấy sản phẩm'); return; }
+  const c = costOf(p.id);
+  if (!c){ toast('Điền giá bán cho sản phẩm đã'); costSpForm(pid); return; }
+  const sz = sid ? (c.sizes || []).find(x => x.sid === sid) : null;
+  if (sid && !sz){ toast('Không tìm thấy size này'); return; }
+  const log = logId ? costlogs().find(x => x.id === logId) : null;
+  if (logId && !log){ toast('Không tìm thấy dòng này trong sổ'); return; }
+  const ten = p.name + (sz ? ' · ' + (sz.name || 'size') : '');
+  const now = costUnitNow(p.id, sid);
+  const nCb = (c.combos || []).filter(cb => (cb.sid || '') === (sid || '')).length;
+
+  /* Dòng vừa ghi có phải mới nhất của đơn vị này không — tính SAU khi đã ghi,
+     để lùi ngày một dòng đang là mới nhất cũng được xét lại đúng. */
+  const moiNhat = id => { const ls = costLogsOf(p.id, sid); return ls.length && ls[ls.length - 1].id === id; };
+
+  const el = formModal({
+    title: log ? 'Sửa dòng sổ — ' + ten : 'Cập nhật giá vốn — ' + ten,
+    wide: true,
+    saveLabel: log ? 'Lưu' : 'Ghi vào sổ',
+    values: log ? {date: log.date, cost: log.cost, note: log.note}
+                : {date: today(), cost: now || 0, note: ''},
+    extra: `<div class="explain">Giá đang dùng: <b>${now ? money(now) : 'chưa có'}</b>.
+      Dòng có ngày mới nhất trong sổ là giá bảng tính dùng — ghi bù một mốc cũ hơn chỉ thêm vào
+      lịch sử, không đổi giá đang dùng.${nCb ? ` ${nCb} combo ghép từ ${sz ? 'size' : 'con'} này đổi theo.` : ''}</div>`,
+    fields: [
+      {k:'date', l:'Áp dụng từ ngày', t:'date', half:true, req:true},
+      {k:'cost', l:'Giá vốn', t:'money', half:true, req:true, ph:'90.000',
+       hint:'Mua vào, đã gồm ship về kho'},
+      {k:'note', l:'Lý do / ghi chú', t:'text', ph:'NCC tăng giá, lô 500 hộp, đổi bao bì…'}
+    ],
+    onSave(v){
+      const cost = parseMoney(v.cost);
+      if (!cost){ toast('Chưa nhập giá vốn'); return false; }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(v.date || '')){ toast('Chưa chọn ngày áp dụng'); return false; }
+      if (v.date > today()){ toast('Ngày áp dụng chưa tới — ghi vào sổ khi giá mới bắt đầu dùng'); return false; }
+      let rec;
+      const truocLaMoiNhat = log ? moiNhat(log.id) : false;
+      if (log){
+        rec = db.costlogs.find(x => x.id === log.id);
+        if (!rec) return false;
+        Object.assign(rec, {date: v.date, cost, note: v.note || ''});
+        stamp(rec);
+      } else {
+        rec = costLogAdd(p.id, sid, cost, v.date, v.note || '');
+        if (!rec) return false;
+      }
+      const dung = moiNhat(rec.id);
+      if (dung) costUnitSet(p.id, sid, cost);
+      /* Lùi ngày dòng đang mới nhất về trước một dòng khác: giá đang dùng
+         phải theo dòng giờ đã thành mới nhất, không ở lại với dòng vừa lùi. */
+      let lui = null;
+      if (!dung && truocLaMoiNhat){ const ls = costLogsOf(p.id, sid); lui = ls[ls.length - 1].cost; costUnitSet(p.id, sid, lui); }
+      ensure(); save();
+      toast(dung ? 'Đã ghi sổ — giá vốn đang dùng: ' + money(cost)
+           : lui != null ? 'Đã lưu — giá đang dùng chuyển về ' + money(lui) + ' theo dòng giờ là mới nhất'
+           : 'Đã ghi vào lịch sử — giá đang dùng giữ nguyên vì sổ có mốc mới hơn');
+    },
+    onDelete: log ? () => {
+      const dang = moiNhat(log.id);
+      if (!confirm(`Xoá dòng ${money(log.cost)} ngày ${fmtDate(log.date)} khỏi sổ?` +
+        (dang ? '\n\nĐây là dòng mới nhất: giá đang dùng sẽ lùi về dòng ngay trước nó (nếu có).' : ''))) return false;
+      const r = db.costlogs.find(x => x.id === log.id);
+      r.deleted = true; stamp(r);
+      const con = costLogsOf(p.id, sid);
+      if (dang && con.length) costUnitSet(p.id, sid, con[con.length - 1].cost);
+      ensure(); save(); toast('Đã xoá khỏi sổ'); render();
+    } : null
+  });
+
+  /* Xem trước: đổi giá vốn thì lãi mỗi đơn và ROAS min nhảy bao nhiêu. Đây
+     là câu người ta cần trả lời ngay lúc nhận báo giá mới của nhà cung cấp —
+     để còn báo bên chạy quảng cáo nâng ngưỡng. */
+  const box = document.createElement('div');
+  box.className = 'explain';
+  box.style.marginTop = '4px';
+  el.querySelector('.mbody').appendChild(box);
+  const x0 = costCalc(p, sid ? {sid} : null);
+  const doc = () => {
+    const i = el.querySelector('[data-f="cost"]');
+    const von = parseMoney(i ? i.value : 0);
+    if (!x0){ box.innerHTML = 'Chưa có giá bán nên chưa tính được lãi — vẫn ghi sổ bình thường.'; return; }
+    const x1 = costFrom({gia: x0.gia, F: x0.F, vPct: x0.vPct, feePct: x0.feePct, pack: x0.pack,
+                         von, gift: x0.gift});
+    if (!x1 || !von){ box.innerHTML = 'Gõ giá vốn để xem lãi mỗi đơn và ROAS min đổi thế nào.'; return; }
+    const d = now ? von - now : 0;
+    box.innerHTML = (d ? `So với giá đang dùng: <b class="${d > 0 ? 'bad' : 'ok'}">${d > 0 ? '+' : '−'}${
+        money(Math.abs(d))} (${d > 0 ? '+' : '−'}${pctText(Math.abs(d) / now * 100, 1)})</b><br>` : '') +
+      `Lãi mỗi đơn <b>${money(x0.lai)}</b> → <b class="${x1.lo ? 'bad' : ''}">${money(x1.lai)}</b> ·
+       ROAS min <b>${x0.roas == null ? '—' : xText(x0.roas)}</b> →
+       <b class="${x1.roas == null || (x0.roas && x1.roas > x0.roas) ? 'bad' : 'ok'}">${
+         x1.roas == null ? 'lỗ sẵn' : xText(x1.roas)}</b>` +
+      (p.roasTarget && x1.roas && p.roasTarget < x1.roas
+        ? `<br><span class="bad"><b>ROAS đang đặt ${xText(p.roasTarget)} sẽ nằm dưới điểm hoà vốn mới</b> — báo bên chạy quảng cáo nâng lên.</span>` : '');
+  };
+  el.addEventListener('input', doc);
+  doc();
+}
+/* Ghi mốc hôm nay cho mọi đơn vị có giá vốn mà sổ chưa có dòng nào. Để sổ có
+   điểm xuất phát — không có mốc đầu thì lần đổi giá tới không có gì để so. */
+function costLogBase(shopId){
+  const ds = costBook(shopId).filter(u => u.cost && (!u.logs.length || u.lech));
+  if (!ds.length){ toast('Mọi mã đã có mốc trong sổ'); return; }
+  if (!confirm(`Ghi mốc hôm nay (${fmtDate(today())}) cho ${ds.length} mã, bằng đúng giá vốn đang dùng?\n\n` +
+    `Nếu biết ngày nhập thật của mã nào, bấm "Cập nhật" ở dòng đó và chọn ngày thay vì dùng nút này.`)) return;
+  ds.forEach(u => costLogAdd(u.p.id, u.sid, u.cost, today(), u.lech ? 'khớp lại với giá đang dùng' : 'mốc đầu tiên'));
+  ensure(); save(); render();
+  toast('Đã ghi mốc cho ' + ds.length + ' mã');
 }
 
 /* Combo dựng từ một sản phẩm chính.
@@ -3756,8 +3882,18 @@ function sizeForm(pid, sid){
       if (!rec) return false;
       if (!Array.isArray(rec.sizes)) rec.sizes = [];
       const o = cu ? rec.sizes.find(x => x.sid === cu.sid) : {sid: uid()};
+      const vonCu = cu ? cu.cost : 0;
       Object.assign(o, {name: v.name.trim(), cost: v.cost, price: v.price, note: v.note});
       if (!cu) rec.sizes.push(o);
+      /* Size đầu tiên kế thừa giá vốn gốc — nên kế thừa luôn lịch sử của nó.
+         Dời các dòng sổ sang size này chứ không chép: chép là hai bản lịch sử
+         của cùng một lần nhập hàng. */
+      if (dau) costLogsOf(p.id, '').forEach(l => {
+        const r = db.costlogs.find(x => x.id === l.id);
+        if (r){ r.sid = o.sid; stamp(r); }
+      });
+      costLogAuto(p.id, o.sid, dau && costLogsOf(p.id, o.sid).length ? c.cost : vonCu, v.cost,
+                  cu ? 'sửa ở size' : 'giá ban đầu của size');
       /* Combo đang treo thẳng dưới sản phẩm gốc: khi vừa có size đầu tiên,
          gắn chúng vào size đó. Bỏ mặc thì chúng thành combo mồ côi, tính bằng
          một giá vốn không còn ai bán. */
@@ -3858,6 +3994,10 @@ const ACTIONS = {
   costbrand:   id => { ui.costBrand = id; render(); window.scrollTo(0,0); },
   costbrandback: () => { ui.costBrand = null; render(); },
   costtoggle:  id => { ui.costOpen[id] = !ui.costOpen[id]; render(); },
+  costlognew:  id => { const [pid, sid] = String(id).split('|'); costLogForm(pid, sid || ''); },
+  costlogedit: id => { const l = costlogs().find(x => x.id === id);
+                       if (l) costLogForm(l.productId, l.sid, l.id); },
+  costlogbase: id => costLogBase(id || ''),
   costsel:     id => { ui.costSel = id; render(); },
   costtab:     id => { ui.costTab = id; ui.costBrand = null; render(); },
   /* Xoá ô tìm. Trả luôn về màn thẻ thương hiệu: đang xem một bảng kết quả mà
@@ -4396,4 +4536,4 @@ function checkBuild(){
   }
 })();
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "e2a66660"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "6cb482b8"]);
