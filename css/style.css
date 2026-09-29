@@ -170,6 +170,7 @@ select.inp{appearance:none;padding-right:26px;
 .tile{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:11px 12px;min-width:0}
 .tile.ok{border-color:color-mix(in srgb,var(--ok) 40%,var(--line))}
 .tile.bad{border-color:color-mix(in srgb,var(--bad) 40%,var(--line))}
+.tile.warn{border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
 .t-l{font-size:11px;color:var(--tx3);font-weight:600;letter-spacing:.2px}
 .t-v{font-size:21px;font-weight:750;letter-spacing:-.6px;margin:3px 0 1px}
 .t-s{font-size:11px;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

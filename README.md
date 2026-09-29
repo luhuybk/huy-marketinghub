@@ -1793,8 +1793,8 @@ Hai chỗ cùng ghi tên/link/giá đối thủ nhưng hỏi hai câu khác nhau
 
 ### Ô tìm sản phẩm
 
-Góc phải hàng tab đầu tiên. Gõ vào là cả ba tab con cùng lọc theo — gõ một lần
-rồi bấm qua lại giữa **Giá vốn / Dự án / Key SKU** mà không phải gõ lại.
+Góc phải hàng tab đầu tiên. Gõ vào là cả bốn tab con cùng lọc theo — gõ một lần
+rồi bấm qua lại giữa **Giá vốn / Sổ giá vốn / Dự án / Key SKU** mà không phải gõ lại.
 
 Ô tìm soi **tên sản phẩm, thương hiệu, mã SKU, mã Shopee, và cả tên size lẫn
 tên combo**. Gõ `320ml` mà không ra gì trong khi đúng cái size ấy đang nằm
@@ -1816,6 +1816,80 @@ Tìm chạy trên **toàn bộ gian hàng**, không riêng gian hàng đang mở
 tab khác thì app nói ra kèm nút nhảy sang — *"Còn 1 kết quả ở gian hàng khác:
 Waxshop - Men Zone (1)"*. Trả về "không thấy" trong khi nó vẫn nằm trong app là
 một câu trả lời sai.
+
+### 📒 Sổ giá vốn — giá nhập đổi lúc nào, đổi bao nhiêu
+
+Tab con thứ hai của **Tính chi phí**. Nó trả lời ba câu mà bảng giá vốn không
+trả lời được: *giá này dùng từ bao giờ*, *trước đó là bao nhiêu*, và *vì sao
+đổi*.
+
+**Không phải bảng giá vốn thứ hai.** Giá vốn đang dùng vẫn nằm đúng một chỗ như
+cũ, là `c.cost` hoặc `sz.cost` nếu con đó có size, và bảng tính ROAS min vẫn đọc
+từ đó. Sổ chỉ là lịch sử đứng cạnh. Hai bảng cùng giữ "giá hiện tại" thì sớm
+muộn sẽ lệch nhau.
+
+Mỗi dòng trong sổ là một thứ có giá vốn của riêng nó: sản phẩm không có size,
+hoặc từng size. Combo không có dòng riêng, vì giá vốn phần chính của nó đọc từ
+mẹ, nên đổi giá mẹ là combo đổi theo.
+
+**Sổ tự ghi, không phải nhớ vào tab Sổ.** Sửa giá vốn ở biểu mẫu sản phẩm hay
+biểu mẫu size thì một dòng tự vào sổ, ngày hôm nay. Cùng một mã, cùng một ngày
+thì sửa dòng đó chứ không thêm: gõ 90k, lưu, thấy sai, gõ lại 95k là một lần đổi
+giá chứ không phải hai.
+
+**Nút "Cập nhật"** hỏi ba thứ: ngày áp dụng, giá mới, lý do. Trong lúc gõ, biểu
+mẫu hiện luôn *lãi mỗi đơn 67.536₫ → 52.536₫ · ROAS min 3,72x → 4,78x*. Nếu
+ngưỡng ROAS đang đặt rơi xuống dưới điểm hoà vốn mới, nó nhắc báo bên chạy
+quảng cáo. Đây là câu cần trả lời ngay lúc nhận báo giá mới của nhà cung cấp.
+
+**Dòng có ngày mới nhất là giá đang dùng.** Ngày áp dụng lùi về trước được, để
+chép lịch sử cũ từ sổ tay hay Excel vào, nhưng ngày trong tương lai thì không.
+Lùi ngày như vậy chỉ thêm vào lịch sử chứ không kéo giá đang dùng về quá khứ.
+Dòng mới nhất mà bị xoá hoặc bị lùi ngày thì giá đang dùng theo dòng giờ đã
+thành mới nhất.
+
+**Tách size đầu tiên thì lịch sử đi theo size.** Size đầu tiên vốn đã kế thừa
+giá vốn gốc, nên các dòng sổ được *dời* sang size đó (đổi `sid`) chứ không chép.
+Chép thì cùng một lần nhập hàng sẽ có hai bản lịch sử.
+
+Ba ô số ở đầu tab:
+
+| Ô | Nghĩa |
+|---|---|
+| Đổi giá 30 ngày qua | số lần đổi, bao nhiêu lần tăng, bao nhiêu lần giảm |
+| Lâu chưa kiểm lại | giá đang dùng đã quá `COST_STALE_DAYS` = 90 ngày |
+| Chưa có ngày trong sổ | có giá vốn nhưng sổ không có dòng nào: dữ liệu có từ trước khi có sổ |
+
+Mã **"chưa có ngày"** thì bấm **Cập nhật** và chọn ngày nhập thật. Không nhớ
+ngày thì bấm **Ghi mốc hôm nay cho N mã** để sổ có điểm xuất phát; không có mốc
+đầu thì lần đổi giá tới không có gì để so.
+
+Nhãn **"lệch sổ"** nghĩa là giá đang dùng khác dòng cuối của sổ: có người sửa
+từ một máy chưa cập nhật app. App không đoán ngày cho trường hợp này mà nói ra.
+
+Cột **Thay đổi** tô **đỏ khi tăng**, xanh khi giảm, ngược với mọi cột doanh số
+trong app. Vì vậy nó có hàm riêng (`costDeltaText`) chứ không dùng lại
+`deltaChip`.
+
+Trang chi tiết một sản phẩm cũng có khối **Lịch sử giá vốn** cho đúng size đang
+chọn, nằm ngay dưới bảng bóc phí.
+
+#### Mỗi lần đổi giá là một bản ghi riêng (`costlogs`)
+
+Lịch sử **không** nằm thành một mảng trong bản ghi giá vốn. Máy chủ gộp theo
+từng bản ghi, bản nào mới hơn thì thắng. Hai người cùng ghi vào một mảng thì bản
+đẩy sau đè mất dòng của bản đẩy trước, và lịch sử lại là thứ không ai kiểm lại.
+Tách mỗi dòng một bản ghi thì hai người ghi cùng lúc vẫn giữ được cả hai.
+
+`costlogs` khai quyền `cost` ở **cả hai** máy chủ (`api/lib.php` và `serve.js`).
+Đừng quên khi thêm một bộ dữ liệu mới: bộ nào chưa khai quyền thì
+`khMayRow` **cho mọi nhân viên đọc**. Sổ giá vốn mà quên khai là lộ giá nhập cho
+cả người chỉ được xem quảng cáo, lộ lặng lẽ và không báo gì. Đã kiểm: nhân viên
+chỉ có quyền `ads` kéo về không có dòng `costlogs` nào.
+
+`ensure()` không đánh dấu xoá dòng sổ khi sản phẩm mất. Nó chạy trên mọi máy mà
+không đóng dấu giờ, nên xoá ở đó không bao giờ tới được máy chủ. Dòng mồ côi chỉ
+bị lọc lúc đọc.
 
 ### Thương hiệu hiện ra ngoài dưới dạng thẻ
 

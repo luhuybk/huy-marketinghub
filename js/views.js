@@ -3304,6 +3304,7 @@ function viewCost(){
   const {ds, chua, cur} = costShopTabs();
   const pj = ui.costTab === 'pj';
   const hero = ui.costTab === 'hero';
+  const so   = ui.costTab === 'log';
   const nPj = projects().length;
   const nHero = costs().filter(c => c.hero).length;
 
@@ -3313,7 +3314,8 @@ function viewCost(){
      của nó". Tách ra là sớm muộn có hai bảng phí lệch nhau. */
   let h = `<div class="toolbar">
     <div class="tabs">
-      <button class="tab ${!pj && !hero ? 'on' : ''}" data-act="costtab" data-id="sp">Giá vốn sản phẩm</button>
+      <button class="tab ${!pj && !hero && !so ? 'on' : ''}" data-act="costtab" data-id="sp">Giá vốn sản phẩm</button>
+      <button class="tab ${so ? 'on' : ''}" data-act="costtab" data-id="log">📒 Sổ giá vốn</button>
       <button class="tab ${pj ? 'on' : ''}" data-act="costtab" data-id="pj">⚔ Dự án${
         nPj ? ' (' + nPj + ')' : ''}</button>
       <button class="tab ${ui.costTab === 'hero' ? 'on' : ''}" data-act="costtab" data-id="hero">★ Key SKU${
@@ -3337,6 +3339,10 @@ function viewCost(){
 
   if (pj)   return h + feeBlock(ds, cur) + viewProjList(cur);
   if (hero) return h + feeBlock(ds, cur) + viewHeroList(cur);
+  /* Sổ không cần bảng phí: nó chỉ nói giá nhập đổi lúc nào, bảng phí nằm ở
+     tab bên cạnh. Bày thêm ở đây là bắt người ta cuộn qua một khối không
+     liên quan mới tới cái sổ. */
+  if (so)   return h + viewCostBook(cur);
 
   if (!products().filter(p => !p.archived).length)
     return h + `<div class="empty"><b>Chưa có sản phẩm nào</b>
@@ -3624,6 +3630,159 @@ function costRowFoot(p, coSize){
       ? 'mỗi size một giá vốn và một giá bán riêng; combo treo dưới size nó ghép từ'
       : 'con nào có nhiều size (50gr, 100gr…) thì thêm size, mỗi size tự mang giá của nó'}</span>
   </td></tr>`;
+}
+
+/* ============================================================
+   📒 SỔ GIÁ VỐN — giá nhập đổi lúc nào, đổi bao nhiêu
+
+   Mỗi dòng là một thứ có giá vốn của riêng nó (sản phẩm không size, hoặc
+   từng size). Bấm vào dòng là nở lịch sử ngay dưới nó — cùng kiểu nở dòng
+   với bảng giá vốn bên cạnh, để hai tab đọc theo một thói quen.
+   ============================================================ */
+function viewCostBook(shopId){
+  const k = norm(ui.costQ || '');
+  const tat = costBook(shopId);
+  const ds  = k ? tat.filter(u => costMatch({p: u.p, c: u.c}, k) || norm(u.nhan).includes(k)) : tat;
+
+  if (!tat.length)
+    return `<div class="empty"><b>Gian hàng này chưa có mã nào có giá vốn</b>
+      Điền giá vốn ở tab <b>Giá vốn sản phẩm</b> — từ lần điền đầu tiên, mỗi lần đổi giá sẽ tự vào sổ này.</div>`;
+  if (!ds.length)
+    return `<div class="empty"><b>Không có mã nào khớp “${esc(ui.costQ)}”</b>
+      <div style="margin-top:14px" class="btns center">
+        <button class="btn" data-act="costqclear">✕ Xoá ô tìm</button></div></div>`;
+
+  const nChua = ds.filter(u => u.cost && (!u.logs.length || u.lech)).length;
+  const nCu   = ds.filter(u => u.cu).length;
+  const moc30 = addDays(today(), -30);
+  const doi30 = costJournal(shopId).filter(j => j.delta && j.l.date >= moc30 &&
+                  (!k || ds.some(u => u.p.id === j.u.p.id && u.sid === j.u.sid)));
+  const tang  = doi30.filter(j => j.delta > 0).length;
+
+  let h = `<div class="mod">` + moduleHead('📒', 'Sổ giá vốn',
+    (k ? ds.length + '/' + tat.length + ' mã khớp “' + esc(ui.costQ) + '”' : ds.length + ' mã') +
+    ' · bấm vào một dòng để xem lịch sử',
+    nChua ? `<button class="btn sm" data-act="costlogbase" data-id="${esc(shopId)}">Ghi mốc hôm nay cho ${nChua} mã</button>` : '');
+
+  h += `<div class="tiles" style="margin-bottom:12px">
+    ${tile('Đổi giá 30 ngày qua', dem(doi30.length),
+           doi30.length ? tang + ' lần tăng · ' + (doi30.length - tang) + ' lần giảm' : 'giá nhập đứng yên',
+           tang ? 'warn' : '')}
+    ${tile('Lâu chưa kiểm lại', dem(nCu), 'quá ' + COST_STALE_DAYS + ' ngày không cập nhật', nCu ? 'warn' : '')}
+    ${tile('Chưa có ngày trong sổ', dem(nChua), nChua ? 'có giá nhưng không biết từ bao giờ' : 'mã nào cũng có mốc',
+           nChua ? 'warn' : 'ok')}
+  </div>`;
+
+  h += `<div class="tblwrap"><table class="tbl sm ptbl stick"><thead><tr>
+    <th class="nw">Sản phẩm / size</th><th class="r">Giá vốn đang dùng</th>
+    <th class="nw">Cập nhật</th><th class="r">So với lần trước</th>
+    <th class="r" title="ROAS hoà vốn tính bằng giá vốn đang dùng">ROAS min</th>
+    <th></th></tr></thead><tbody>` +
+    ds.map(costBookRow).join('') + `</tbody></table></div>`;
+
+  if (nChua)
+    h += `<div class="dim" style="margin-top:8px">“Chưa có ngày” là mã có giá vốn từ trước khi có sổ, hoặc bị sửa
+      từ một máy chưa cập nhật app. Biết ngày nhập thật thì bấm <b>Cập nhật</b> ở dòng đó và chọn ngày;
+      không nhớ thì bấm <b>Ghi mốc hôm nay</b> để sổ có điểm xuất phát.</div>`;
+  h += `</div>`;
+
+  /* ---- nhật ký chung: mọi lần đổi giá của gian hàng, mới nhất trước ---- */
+  const nk = costJournal(shopId).filter(j => !k || ds.some(u => u.p.id === j.u.p.id && u.sid === j.u.sid));
+  if (nk.length){
+    h += `<div class="mod">` + moduleHead('🕘', 'Lịch sử cập nhật',
+      nk.length > 30 ? '30 lần gần nhất trên tổng ' + nk.length : nk.length + ' lần ghi');
+    h += `<div class="tblwrap"><table class="tbl sm ptbl"><thead><tr>
+      <th class="nw">Ngày áp dụng</th><th class="nw">Sản phẩm / size</th><th class="r">Giá cũ</th>
+      <th class="r">Giá mới</th><th class="r">Thay đổi</th><th class="nw">Lý do</th><th class="nw">Người ghi</th>
+      </tr></thead><tbody>` +
+      nk.slice(0, 30).map(j => `<tr data-act="costlogedit" data-id="${j.l.id}">
+        <td class="nw">${esc(thuNgay(j.l.date))}</td>
+        <td class="nw"><b>${esc(j.u.p.name)}</b>${j.u.sid ? ' <span class="dim">· ' + esc(j.u.nhan) + '</span>' : ''}</td>
+        <td class="r dim">${j.truoc ? moneyShort(j.truoc.cost) : '—'}</td>
+        <td class="r"><b>${moneyShort(j.l.cost)}</b></td>
+        <td class="r nw">${costDeltaText(j.delta, j.truoc ? j.truoc.cost : 0)}</td>
+        <td>${j.l.note ? esc(j.l.note) : '<span class="dim">—</span>'}</td>
+        <td class="nw dim">${esc(BY[j.l.by] || '')}</td></tr>`).join('') +
+      `</tbody></table></div></div>`;
+  }
+  return h;
+}
+
+/* Chênh lệch giá vốn. Tăng là XẤU (đỏ), giảm là tốt — ngược với mọi cột
+   doanh số trong app, nên không dùng lại deltaChip cho khỏi đọc nhầm màu. */
+function costDeltaText(d, cu){
+  if (d == null) return '<span class="dim">mốc đầu</span>';
+  if (!d) return '<span class="dim">không đổi</span>';
+  return `<span class="chip ${d > 0 ? 'bad' : 'ok'}">${d > 0 ? '▲ +' : '▼ −'}${moneyShort(Math.abs(d))}${
+    cu ? ' · ' + pctText(Math.abs(d) / cu * 100, 1) : ''}</span>`;
+}
+
+function costBookRow(u){
+  const key = 'log:' + u.p.id + '|' + u.sid;
+  const mo  = !!ui.costOpen[key];
+  const x   = u.calc;
+  const cap = u.at
+    ? `${esc(fmtDate(u.at))} <span class="dim">· ${esc(agoText(u.at))}</span>${
+        u.cu ? ` <span class="chip warn" title="quá ${COST_STALE_DAYS} ngày chưa kiểm lại giá nhập">lâu rồi</span>` : ''}`
+    : u.lech ? `<span class="chip warn" title="sổ ghi ${esc(money(u.last.cost))} ngày ${esc(fmtDate(u.last.date))}, nhưng giá đang dùng đã khác — có người sửa mà sổ không biết ngày">lệch sổ</span>`
+    : !u.cost ? '<span class="dim">chưa có giá vốn</span>'
+    : '<span class="chip warn">chưa có ngày</span>';
+  let h = `<tr data-act="costtoggle" data-id="${esc(key)}">
+    <td class="nw"><span class="dim">${mo ? '▾' : '▸'}</span> <b>${esc(u.p.name)}</b>${
+      u.sid ? ' <span class="dim">· ' + esc(u.nhan) + '</span>' : ''}${
+      u.logs.length ? ` <span class="chip" title="số dòng trong sổ">${u.logs.length} lần</span>` : ''}</td>
+    <td class="r"><b>${u.cost ? money(u.cost) : '<span class="dim">—</span>'}</b></td>
+    <td class="nw">${cap}</td>
+    <td class="r nw">${u.lech || !u.last ? '<span class="dim">—</span>'
+      : (u.prev ? `<span class="dim">từ ${moneyShort(u.prev.cost)}</span> ` : '') +
+        costDeltaText(u.delta, u.prev ? u.prev.cost : 0)}</td>
+    <td class="r">${x && x.roas != null ? xText(x.roas) : x && x.lo ? '<span class="bad">lỗ sẵn</span>' : '<span class="dim">—</span>'}</td>
+    <td class="r nw"><button class="btn sm" data-act="costlognew" data-id="${esc(u.p.id + '|' + u.sid)}">Cập nhật</button></td>
+  </tr>`;
+  if (!mo) return h;
+  if (!u.logs.length)
+    return h + `<tr class="sub"><td colspan="6" class="dim">Sổ chưa có dòng nào cho mã này. Bấm
+      <b>Cập nhật</b> để ghi giá hiện tại kèm ngày nhập.</td></tr>`;
+  /* mới nhất trên cùng — đó là câu người ta hỏi trước: "giá bây giờ, từ bao giờ" */
+  u.logs.slice().reverse().forEach((l, j, arr) => {
+    const truoc = arr[j + 1] || null;
+    h += `<tr class="sub" data-act="costlogedit" data-id="${l.id}" title="bấm để sửa hoặc xoá dòng này">
+      <td class="nw">${esc(thuNgay(l.date))}${j === 0 && !u.lech ? ' <span class="chip acc">đang dùng</span>' : ''}</td>
+      <td class="r"><b>${money(l.cost)}</b></td>
+      <td class="dim">${l.note ? esc(l.note) : '—'}</td>
+      <td class="r nw">${costDeltaText(truoc ? l.cost - truoc.cost : null, truoc ? truoc.cost : 0)}</td>
+      <td class="r dim nw" colspan="2">${esc(BY[l.by] || '')}${l.updatedAt ? ' · ghi ' + esc(fmtShort(l.updatedAt)) : ''}</td>
+    </tr>`;
+  });
+  return h;
+}
+
+/* Khối lịch sử trong trang chi tiết một sản phẩm — cho đúng size đang chọn. */
+function costLogBlock(p, sid){
+  const logs = costLogsOf(p.id, sid).slice().reverse();
+  const now  = costUnitNow(p.id, sid);
+  const lech = !!(logs[0] && now && logs[0].cost !== now);
+  let h = `<div class="mod">` + moduleHead('📒', 'Lịch sử giá vốn',
+    logs.length ? (lech ? 'giá đang dùng khác dòng mới nhất trong sổ'
+                        : 'đang dùng từ ' + fmtDate(logs[0].date) + ' · ' + agoText(logs[0].date))
+                : 'chưa có dòng nào',
+    `<button class="btn sm" data-act="costlognew" data-id="${esc(p.id + '|' + (sid || ''))}">Cập nhật giá vốn</button>`);
+  if (!logs.length)
+    return h + `<div class="dim">Từ giờ mỗi lần sửa giá vốn sẽ tự ghi vào đây kèm ngày. Muốn ghi lại
+      những lần đổi giá trước đó thì bấm <b>Cập nhật giá vốn</b> và chọn ngày cũ.</div></div>`;
+  h += `<div class="tblwrap"><table class="tbl sm ptbl"><thead><tr>
+    <th class="nw">Áp dụng từ</th><th class="r">Giá vốn</th><th class="r">Thay đổi</th>
+    <th class="nw">Lý do</th><th class="nw">Người ghi</th></tr></thead><tbody>` +
+    logs.map((l, j) => {
+      const truoc = logs[j + 1] || null;
+      return `<tr data-act="costlogedit" data-id="${l.id}">
+        <td class="nw">${esc(thuNgay(l.date))}${j === 0 && !lech ? ' <span class="chip acc">đang dùng</span>' : ''}</td>
+        <td class="r"><b>${money(l.cost)}</b></td>
+        <td class="r nw">${costDeltaText(truoc ? l.cost - truoc.cost : null, truoc ? truoc.cost : 0)}</td>
+        <td>${l.note ? esc(l.note) : '<span class="dim">—</span>'}</td>
+        <td class="nw dim">${esc(BY[l.by] || '')}</td></tr>`;
+    }).join('') + `</tbody></table></div></div>`;
+  return h;
 }
 
 /* ============================================================
@@ -4029,6 +4188,10 @@ function viewCostSp(id){
         <td class="dim">khi chưa tốn đồng quảng cáo nào</td>
         <td class="r"><b class="${x.lo ? 'bad' : 'ok'}">${money(x.lai)}</b></td></tr>
   </tbody></table></div></div>`;
+
+  /* Lịch sử giá nhập của đúng thứ đang chọn. Combo không có sổ riêng — giá
+     vốn phần chính của nó là của size/sản phẩm mẹ. */
+  if (!cb) h += costLogBlock(p, sz ? sz.sid : '');
 
   /* ---- ngưỡng ---- */
   const nay = cb ? null : costRoasNow(p);

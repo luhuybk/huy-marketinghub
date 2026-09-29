@@ -794,13 +794,13 @@ const DEFAULT_POST_TARGETS = {fb:0, tt:0};
 const KEY = 'kolhub.v1';
 const COLLECTIONS = ['kols','bookings','clips','products','adperiods','actions','brands','statuses',
                      'templates','spweeks','impacts','ideas','posts','adcamps','shops','addays',
-                     'orderstats','adfixes','keywords','kwranks','costs','projects'];
+                     'orderstats','adfixes','keywords','kwranks','costs','projects','costlogs'];
 
 function blank(){
   return {
     kols:[], bookings:[], clips:[], products:[], adperiods:[], actions:[], brands:[], statuses:[],
     templates:[], spweeks:[], impacts:[], ideas:[], posts:[], adcamps:[], shops:[], addays:[],
-    orderstats:[], adfixes:[], keywords:[], kwranks:[], costs:[], projects:[],
+    orderstats:[], adfixes:[], keywords:[], kwranks:[], costs:[], projects:[], costlogs:[],
     settings:{
       theme:'dark',
       myName:'',
@@ -1207,6 +1207,19 @@ function ensure(){
        dòng không tên trong bảng, không tra ngược được là của con nào. */
     if (c.productId && !db.products.some(x => x.id === c.productId && !x.deleted)) c.deleted = true;
   });
+  /* Sổ giá vốn: mỗi lần đổi giá nhập là MỘT bản ghi riêng, không phải một
+     mảng nằm trong bản ghi giá vốn. Hai người cùng ghi một ngày thì mỗi người
+     một dòng, máy chủ giữ cả hai — để chung một mảng thì bản đẩy sau đè mất
+     dòng của bản đẩy trước, và lịch sử lại là thứ không ai kiểm lại được.
+
+     Không đánh dấu xoá ở đây khi sản phẩm mất: ensure() chạy trên mọi máy mà
+     không đóng dấu giờ, nên xoá ở đây không bao giờ tới máy chủ. Dòng mồ côi
+     chỉ bị lọc lúc đọc (costLogsOf). */
+  db.costlogs.forEach(l => {
+    ['productId','sid','note'].forEach(f => { if (typeof l[f] !== 'string') l[f] = String(l[f] == null ? '' : l[f]); });
+    l.cost = parseMoney(l.cost);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(l.date || '')) l.date = String(l.updatedAt || '').slice(0,10) || today();
+  });
   db.projects.forEach(pj => {
     ['shopId','name','note','stage'].forEach(f => { if (typeof pj[f] !== 'string') pj[f] = String(pj[f] == null ? '' : pj[f]); });
     if (!PJ_STAGES.some(x => x.id === pj.stage)) pj.stage = 'draft';
@@ -1528,6 +1541,7 @@ const REVIEW_KINDS = {
   adfixes:   'Việc làm trên chiến dịch quảng cáo',
   keywords:  'Dự án đánh từ khoá',
   costs:     'Giá vốn sản phẩm',
+  costlogs:  'Cập nhật giá vốn',
   projects:  'Dự án — sản phẩm tổng',
   adperiods: 'Kỳ số liệu quảng cáo',
   spweeks:   'Tuần số liệu Shopee',
@@ -1640,6 +1654,15 @@ function reviewLabel(kind, rec){
                    (x ? (x.lo ? 'ĐANG LỖ ' + money(-x.lai) + ' mỗi đơn'
                               : 'lãi ' + money(x.lai) + '/đơn · ROAS min ' + xText(x.roas))
                       : 'chưa có giá bán nên chưa tính được'),
+              go: pr ? ['costsp', pr.id] : ['cost', '']};
+    }
+    case 'costlogs': {
+      const pr = productOf(rec.productId);
+      const c  = pr ? costOf(pr.id) : null;
+      const sz = rec.sid && c ? (c.sizes || []).find(x => x.sid === rec.sid) : null;
+      return {title: (pr ? pr.name : 'Sản phẩm đã xoá') + (sz ? ' · ' + (sz.name || 'size') : '') +
+                     ': giá vốn ' + money(rec.cost),
+              sub: 'áp dụng từ ' + fmtDate(rec.date) + (rec.note ? ' · ' + rec.note : ''),
               go: pr ? ['costsp', pr.id] : ['cost', '']};
     }
     case 'ideas':
@@ -2509,6 +2532,116 @@ function costRoasNow(p){
   const ym = cs.map(c => c.ym).sort().pop();
   const m  = adSum(cs.filter(c => c.ym === ym));
   return m.roas == null ? null : {ym, m, n: cs.filter(c => c.ym === ym).length};
+}
+
+/* ============================================================
+   SỔ GIÁ VỐN — giá nhập đổi lúc nào, đổi bao nhiêu
+
+   Giá vốn ĐANG DÙNG vẫn nằm đúng một chỗ như cũ: c.cost, hoặc sz.cost nếu con
+   đó có size. Sổ chỉ là lịch sử đứng cạnh, không phải bảng giá vốn thứ hai —
+   hai bảng cùng giữ "giá hiện tại" thì sớm muộn lệch nhau, và bảng tính ROAS
+   min sẽ chạy bằng con số mà sổ nói là đã cũ.
+
+   Một "đơn vị" trong sổ là thứ có giá vốn của riêng nó: sản phẩm không có
+   size, hoặc từng size. Combo không có dòng riêng: giá vốn phần chính của nó
+   đọc từ sản phẩm/size mẹ, nên đổi giá mẹ là combo đổi theo.
+   ============================================================ */
+const COST_STALE_DAYS = 90;
+const costlogs = () => alive(db.costlogs);
+/* Lịch sử của một đơn vị, CŨ → MỚI. Cùng ngày thì dòng ghi sau đứng sau. */
+function costLogsOf(pid, sid){
+  const k = sid || '';
+  return costlogs().filter(l => l.productId === pid && (l.sid || '') === k)
+    .sort((a,b) => a.date.localeCompare(b.date) || (a.updatedAt || '').localeCompare(b.updatedAt || ''));
+}
+/* Giá vốn đang dùng của một đơn vị — đọc đúng chỗ bảng tính đọc. */
+function costUnitNow(pid, sid){
+  const c = costOf(pid);
+  if (!c) return 0;
+  if (!sid) return c.cost || 0;
+  const sz = (c.sizes || []).find(x => x.sid === sid);
+  return sz ? (sz.cost || 0) : 0;
+}
+/* Ghi giá đang dùng vào bản ghi giá vốn. Chỉ gọi khi dòng sổ vừa ghi là dòng
+   MỚI NHẤT — ghi bù một mốc cũ không được kéo giá hiện tại lùi về quá khứ. */
+function costUnitSet(pid, sid, cost){
+  const c = costOf(pid);
+  const rec = c ? db.costs.find(x => x.id === c.id) : null;
+  if (!rec) return false;
+  if (sid){
+    const sz = (rec.sizes || []).find(x => x.sid === sid);
+    if (!sz) return false;
+    if (sz.cost === cost) return false;
+    sz.cost = cost;
+  } else {
+    if (rec.cost === cost) return false;
+    rec.cost = cost;
+  }
+  stamp(rec);
+  return true;
+}
+/* Thêm một dòng vào sổ. Cùng đơn vị, cùng ngày, đã có dòng thì SỬA dòng đó
+   thay vì thêm: gõ 90k, lưu, thấy sai, gõ lại 95k trong cùng buổi là một lần
+   đổi giá, không phải hai. */
+function costLogAdd(pid, sid, cost, date, note){
+  cost = parseMoney(cost);
+  if (!pid || !cost) return null;
+  date = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : today();
+  const cung = costLogsOf(pid, sid).filter(l => l.date === date).pop();
+  const rec = cung ? db.costlogs.find(x => x.id === cung.id) : {productId: pid, sid: sid || '', note: ''};
+  rec.cost = cost; rec.date = date;
+  if (note != null && (note || !cung)) rec.note = String(note);
+  stamp(rec);
+  if (!cung) db.costlogs.push(rec);
+  return rec;
+}
+/* Biểu mẫu giá vốn / size vừa lưu: nếu con số đổi thì tự ghi sổ, ngày hôm
+   nay. Người ta sửa giá ở đâu thì sổ vẫn biết, không phải nhớ vào tab Sổ. */
+function costLogAuto(pid, sid, cu, moi, note){
+  cu = parseMoney(cu); moi = parseMoney(moi);
+  if (!moi || cu === moi) return null;
+  return costLogAdd(pid, sid, moi, today(), note);
+}
+
+/* Toàn bộ đơn vị trong sổ của một gian hàng (shopId rỗng = chưa xếp). */
+function costBook(shopId){
+  const out = [];
+  costRows(shopId).forEach(r => {
+    const p = r.p, c = r.c;
+    if (!c) return;
+    const szs = c.sizes || [];
+    const them = (sid, nhan, sz) => {
+      const cost = sid ? (sz.cost || 0) : (c.cost || 0);
+      const logs = costLogsOf(p.id, sid);
+      const last = logs[logs.length - 1] || null;
+      /* Lần trước = dòng gần nhất có giá KHÁC dòng cuối. Ghi mốc hai lần cùng
+         một giá (ví dụ lô mới nhưng giá không đổi) không phải là một lần đổi. */
+      let prev = null;
+      if (last) for (let i = logs.length - 2; i >= 0; i--) if (logs[i].cost !== last.cost){ prev = logs[i]; break; }
+      /* Giá đang dùng khác dòng cuối của sổ: có người sửa từ một máy chưa có
+         sổ, hoặc dữ liệu có từ trước khi có sổ. Nói ra chứ đừng đoán ngày. */
+      const lech = !!(last && cost && last.cost !== cost);
+      const tuoi = last && !lech ? -dayDiff(last.date) : null;
+      out.push({p, c, sid, sz, nhan, cost, logs, last, prev, lech,
+                at: last && !lech ? last.date : '', tuoi,
+                cu: !!(tuoi != null && tuoi > COST_STALE_DAYS),
+                delta: last && prev && !lech ? last.cost - prev.cost : null,
+                calc: costCalc(p, sid ? {sid} : null)});
+    };
+    if (szs.length) szs.forEach(sz => them(sz.sid, sz.name || 'Size chưa đặt tên', sz));
+    else them('', '', null);
+  });
+  return out;
+}
+/* Mọi lần đổi giá của một gian hàng, MỚI → CŨ, kèm giá ngay trước nó. */
+function costJournal(shopId){
+  const out = [];
+  costBook(shopId).forEach(u => u.logs.forEach((l, i) => {
+    const truoc = i ? u.logs[i - 1] : null;
+    out.push({u, l, truoc, delta: truoc ? l.cost - truoc.cost : null});
+  }));
+  return out.sort((a,b) => b.l.date.localeCompare(a.l.date) ||
+                           (b.l.updatedAt || '').localeCompare(a.l.updatedAt || ''));
 }
 
 /* Sản phẩm của một gian hàng, kèm bảng tính. shopId rỗng = nhóm "chưa xếp",
