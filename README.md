@@ -1828,8 +1828,18 @@ cũ, là `c.cost` hoặc `sz.cost` nếu con đó có size, và bảng tính ROA
 từ đó. Sổ chỉ là lịch sử đứng cạnh. Hai bảng cùng giữ "giá hiện tại" thì sớm
 muộn sẽ lệch nhau.
 
-Mỗi dòng trong sổ là một thứ có giá vốn của riêng nó: sản phẩm không có size,
-hoặc từng size. Combo không có dòng riêng, vì giá vốn phần chính của nó đọc từ
+Bảng xếp ba tầng: **thương hiệu → sản phẩm → size**, cùng thứ tự với cách người
+ta nghĩ về hàng và với thẻ thương hiệu ở tab Giá vốn sản phẩm. Nhóm "Chưa gắn
+thương hiệu" đứng cuối. Mọi tầng đều mở sẵn, bấm vào dòng thương hiệu hoặc dòng
+sản phẩm để gập lại. Khoá gập là `logbx:<thương hiệu>` và `logpx:<id sản phẩm>`
+trong `ui.costOpen`: có khoá nghĩa là đang **gập**, ngược với khoá `log:` của
+dòng lịch sử (có khoá là đang **mở**).
+
+Sản phẩm có size thì dòng sản phẩm là dòng tóm tắt: khoảng giá vốn giữa các
+size, ngày cập nhật gần nhất, khoảng ROAS min. Các size nằm ngay dưới. Dòng mẹ
+không bày một giá không ai mua được.
+
+Dòng có giá là sản phẩm không có size, hoặc từng size. Combo không có dòng riêng, vì giá vốn phần chính của nó đọc từ
 mẹ, nên đổi giá mẹ là combo đổi theo.
 
 **Sổ tự ghi, không phải nhớ vào tab Sổ.** Sửa giá vốn ở biểu mẫu sản phẩm hay
