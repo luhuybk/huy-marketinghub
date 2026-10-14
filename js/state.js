@@ -1334,10 +1334,26 @@ function ensure(){
     if (!p.date) p.date = today();
     ['poster','title','url','reupUrl','reupAt','productId','note']
       .forEach(f => { if (typeof p[f] !== 'string') p[f] = String(p[f] == null ? '' : p[f]); });
-    /* Luồng không gắn sản phẩm thì không giữ productId — đổi luồng xong mà
+    /* Một bài gắn được NHIỀU sản phẩm (clip so sánh 3 loại sáp, combo…).
+       Bài cũ chỉ có productId — chuyển sang mảng ở đây. productId vẫn giữ,
+       bằng sản phẩm đầu tiên, để máy chưa cập nhật app vẫn đọc ra một con
+       thay vì thấy bài không gắn gì. */
+    if (!Array.isArray(p.productIds)) p.productIds = p.productId ? [p.productId] : [];
+    const coSp = new Set();
+    p.productIds = p.productIds.map(x => String(x || ''))
+      .filter(x => x && !coSp.has(x) && coSp.add(x) && db.products.some(q => q.id === x && !q.deleted));
+    /* Luồng không gắn sản phẩm thì không giữ sản phẩm — đổi luồng xong mà
        vẫn còn sản phẩm cũ dính lại là bảng thống kê sản phẩm đếm nhầm. */
-    if (!POST_FLOWS[p.flow].needProduct) p.productId = '';
-    if (p.productId && !db.products.some(x => x.id === p.productId && !x.deleted)) p.productId = '';
+    if (!POST_FLOWS[p.flow].needProduct) p.productIds = [];
+    p.productId = p.productIds[0] || '';
+    /* Kênh đăng — tên tài khoản/trang bài lên, một bài lên được nhiều kênh.
+       Giữ TÊN chứ không giữ id của một danh sách kênh riêng: danh sách đó sẽ
+       phải có quyền riêng, đồng bộ riêng, và chỉ để đổi lấy một cái tên. Gõ
+       trùng tên khác hoa thường thì gộp về một. */
+    if (!Array.isArray(p.channels)) p.channels = [];
+    const coKn = new Set();
+    p.channels = p.channels.map(x => String(x || '').trim().replace(/\s+/g, ' '))
+      .filter(x => x && !coKn.has(norm(x)) && coKn.add(norm(x)));
     if (!p.reupUrl) p.reupAt = '';
   });
   db.ideas.forEach(i => {
@@ -1579,10 +1595,11 @@ function reviewLabel(kind, rec){
     }
     case 'posts': {
       const F = POST_FLOWS[rec.flow] || POST_FLOWS.fb;
-      const p = rec.productId ? productOf(rec.productId) : null;
+      const ps = postProducts(rec);
       return {title: F.icon + ' ' + (rec.title || 'bài ' + F.short + ' ngày ' + fmtDate(rec.date)),
               sub: F.label + (rec.poster ? ' · ' + rec.poster : '') + ' · ' + fmtDate(rec.date)
-                   + (p ? ' · ' + p.name : '')
+                   + ((rec.channels || []).length ? ' · ' + rec.channels.join(', ') : '')
+                   + (ps.length ? ' · ' + ps.map(x => x.name).join(', ') : '')
                    + (rec.reupUrl ? ' · đã reup' : ' · chưa reup'),
               go: [F.page || 'postfb', '']};
     }
@@ -1972,8 +1989,19 @@ const posts       = () => alive(db.posts);
 const postOf      = id => posts().find(p => p.id === id) || null;
 const postsOfFlow = f  => posts().filter(p => p.flow === f);
 const postsIn     = (from, to) => posts().filter(p => p.date >= from && p.date <= to);
-const postsOfProduct = pid => posts().filter(p => p.productId === pid)
+const postsOfProduct = pid => posts().filter(p => (p.productIds || []).includes(pid))
                                      .sort((a,b) => b.date.localeCompare(a.date));
+const postProducts = p => (p.productIds || []).map(productOf).filter(Boolean);
+/* Kênh đã từng dùng của một luồng, kênh hay dùng nhất lên đầu — để ô chọn
+   kênh gợi ý đúng thứ người đó vẫn bấm, và gõ "@waxshop.men" lần thứ hai
+   không thành một kênh khác. */
+function postChannels(flow){
+  const dem = {}, ten = {};
+  posts().filter(p => !flow || p.flow === flow).forEach(p => (p.channels || []).forEach(c => {
+    const k = norm(c); dem[k] = (dem[k] || 0) + 1; if (!ten[k]) ten[k] = c;
+  }));
+  return Object.keys(dem).sort((a,b) => dem[b] - dem[a] || a.localeCompare(b, 'vi')).map(k => ten[k]);
+}
 /* Reup xong = đã có link. Không dùng ô ngày làm mốc: ngày có thể quên điền,
    còn link thì không — không có link nghĩa là chưa làm. */
 const postReupped = p => !!p.reupUrl;
@@ -2017,6 +2045,10 @@ function postMonth(ym){
     const thieu  = Math.max(0, target - list.length);
     const dem = {};
     list.forEach(p => { const t = String(p.poster||'').trim() || '(chưa ghi tên)'; dem[t] = (dem[t]||0) + 1; });
+    /* Theo kênh: một bài lên ba kênh thì mỗi kênh được tính một bài, nên
+       cộng cột này lại sẽ LỚN HƠN tổng số bài — đó là đúng, không phải lỗi. */
+    const kenh = {};
+    list.forEach(p => (p.channels || []).forEach(c => { kenh[c] = (kenh[c]||0) + 1; }));
     const lags = list.map(postReupLag).filter(x => x != null);
     return {
       flow:f, list, n:list.length, reup, chuaReup:list.length - reup,
@@ -2025,7 +2057,8 @@ function postMonth(ym){
          không kịp" theo cách mà "còn thiếu 7 bài" không nói được. */
       pace: (conNgay && thieu) ? thieu / conNgay : 0,
       lagTB: lags.length ? median(lags) : null,
-      nguoi: Object.entries(dem).sort((a,b) => b[1] - a[1])
+      nguoi: Object.entries(dem).sort((a,b) => b[1] - a[1]),
+      kenh:  Object.entries(kenh).sort((a,b) => b[1] - a[1])
     };
   });
 }
@@ -4511,4 +4544,4 @@ function searchAll(q, limit){
 const KIND_LABEL = {kol:'KOL/KOC', booking:'Booking', clip:'Clip', product:'Sản phẩm',
                     idea:'Sản phẩm mới', kwgo:'Từ khoá'};
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "3f67a84a"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "bac7050a"]);

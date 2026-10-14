@@ -14,6 +14,8 @@ const ui = {
   pipeBrand:'', pipeQ:'',
   clipQ:'', clipSort:'date', clipKol:'',
   postQ:'', postState:'', postMonthOnly:false,
+  /* Lọc bài theo một kênh đăng. Rỗng = mọi kênh. */
+  postCh:'',
   adYm:'', adQ:'', adIssue:'', adOnlyBad:false, adShop:'', adTab:'day', adDate:'', adGioYm:'',
   adGioQ:'', adGioSp:'', adSoSanh:'', adGon:false,
   resTab:'brands', resQ:'',
@@ -3172,16 +3174,25 @@ const postLink = (url, label, trong) => url
   : (trong === false ? `<span class="dim">—</span>`
                      : `<span class="plnk off">chưa có ${esc(label)}</span>`);
 
+/* Vài chip sản phẩm, quá thì gộp thành "+n" — một bài so sánh 6 loại sáp mà
+   bày đủ 6 chip là dòng đó cao gấp ba mọi dòng khác. */
+function postSpChips(p, toiDa){
+  const ps = postProducts(p);
+  const n = toiDa || 2;
+  return ps.slice(0, n).map(pr => '<span class="chip">' + esc(pr.brand ? pr.brand + ' · ' : '') + esc(pr.name) + '</span>').join(' ') +
+    (ps.length > n ? ` <span class="chip" title="${esc(ps.slice(n).map(x => x.name).join(', '))}">+${ps.length - n}</span>` : '');
+}
+const postChText = p => (p.channels || []).length ? '📡 ' + p.channels.map(esc).join(', ') : '';
+
 function postRow(p){
   const F = POST_FLOWS[p.flow] || POST_FLOWS.fb;
-  const pr = p.productId ? productOf(p.productId) : null;
   const lag = postReupLag(p);
   return `<div class="li" data-act="editpost" data-id="${p.id}">
     <span class="li-ic">${F.icon}</span>
     <div class="grow">
       <div class="li-t">${esc(p.title || F.short + ' ' + fmtDate(p.date))}</div>
       <div class="li-s">${fmtDate(p.date)}${p.poster ? ' · ' + esc(p.poster) : ''}${
-        pr ? ' <span class="chip">' + esc(pr.brand || '—') + ' · ' + esc(pr.name) + '</span>' : ''}</div>
+        (p.channels || []).length ? ' · ' + postChText(p) : ''} ${postSpChips(p, 3)}</div>
       <div class="plnks">${postLink(p.url, F.short)}${postLink(p.reupUrl, F.reupShort)}</div>
     </div>
     <div class="li-r">
@@ -3205,21 +3216,26 @@ function postTable(list, F){
       <th style="width:86px">Ngày</th>
       <th>Tên bài</th>
       <th style="width:96px">Người đăng</th>
-      ${sp ? '<th style="width:150px">Sản phẩm</th>' : ''}
+      <th style="width:130px">Kênh</th>
+      ${sp ? '<th style="width:170px">Sản phẩm</th>' : ''}
       <th style="width:104px">${esc(F.short)}</th>
       <th style="width:104px">${esc(F.reupShort)}</th>
       <th class="r" style="width:104px">Đăng lại</th>
     </tr></thead>
     <tbody>` + list.map(p => {
-      const pr = p.productId ? productOf(p.productId) : null;
+      const ps = postProducts(p);
       const lag = postReupLag(p);
       return `<tr data-act="editpost" data-id="${p.id}">
         <td class="nw">${fmtDate(p.date)}</td>
         <td><b>${esc(p.title || '(chưa đặt tên)')}</b>${
           p.note ? `<div class="dim ell">${esc(p.note)}</div>` : ''}</td>
         <td>${esc(p.poster || '—')}</td>
-        ${sp ? `<td>${pr ? `<div class="ell">${esc(pr.name)}</div>
-                 <div class="dim">${esc(pr.brand || '—')}</div>` : '<span class="dim">—</span>'}</td>` : ''}
+        <td>${(p.channels || []).length
+          ? p.channels.map(c => `<div class="ell">${esc(c)}</div>`).join('') : '<span class="dim">—</span>'}</td>
+        ${sp ? `<td>${ps.length ? ps.slice(0, 3).map(pr => `<div class="ell">${esc(pr.name)}${
+                   pr.brand ? ` <span class="dim">· ${esc(pr.brand)}</span>` : ''}</div>`).join('') +
+                 (ps.length > 3 ? `<div class="dim" title="${esc(ps.slice(3).map(x => x.name).join(', '))}">+${ps.length - 3} sản phẩm nữa</div>` : '')
+               : '<span class="dim">—</span>'}</td>` : ''}
         <td>${postLink(p.url,     'Mở', false)}</td>
         <td>${postLink(p.reupUrl, 'Mở', false)}</td>
         <td class="r nw">${p.reupUrl
@@ -3242,7 +3258,9 @@ function postFlowCard(m){
       <div class="grow"><b>${esc(F.label)}</b>
         <div class="dim">${m.nguoi.length
           ? m.nguoi.map(x => esc(x[0]) + ' ' + x[1] + ' bài').join(' · ')
-          : 'chưa có bài nào tháng này'}</div></div>
+          : 'chưa có bài nào tháng này'}</div>${
+        m.kenh && m.kenh.length ? `<div class="dim" title="một bài lên nhiều kênh thì mỗi kênh tính một bài">📡 ${
+          m.kenh.map(x => esc(x[0]) + ' ' + x[1]).join(' · ')}</div>` : ''}</div>
       <div class="pc-n ${cls}">${m.n}${m.target ? `<span>/${m.target}</span>` : ''}</div>
     </div>
     ${m.target ? `<div class="chb"><i style="width:${pct}%;background:var(--${du?'ok':m.pace>1.5?'bad':'acc'})"></i></div>` : ''}
@@ -4597,7 +4615,7 @@ function viewPosts(flow){
   const all  = postsOfFlow(flow);
 
   let h = `<div class="toolbar">
-    <input class="inp grow" placeholder="Tìm bài theo tên, link, người đăng…" data-inp="postQ" value="${esc(ui.postQ)}">
+    <input class="inp grow" placeholder="Tìm bài theo tên, link, người đăng, kênh, sản phẩm…" data-inp="postQ" value="${esc(ui.postQ)}">
     <button class="btn pri" data-act="newpost" data-id="${flow}">+ Bài ${esc(F.short)}</button>
   </div>`;
 
@@ -4630,10 +4648,14 @@ function viewPosts(flow){
   if (ui.postState === 'todo') list = list.filter(p => !p.reupUrl);
   if (ui.postState === 'done') list = list.filter(p => !!p.reupUrl);
   if (ui.postMonthOnly) list = list.filter(p => p.date.slice(0,7) === ym);
+  const kns = postChannels(flow);
+  const kCh = kns.find(c => norm(c) === norm(ui.postCh)) || '';
+  if (kCh) list = list.filter(p => (p.channels || []).some(c => norm(c) === norm(kCh)));
   if (ui.postQ){
     const q = norm(ui.postQ);
     list = list.filter(p => norm([p.title, p.url, p.reupUrl, p.poster, p.note,
-      (productOf(p.productId)||{}).name].join(' ')).includes(q));
+      (p.channels || []).join(' '),
+      postProducts(p).map(x => x.brand + ' ' + x.name).join(' ')].join(' ')).includes(q));
   }
   list = list.slice().sort((a,b) => b.date.localeCompare(a.date) ||
                                     (b.updatedAt||'').localeCompare(a.updatedAt||''));
@@ -4645,6 +4667,9 @@ function viewPosts(flow){
       <option value="todo" ${ui.postState==='todo'?'selected':''}>Chưa reup</option>
       <option value="done" ${ui.postState==='done'?'selected':''}>Đã reup</option>
     </select>
+    ${kns.length ? `<select class="inp sm" data-inp="postCh">
+      <option value="">Mọi kênh</option>${kns.map(c => `<option value="${esc(c)}" ${c === kCh ? 'selected' : ''}>📡 ${esc(c)}</option>`).join('')}
+    </select>` : ''}
     <button class="btn sm ${ui.postMonthOnly ? 'pri' : ''}" data-act="postmonthonly">${
       ui.postMonthOnly ? '📅 Chỉ ' + esc(monthLabel(ym)) : '📅 Mọi tháng'}</button>
   </div>`;
@@ -5086,4 +5111,4 @@ function viewSettings(){
   return h;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "3f67a84a"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "bac7050a"]);

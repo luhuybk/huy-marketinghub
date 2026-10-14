@@ -316,6 +316,29 @@ function fieldHTML(f, val){
         `<label class="chk"><input type="checkbox" data-chk="${esc(c.id)}"
            ${val && val[c.id] ? 'checked' : ''}> ${esc(c.label)}</label>`).join('') + `</div>`;
       break;
+    case 'pick': {
+      /* Chọn NHIỀU từ một danh sách, có ô gõ để lọc và thêm cái chưa có.
+         Cái đã chọn đứng đầu danh sách, để mở lại một bài thấy ngay nó đang
+         gắn gì mà không phải cuộn tìm. Xem bindPick() cho phần bấm. */
+      const chon = new Set(Array.isArray(val) ? val : []);
+      const opts = (f.opts || []).slice()
+        .sort((a, b) => (chon.has(b.id) ? 1 : 0) - (chon.has(a.id) ? 1 : 0));
+      inner = `<div class="pick" data-f="${f.k}">
+        <div class="pk-hd">
+          <input type="text" class="inp sm pk-q" placeholder="${esc(f.ph || 'Gõ để tìm…')}" autocomplete="off">${
+          f.brands && f.brands.length ? `<select class="inp sm pk-b" title="thương hiệu cho ${esc(f.newLabel || 'mục')} mới">
+            <option value="">— thương hiệu —</option>${
+            f.brands.map(b => `<option value="${esc(b)}">${esc(b)}</option>`).join('')}</select>` : ''}
+          <button type="button" class="btn sm pk-add" hidden></button>
+        </div>
+        <div class="pk-ls">${opts.map(o => `<button type="button" class="pk-o ${chon.has(o.id) ? 'on' : ''}"
+            data-pk="${esc(o.id)}" data-name="${esc(o.name || o.label)}" data-lb="${esc(o.label)}"
+            data-brand="${esc(o.brand || '')}" data-s="${esc(norm(o.label + ' ' + (o.sub || '')))}">${esc(o.label)}${
+            o.sub ? ` <span class="dim">${esc(o.sub)}</span>` : ''}</button>`).join('')}</div>
+        <div class="pk-ft dim"></div>
+      </div>`;
+      break;
+    }
     case 'textarea':
       inner = `<textarea ${common} rows="${f.rows||3}" placeholder="${esc(f.ph||'')}">${esc(val||'')}</textarea>`;
       break;
@@ -392,6 +415,19 @@ function readForm(el, fields){
       out[f.k] = d ? +d.dataset.v || 0 : 0;
       return;
     }
+    if (f.t === 'pick'){
+      /* ids = cái đã có sẵn; moi = cái vừa gõ thêm, CHƯA tạo. Tạo là việc của
+         onSave, sau khi mọi điều kiện đã qua — bấm Huỷ thì không để lại một
+         sản phẩm rác nào. */
+      const box = el.querySelector(`.pick[data-f="${f.k}"]`);
+      /* theo THỨ TỰ BẤM CHỌN (data-ord), không theo thứ tự trên màn hình —
+         cái gõ thêm được chèn lên đầu danh sách, đọc theo DOM là ngược */
+      const on = box ? [...box.querySelectorAll('.pk-o.on')]
+                         .sort((a, b) => (+a.dataset.ord || 0) - (+b.dataset.ord || 0)) : [];
+      out[f.k] = {ids: on.filter(b => !b.dataset.new).map(b => b.dataset.pk),
+                  moi: on.filter(b => b.dataset.new).map(b => ({name: b.dataset.name, brand: b.dataset.brand || ''}))};
+      return;
+    }
     if (f.t === 'checks'){
       const box = el.querySelector(`.chklist[data-f="${f.k}"]`);
       const o = {};
@@ -411,6 +447,85 @@ function readForm(el, fields){
   return out;
 }
 
+/* Phần bấm của ô chọn nhiều (t:'pick').
+   Không đi qua data-act / ACTIONS: đây là trạng thái tạm của một ô trong
+   biểu mẫu đang mở, chưa phải dữ liệu, và readForm() đọc thẳng từ DOM. */
+function bindPick(el, f){
+  const box = el.querySelector(`.pick[data-f="${f.k}"]`);
+  if (!box) return;
+  const q = box.querySelector('.pk-q'), add = box.querySelector('.pk-add'),
+        ls = box.querySelector('.pk-ls'), ft = box.querySelector('.pk-ft'),
+        br = box.querySelector('.pk-b');
+  const tenGo = () => q.value.trim().replace(/\s+/g, ' ');
+  let thu = 0;
+  const bat = b => { b.classList.add('on'); b.dataset.ord = ++thu; };
+  /* Đã có chưa: trùng tên (hoặc trùng nguyên nhãn "Roug · Trắng"), và nếu
+     đang chọn thương hiệu thì phải cùng thương hiệu. Có rồi thì KHÔNG cho
+     thêm — danh sách đang lọc đúng những con trùng tên, chọn lấy một. */
+  const khop  = k => [...ls.querySelectorAll('.pk-o')].find(b =>
+                  (norm(b.dataset.name) === k || norm(b.dataset.lb || '') === k) &&
+                  (!br || !br.value || !b.dataset.brand || b.dataset.brand === br.value));
+  const ve = () => {
+    const k = norm(tenGo());
+    let thay = 0;
+    ls.querySelectorAll('.pk-o').forEach(b => {
+      /* cái đã chọn luôn hiện, kể cả khi không khớp chữ đang gõ — giấu nó đi
+         là người ta tưởng nó đã bị bỏ chọn */
+      const hien = !k || b.classList.contains('on') || b.dataset.s.includes(k);
+      b.hidden = !hien; if (hien) thay++;
+    });
+    const coRoi = k && khop(k);
+    add.hidden = !(f.allowNew && k && !coRoi);
+    if (!add.hidden) add.textContent = '+ Thêm “' + tenGo() + '”';
+    const on = [...ls.querySelectorAll('.pk-o.on')];
+    ft.innerHTML = on.length
+      ? 'Đã chọn ' + on.length + ': <b>' + on.map(b => esc(b.dataset.lb || b.dataset.name)).join(', ') + '</b>'
+      : esc(f.emptyHint || 'Chưa chọn gì');
+    ls.classList.toggle('empty', !thay);
+  };
+  const themMoi = () => {
+    const ten = tenGo();
+    if (!ten) return;
+    const cu = khop(norm(ten));
+    if (cu){ bat(cu); cu.hidden = false; }
+    else {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'pk-o'; bat(b);
+      b.dataset.new = '1'; b.dataset.name = ten; b.dataset.pk = '';
+      b.dataset.brand = br ? br.value : '';
+      b.dataset.lb = (b.dataset.brand ? b.dataset.brand + ' · ' : '') + ten;
+      b.dataset.s = norm(ten);
+      b.innerHTML = esc(ten) + (b.dataset.brand ? ' <span class="dim">' + esc(b.dataset.brand) + '</span>' : '') +
+                    ' <span class="chip acc">mới</span>';
+      ls.prepend(b);
+    }
+    q.value = ''; ve(); q.focus();
+  };
+  ls.addEventListener('click', e => {
+    const b = e.target.closest('.pk-o');
+    if (!b) return;
+    /* bỏ chọn một cái vừa gõ thêm thì xoá hẳn nó — nó chưa từng tồn tại */
+    if (b.dataset.new && b.classList.contains('on')) b.remove();
+    else if (b.classList.contains('on')) b.classList.remove('on');
+    else bat(b);
+    ve();
+  });
+  add.addEventListener('click', themMoi);
+  q.addEventListener('input', ve);
+  if (br) br.addEventListener('change', ve);
+  /* Enter trong ô gõ: thêm cái đang gõ, hoặc chọn cái duy nhất khớp. Không
+     chặn thì Enter nộp cả biểu mẫu khi người ta mới gõ xong một tên. */
+  q.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    if (!add.hidden) return themMoi();
+    const k = norm(tenGo());
+    const hien = [...ls.querySelectorAll('.pk-o:not([hidden]):not(.on)')].filter(b => b.dataset.s.includes(k));
+    if (k && hien.length === 1){ bat(hien[0]); q.value = ''; ve(); }
+  });
+  ve();
+}
+
 /* onSave(values) — trả về false để giữ hộp thoại mở (khi thiếu dữ liệu) */
 function formModal(o){
   const fields = o.fields.filter(Boolean);
@@ -428,6 +543,7 @@ function formModal(o){
 
   const el = openModal(o.title, body, foot, o.wide);
   el._spec = {fields, onSave:o.onSave, onDelete:o.onDelete};
+  fields.filter(f => f.t === 'pick').forEach(f => bindPick(el, f));
   el.querySelector('#theform').addEventListener('submit', e => {
     e.preventDefault(); doFormSave(el);
   });
@@ -703,9 +819,15 @@ function postForm(p, presetFlow){
   const isNew = !p;
   const flow  = POST_FLOWS[isNew ? presetFlow : p.flow] ? (isNew ? presetFlow : p.flow) : 'fb';
   const F     = POST_FLOWS[flow];
-  p = p || {flow, date: today(), poster:'', title:'', url:'', reupUrl:'', reupAt:'', productId:'', note:''};
+  p = p || {flow, date: today(), poster:'', title:'', url:'', reupUrl:'', reupAt:'',
+            productIds:[], channels:[], note:''};
 
-  const ps  = products().filter(x => !x.archived || x.id === p.productId);
+  const ps  = products().filter(x => !x.archived || (p.productIds || []).includes(x.id))
+    .sort((a,b) => norm((a.brand || '~') + a.name).localeCompare(norm((b.brand || '~') + b.name), 'vi'));
+  /* Kênh đang gắn mà không còn trong gợi ý (bài cũ, kênh hiếm) vẫn phải có
+     mặt trong danh sách — không thì mở ra lưu lại là mất kênh đó. */
+  const kn  = postChannels(flow);
+  (p.channels || []).forEach(c => { if (!kn.some(x => norm(x) === norm(c))) kn.push(c); });
   const ten = postPeople();
 
   formModal({
@@ -728,14 +850,22 @@ function postForm(p, presetFlow){
       {k:'title', l:'Tên bài / nội dung chính',
        ph:'vd: review serum B5 · so sánh 3 loại kem chống nắng',
        hint:'để trống cũng được, nhưng có tên thì lúc dò lại đỡ phải mở từng link'},
+      {k:'channels', l:'Kênh đăng', t:'pick', allowNew:true, newLabel:'kênh',
+       opts: kn.map(c => ({id:c, label:c})),
+       ph: kn.length ? 'Gõ để tìm, hoặc gõ tên kênh mới' : 'vd @waxshop.men — gõ rồi bấm Enter',
+       emptyHint: 'Chưa chọn kênh — bài vẫn lưu được, nhưng không đếm được theo kênh',
+       hint:'một bài lên nhiều kênh thì chọn hết · gõ đúng tên cũ để đếm gộp'},
       F.needProduct
-        ? {k:'productId', l:'Sản phẩm gắn trong bài', t:'select',
-           opts: [['', '— không gắn sản phẩm —']].concat(
-             ps.map(x => [x.id, (x.brand ? x.brand + ' · ' : '') + x.name])),
-           hint: ps.length ? 'chọn xong thì bài này hiện luôn trong trang sản phẩm đó'
-                           : 'chưa có sản phẩm nào — thêm ở tab Tài nguyên'}
+        ? {k:'productIds', l:'Sản phẩm gắn trong bài', t:'pick', allowNew:true, newLabel:'sản phẩm',
+           brands: allBrands(),
+           opts: ps.map(x => ({id:x.id, name:x.name, brand:x.brand || '',
+                               label:(x.brand ? x.brand + ' · ' : '') + x.name,
+                               sub: x.sku || x.shopeeSku || ''})),
+           ph:'Gõ tên sản phẩm để tìm — chưa có thì gõ tên rồi bấm Enter',
+           emptyHint:'Chưa gắn sản phẩm nào',
+           hint:'chọn được nhiều con · bài hiện luôn trong trang từng sản phẩm đã chọn'}
         : null,
-      {t:'sec', l:'Hai kênh'},
+      {t:'sec', l:'Link bài'},
       {k:'url',     l:F.main.label, t:'url', ph:F.main.ph},
       {k:'reupUrl', l:F.reup.label, t:'url', ph:F.reup.ph},
       {k:'reupAt',  l:'Ngày đăng lại', t:'date', half:true,
@@ -763,12 +893,30 @@ function postForm(p, presetFlow){
       if (v.reupUrl && !v.reupAt) v.reupAt = today();
       if (!v.reupUrl) v.reupAt = '';
 
+      /* Sản phẩm gõ thêm: tạo lúc này, sau khi mọi điều kiện đã qua. Trùng
+         tên (và thương hiệu, nếu có chọn) với một con đã có thì dùng con đó —
+         hai người cùng gõ "Sáp Trắng" không được ra hai sản phẩm. */
+      const sp = v.productIds || {ids:[], moi:[]};
+      const spMoi = [];
+      sp.moi.forEach(m => {
+        const cu = products().find(x => norm(x.name) === norm(m.name) && (!m.brand || x.brand === m.brand));
+        if (cu){ sp.ids.push(cu.id); return; }
+        const pr = stamp({name: m.name, brand: m.brand, archived:false});
+        db.products.push(pr); sp.ids.push(pr.id); spMoi.push(pr.name);
+      });
+      if (spMoi.length) linkProducts();
+      v.productIds = [...new Set(sp.ids)];
+      v.productId  = v.productIds[0] || '';
+      const kv = v.channels || {ids:[], moi:[]};
+      v.channels = kv.ids.concat(kv.moi.map(m => m.name));
+
       const rec = isNew ? stamp({}) : db.posts.find(x => x.id === p.id);
       Object.assign(rec, v);
       stamp(rec);
       if (isNew) db.posts.push(rec);
       ensure(); save();
-      toast(isNew ? 'Đã ghi bài' : 'Đã lưu');
+      toast((isNew ? 'Đã ghi bài' : 'Đã lưu') +
+            (spMoi.length ? ' · thêm sản phẩm mới: ' + spMoi.join(', ') : ''));
     },
     onDelete: isNew ? null : () => {
       if (!confirm('Xoá bài này khỏi danh sách?')) return false;
@@ -4536,4 +4684,4 @@ function checkBuild(){
   }
 })();
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "3f67a84a"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "bac7050a"]);
