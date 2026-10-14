@@ -2108,6 +2108,42 @@ Việc này **không có nút “Xong”**, kể cả trong Telegram. Đóng nó
 tắt lời nhắc mà không làm gì — tức là hỏng đúng thứ nó canh. Dán link vào là
 việc tự khép, `reupAt` tự điền ngày hôm nay.
 
+### Kênh đăng và nhiều sản phẩm trong một bài
+
+**Kênh đăng** (`posts[].channels`) là tên tài khoản hoặc trang mà bài lên, ví dụ
+`@waxshop.men`, `TikTok Men Zone`, `Facebook Reels`. Một bài lên được nhiều kênh.
+Có ở cả hai luồng. App giữ **tên** kênh chứ không giữ id của một danh sách kênh
+riêng: danh sách riêng sẽ cần quyền riêng và đồng bộ riêng chỉ để đổi lấy một cái
+tên. Gợi ý trong ô chọn lấy từ những kênh đã dùng của luồng đó, kênh hay dùng nhất
+đứng đầu. Gõ trùng tên khác hoa thường thì gộp về một (`ensure()`).
+
+Đếm theo kênh: thẻ tháng có dòng `📡 @waxshop.men 5 · TikTok Men Zone 3`. Một bài
+lên ba kênh thì **mỗi kênh tính một bài**, nên cộng dòng này lại sẽ lớn hơn tổng
+số bài. Đó là chủ ý, không phải lỗi. Chỉ tiêu tháng vẫn đếm theo bài. Bảng có cột
+**Kênh** và ô lọc **Mọi kênh**; ô tìm cũng soi tên kênh.
+
+**Nhiều sản phẩm** (`posts[].productIds`) dành cho clip so sánh, combo, hay một
+bài review hai con. Bài cũ chỉ có `productId` thì `ensure()` chuyển sang mảng.
+`productId` vẫn được giữ, bằng con đầu tiên, để máy chưa cập nhật app vẫn đọc ra
+một sản phẩm thay vì thấy bài không gắn gì. Trang sản phẩm hiện bài nếu sản phẩm
+đó có trong mảng.
+
+**Thêm sản phẩm ngay trong biểu mẫu.** Nhân viên luồng TikTok không vào được
+Tài nguyên, nên ô chọn sản phẩm cho gõ tên con chưa có (kèm thương hiệu nếu muốn)
+rồi bấm Enter. Sản phẩm **chỉ được tạo lúc bấm Lưu bài**, sau khi mọi điều kiện đã
+qua; bấm Huỷ thì không để lại sản phẩm rác. Gõ trùng tên một con đã có thì ô không
+cho thêm mà lọc ra đúng những con trùng tên để chọn lấy. Lúc lưu cũng kiểm lại một
+lần nữa, để hai người cùng gõ "Sáp Đen 80g" không ra hai sản phẩm. `products`
+không khai quyền nên nhân viên tạo được, và sản phẩm mới hiện ngay ở mọi máy;
+chủ vào Tài nguyên điền nốt giá, mã Shopee sau.
+
+Ô chọn nhiều là kiểu trường `t:'pick'` của `formModal`, dùng chung cho cả kênh
+lẫn sản phẩm. Phần bấm nằm ở `bindPick()`, không đi qua `data-act`/`ACTIONS`, vì
+đó là trạng thái tạm của biểu mẫu đang mở chứ chưa phải dữ liệu. `readForm()` trả
+về `{ids, moi}` theo **thứ tự bấm chọn** (`data-ord`), không theo thứ tự trên màn
+hình (cái gõ thêm được chèn lên đầu). `.btn` đặt `display:inline-flex` nên thuộc
+tính `hidden` hết tác dụng; `.pick [hidden]` khai lại.
+
 ### Chỉ tiêu tháng
 
 Đặt trong Cài đặt, để `0` là không đặt — lúc đó app chỉ đếm chứ không nhắc.
