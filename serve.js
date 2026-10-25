@@ -212,7 +212,7 @@ function tgTaskKeys(t){
   return rows;
 }
 const tgFeedHead = (feed, n, todayYmd) =>
-  `<b>KOL Hub · ${TG_FEED_LABEL[feed] || feed}</b> — ${dmy(todayYmd)}\n${n} việc tới hạn.`;
+  `<b>Marketing Hub · ${TG_FEED_LABEL[feed] || feed}</b> — ${dmy(todayYmd)}\n${n} việc tới hạn.`;
 
 /* ---- bot nhận số liệu: bản Node của tgNumber/tgNorm/tgFindProduct/itemNew ---- */
 function tgNumber(str){
@@ -598,7 +598,7 @@ function api(req, res, body){
           const [chat, topic] = tgTarget(c, f);
           if (!chat){ if (list.length === 1) return fail('Luồng này chưa có chat id.'); continue; }
           const [ok, msg] = await tgSend(c.token, chat,
-            `✅ <b>KOL Hub · ${TG_FEED_LABEL[f]}</b>\nLuồng này nối được rồi. Mỗi ngày lúc ${c.feeds[f].hour} giờ bạn sẽ nhận việc ở đây.`, topic);
+            `✅ <b>Marketing Hub · ${TG_FEED_LABEL[f]}</b>\nLuồng này nối được rồi. Mỗi ngày lúc ${c.feeds[f].hour} giờ bạn sẽ nhận việc ở đây.`, topic);
           if (!ok) return fail(TG_FEED_LABEL[f] + ': ' + msg);
           sent.push(TG_FEED_LABEL[f]);
         }
@@ -621,7 +621,7 @@ function api(req, res, body){
       const body = String(inp.text || '').slice(0, 3500);
       if (!body.trim()) return fail('Không có gì để gửi.');
       const text = '📊 <b>Báo cáo quảng cáo</b>\n<i>' + tgEsc(me.name || 'nhân viên') +
-                   ' gửi từ KOL Hub</i>\n\n' + tgEsc(body);
+                   ' gửi từ Marketing Hub</i>\n\n' + tgEsc(body);
       return tgSend(c.token, chat, text, topic).then(([ok, msg]) =>
         ok ? send({ok:true}) : fail('Telegram: ' + msg));
     }
@@ -949,7 +949,7 @@ http.createServer((req, res) => {
     res.end(data);
   });
 }).listen(PORT, () => {
-  console.log('KOL Hub (' + (useSrc ? 'nguồn' : 'dist') + ') → http://localhost:' + PORT);
+  console.log('Marketing Hub (' + (useSrc ? 'nguồn' : 'dist') + ') → http://localhost:' + PORT);
   console.log(KH_PASSWORD ? 'API: bật · đăng nhập bằng mật khẩu trong api/config.php'
                           : 'API: chưa có api/config.php → app chạy chế độ chỉ lưu trên máy');
 });

@@ -1,4 +1,4 @@
-/* Đóng gói KOL Hub để đưa lên máy chủ (Hostinger…).
+/* Đóng gói Marketing Hub để đưa lên máy chủ (Hostinger…).
 
    Chạy:  node build.js            — chỉ dựng, ra thư mục dist/
           node build.js --deploy   — dựng xong đẩy luôn lên nhánh `deploy`
@@ -72,7 +72,7 @@ copy('icon.svg');
  'api/config.example.php', 'api/.htaccess'].forEach(copy);
 
 /* ---------- cấu hình máy chủ ---------- */
-put('.htaccess', `# KOL Hub — cấu hình cho Apache/LiteSpeed (Hostinger)
+put('.htaccess', `# Marketing Hub — cấu hình cho Apache/LiteSpeed (Hostinger)
 
 # --- mã nguồn phụ trợ: không bao giờ được trả về ---
 # Mấy tệp này lẽ ra không nằm trong dist/. Nhưng nếu ai đó upload nhầm cả
@@ -192,7 +192,7 @@ function deploy(){
      đẩy một bản dựng. */
   const env = Object.assign({}, process.env, {GIT_INDEX_FILE: ''});
   if (!thu(['var','GIT_AUTHOR_IDENT'])){
-    const ten = thu(['log','-1','--format=%an']) || 'KOL Hub';
+    const ten = thu(['log','-1','--format=%an']) || 'Marketing Hub';
     const mail = thu(['log','-1','--format=%ae']) || 'kolhub@localhost';
     Object.assign(env, {GIT_AUTHOR_NAME: ten, GIT_AUTHOR_EMAIL: mail,
                         GIT_COMMITTER_NAME: ten, GIT_COMMITTER_EMAIL: mail});

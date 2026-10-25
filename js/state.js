@@ -1149,6 +1149,13 @@ function ensure(){
        hai bản giá vốn của cùng một con sẽ trôi khỏi nhau, và không ai phát
        hiện cho tới lúc tính sai tiền thật. */
     c.hero = !!c.hero;
+    /* 🔒 Giữ giá hãng: hãng bắt bán ĐÚNG giá niêm yết của họ, thấp hơn là bị
+       cảnh cáo phá giá. Lúc đó giá treo trên Shopee không phải thứ mình tự
+       chọn nữa — nó phải là giá hãng CỘNG voucher shop, để khách dùng voucher
+       xong trả đúng giá hãng. giaHang là giá của hãng; giá treo tính ra từ nó
+       (giaShopee). Không phải con nào cũng bị bắt, nên đây là một dấu riêng. */
+    c.giuGia  = !!c.giuGia;
+    c.giaHang = parseMoney(c.giaHang);
 
     /* Năm ô đối thủ LUÔN có mặt, kể cả khi trống — giống ba ô trong mục Đánh
        từ khoá. Nhờ vậy chỗ nào vẽ cũng đọc thẳng c.rivals[3] được mà không
@@ -1177,7 +1184,9 @@ function ensure(){
       name:  String(x.name != null ? x.name : ''),
       note:  String(x.note != null ? x.note : ''),
       cost:  parseMoney(x.cost),
-      price: parseMoney(x.price)
+      price: parseMoney(x.price),
+      /* giá hãng của riêng size này — mỗi size hãng niêm yết một giá */
+      giaHang: parseMoney(x.giaHang)
     }));
 
     /* Combo dựng từ chính sản phẩm này. Để trong bản ghi giá vốn chứ không
@@ -2487,6 +2496,24 @@ function costFrom(o){
           lines, tongPhi, thucNhan, lai, acos, roas, lo: lai <= 0,
           thieuVon: !von};
 }
+/* Giá phải treo trên Shopee để khách dùng voucher shop xong trả ĐÚNG giá hãng.
+
+   giá treo × (1 − voucher%) = giá hãng  →  giá treo = giá hãng ÷ (1 − voucher%)
+
+   Làm tròn LÊN tới nghìn: giá kiểu 216.304₫ trông như gõ nhầm, và làm tròn
+   xuống là khách trả thấp hơn giá hãng vài trăm đồng — đúng cái lỗi phá giá
+   mà tính năng này sinh ra để tránh. Vòng while bắt nốt trường hợp voucher
+   làm tròn lên một đồng mà kéo giá sau voucher xuống dưới giá hãng. */
+function giaShopee(giaHang, vPct){
+  const g = Math.max(0, Math.round(+giaHang || 0));
+  const v = Math.max(0, Math.min(90, +vPct || 0));
+  if (!g) return 0;
+  if (!v) return g;
+  let p = Math.ceil(g / (1 - v / 100) / 1000) * 1000;
+  while (p - Math.round(p * v / 100) < g) p += 1000;
+  return p;
+}
+
 /* Bảng tính của một sản phẩm đã lưu, hoặc của MỘT COMBO dựng từ nó.
 
    Combo dùng lại y nguyên bảng phí và phí đóng gói của sản phẩm chính — cùng
@@ -2509,8 +2536,14 @@ function costCalc(p, sel){
   const sz  = wid ? szs.find(x => x.sid === wid) || null : null;
   if (sel && sel.sid && !sz) return null;
 
+  /* Giữ giá hãng: giá treo tính lại từ giá hãng và voucher ĐANG đặt, chứ
+     không đọc giá đã lưu — đổi voucher ở một chỗ là giá treo phải đổi theo,
+     không thì khách trả dưới giá hãng mà bảng vẫn hiện số cũ. Combo không
+     theo luật này: combo là gói mình tự ghép, hãng không niêm yết giá nó. */
+  const hang = !cb && c && c.giuGia ? (sz ? sz.giaHang : c.giaHang) : 0;
   const x = costFrom({
-    gia:     cb ? cb.price : sz ? sz.price : parseMoney(p.price),
+    gia:     cb ? cb.price : hang ? giaShopee(hang, c.voucherPct)
+                           : sz ? sz.price : parseMoney(p.price),
     F:       shopFees(sh),
     vPct:    cb ? cb.voucherPct : (c ? c.voucherPct : 0),
     feePct:  c ? c.feePct   : 0,
@@ -2519,7 +2552,9 @@ function costCalc(p, sel){
     vonThem: cb ? cb.addCost : 0,
     gift:    cb ? cb.gift : (c ? c.gift : 0)
   });
-  return x ? Object.assign(x, {p, c, sh, cb, sz}) : null;
+  return x ? Object.assign(x, {p, c, sh, cb, sz,
+    /* giuGia mà chưa điền giá hãng thì vẫn đánh dấu, để bảng nhắc điền */
+    giuGia: !cb && !!(c && c.giuGia), giaHang: hang}) : null;
 }
 const combosOf = p => { const c = costOf(p.id); return c ? (c.combos || []) : []; };
 const sizesOf  = p => { const c = costOf(p.id); return c ? (c.sizes  || []) : []; };

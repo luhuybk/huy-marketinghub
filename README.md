@@ -1,6 +1,12 @@
-# KOL Hub
+# Marketing Hub
 
-Theo dõi hiệu suất booking KOL/KOC và quảng cáo Shopee, trong một app.
+Hub marketing cho hai gian hàng Shopee: booking KOL/KOC, bài nhân viên đăng,
+quảng cáo Shopee, giá vốn và ngưỡng ROAS — trong một app.
+
+> Tên cũ là **KOL Hub**. Đổi tên chỉ đổi chữ hiện ra; mọi khoá lưu trên máy
+> (`kolhub.v1`, `kolhub.theme`…), cookie `kh_session`, thư mục `kolhub-data/`
+> và file `kolhub.sqlite` **giữ nguyên tên cũ** — đổi chúng là mọi máy đang dùng
+> mất dữ liệu cục bộ và phải đăng nhập lại, còn máy chủ thì không tìm thấy kho.
 
 Câu hỏi mà app này sinh ra để trả lời: **tháng này tiền marketing nên dồn vào
 booking KOC hay đổ vào Shopee Ads, cho từng sản phẩm cụ thể?**
@@ -1570,6 +1576,44 @@ Kem đánh răng và sáp vuốt tóc là hai ngành hàng, hai mức phí, dù 
 gian hàng. Nên mỗi sản phẩm có ô *phí cố định ngành hàng riêng*: để **0** là
 theo bảng phí của gian hàng. Chọn 0 làm dấu thay vì ô rỗng vì Shopee không có
 ngành hàng nào 0%. Sản phẩm nào đặt riêng thì trong bảng có một cái nhãn nhỏ.
+
+### 🔒 Giữ giá hãng — hãng bắt bán đúng giá niêm yết
+
+Có hãng bắt bán **đúng giá niêm yết của họ**; khách trả thấp hơn là shop bị cảnh
+cáo phá giá. Lúc đó giá treo trên Shopee không còn là thứ mình tự chọn: nó phải
+là giá hãng **cộng voucher shop**, để khách dùng voucher xong trả đúng giá hãng.
+
+    giá treo × (1 − voucher%) = giá hãng   →   giá treo = giá hãng ÷ (1 − voucher%)
+
+Ví dụ: giá hãng 189.000₫, voucher shop 10% → treo **210.000₫**, khách trả 189.000₫.
+
+Bật bằng ô tick **🔒 Hãng bắt giữ giá niêm yết** trong biểu mẫu sản phẩm, rồi điền
+**Giá niêm yết của hãng**. Không phải con nào cũng bị bắt, nên đây là dấu riêng
+từng sản phẩm (`costs[].giuGia`, `costs[].giaHang`; con có size thì giá hãng nằm
+ở từng size, `sizes[].giaHang`).
+
+* **Ô giá treo bị khoá và tự điền** khi đã có giá hãng, nhãn đổi thành *"🔒 Giá
+  treo trên Shopee — app tự tính"*. Không ai gõ tay được một giá treo khiến khách
+  trả dưới giá hãng.
+* **Làm tròn LÊN tới nghìn** (`giaShopee()` trong `state.js`). Giá kiểu 216.304₫
+  trông như gõ nhầm, còn làm tròn xuống thì khách trả thấp hơn giá hãng vài trăm
+  đồng, đúng cái lỗi tính năng này sinh ra để tránh. Vì vậy khách có thể trả
+  **cao hơn** giá hãng một chút (ví dụ 199.000₫, voucher 8% → treo 217.000₫, khách
+  trả 199.640₫); biểu mẫu và bảng bóc phí đều nói rõ chênh bao nhiêu.
+* **Giá treo luôn tính lại theo voucher đang đặt.** `costCalc()` không đọc giá
+  treo đã lưu mà tính từ giá hãng, nên đổi voucher ở một chỗ thì mọi bảng đổi
+  theo. Lúc lưu biểu mẫu, `products.price` và `sizes[].price` cũng được ghi lại
+  bằng giá mới, để những chỗ khác đọc giá treo không bị lệch.
+* **Combo không theo luật này.** Combo là gói mình tự ghép, hãng không niêm yết
+  giá nó.
+* Bảng có chip **🔒 giá hãng**; bật mà chưa điền giá hãng thì chip đổi thành
+  **🔒 thiếu giá hãng**. Bảng bóc phí thêm dòng giá hãng và ghi rõ *"đặt đúng số
+  này trên Shopee"*, kèm dấu ✓ khi giá khách trả không thấp hơn giá hãng.
+* **So giá đối thủ:** đối thủ rẻ hơn giá hãng thì app **không** khuyên "hạ về
+  X" nữa. Hạ là phá giá, nên app khuyên đánh bằng quà kèm, combo hay nội dung, và
+  nhắc rằng đối thủ bán dưới giá hãng là họ đang phá giá.
+* Chưa tính trường hợp voucher shop có **mức giảm tối đa**. Nếu voucher bị chặn
+  trần, khách trả nhiều hơn công thức, tức vẫn không dưới giá hãng.
 
 ### Quà tặng kèm đứng riêng, không cộng thẳng vào giá vốn
 

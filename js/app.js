@@ -194,8 +194,8 @@ function renderSide(){
 
   $('#side').innerHTML = `
     <div class="side-hd">
-      <div class="logo">KH</div>
-      <div class="grow"><div class="nm">KOL Hub</div>
+      <div class="logo">MH</div>
+      <div class="grow"><div class="nm">Marketing Hub</div>
         <div class="st"><span class="dot ${dot}"></span>${
           st.state === 'idle' ? 'đã đồng bộ' : st.state === 'syncing' ? 'đang đồng bộ' :
           st.state === 'error' ? 'lỗi đồng bộ' : 'chỉ lưu trên máy'}</div></div>
@@ -257,7 +257,7 @@ function renderBar(){
       ? 'Sức khoẻ trên Shopee' + (p && spWeeksOf(p.id).length ? ' · ' + spWeeksOf(p.id).length + ' tuần' : '')
       : (p && p.brand ? p.brand : '');
   } else {
-    t.textContent = TITLES[route.page] || 'KOL Hub';
+    t.textContent = TITLES[route.page] || 'Marketing Hub';
     s.textContent = route.page === 'dash' ? new Date().toLocaleDateString('vi-VN',
       {weekday:'long', day:'numeric', month:'numeric'}) : '';
   }
@@ -3134,7 +3134,7 @@ function exportJSON(){
   const blob = new Blob([JSON.stringify(db, null, 1)], {type:'application/json'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'kolhub-' + today() + '.json';
+  a.download = 'marketinghub-' + today() + '.json';
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   toast('Đã tải file sao lưu');
@@ -3148,7 +3148,7 @@ function importJSON(){
     rd.onload = () => {
       let raw;
       try { raw = JSON.parse(rd.result); } catch(e){ toast('File không đọc được'); return; }
-      if (!raw || !COLLECTIONS.some(k => Array.isArray(raw[k]))){ toast('File này không phải sao lưu của KOL Hub'); return; }
+      if (!raw || !COLLECTIONS.some(k => Array.isArray(raw[k]))){ toast('File này không phải sao lưu của Marketing Hub'); return; }
       const n = COLLECTIONS.reduce((s,k) => s + (raw[k]||[]).length, 0);
       if (!confirm(`Nhập ${n} bản ghi?\nBản ghi trùng id sẽ lấy bản MỚI HƠN theo thời gian sửa.`)) return;
       let changed = 0;
@@ -3417,6 +3417,7 @@ function costSpForm(id){
     voucherPct: c ? c.voucherPct : Fmd.voucherPct,
     feePct: c ? c.feePct : 0, packCost: c ? c.packCost : 0,
     note: c ? c.note : '',
+    giuGia: c ? !!c.giuGia : false, giaHang: c ? c.giaHang : 0,
     /* Thêm sản phẩm từ chính tab Key SKU thì gần như chắc chắn là đang thêm
        một con hero — đánh dấu sẵn, khỏi phải bấm thêm một nút nữa. */
     hero: c ? !!c.hero : ui.costTab === 'hero'
@@ -3434,6 +3435,12 @@ function costSpForm(id){
       {k:'brand', l:'Thương hiệu', t:'select', half:true,
        opts: [['', '— chưa gắn —']].concat(allBrands().map(b => [b, b]))},
       {t:'sec', l:'Ba con số cần điền'},
+      {k:'giuGia', l:'', t:'check',
+       ph:'🔒 Hãng bắt giữ giá niêm yết — khách dùng voucher shop xong phải trả đúng giá hãng'},
+      /* con có size: giá hãng nằm ở từng size, ô ở đây không dùng tới */
+      c && (c.sizes || []).length ? null :
+      {k:'giaHang', l:'Giá niêm yết của hãng', t:'money', half:true, ph:'189.000',
+       hint:'Khách trả đúng số này sau khi dùng voucher shop. Giá treo Shopee app tự tính.'},
       {k:'price', l:'Giá niêm yết', t:'money', half:true, ph:'189.000',
        hint:'Giá treo trên trang, chưa trừ gì cả'},
       {k:'voucherPct', l:'Voucher của shop', t:'number', half:true, ph:'0',
@@ -3456,6 +3463,10 @@ function costSpForm(id){
     ],
     onSave(v){
       if (!v.name || !v.name.trim()){ toast('Chưa nhập tên sản phẩm'); return false; }
+      /* ô giá treo đã bị khoá và điền sẵn, nhưng tính lại ở đây cho chắc —
+         không tin vào một con số chỉ vì nó đang nằm trong ô */
+      if (v.giuGia && v.giaHang && !(c && (c.sizes || []).length))
+        v.price = giaShopee(v.giaHang, +String(v.voucherPct).replace(',','.') || 0);
       const pr = isNew ? stamp({archived:false}) : db.products.find(x => x.id === p.id);
       if (!pr) return false;
       pr.name = v.name.trim(); pr.brand = v.brand; pr.sku = v.sku;
@@ -3471,6 +3482,11 @@ function costSpForm(id){
         costLogAuto(pr.id, '', cu ? cu.cost : 0, v.cost, isNew ? 'giá ban đầu' : 'sửa ở bảng giá vốn');
       cr.shopId = v.shopId; cr.cost = v.cost; cr.gift = v.gift; cr.voucherPct = v.voucherPct;
       cr.feePct = v.feePct; cr.packCost = v.packCost; cr.note = v.note; cr.hero = !!v.hero;
+      cr.giuGia = !!v.giuGia; cr.giaHang = v.giaHang;
+      /* Giá treo của từng size cũng tính lại theo voucher vừa lưu — voucher
+         dùng chung cho cả sản phẩm, đổi nó mà để giá treo size đứng yên là
+         size đó bán dưới giá hãng. */
+      if (cr.giuGia) (cr.sizes || []).forEach(sz => { if (sz.giaHang) sz.price = giaShopee(sz.giaHang, v.voucherPct); });
       stamp(cr);
       if (!cu) db.costs.push(cr);
 
@@ -3496,15 +3512,21 @@ function costSpForm(id){
   box.className = 'explain';
   box.style.marginTop = '4px';
   el.querySelector('.mbody').appendChild(box);
+  const coSize = !!(c && (c.sizes || []).length);
   const doc = () => {
     const g = k => { const i = el.querySelector(`[data-f="${k}"]`); return i ? i.value : ''; };
+    const vp = +String(g('voucherPct')).replace(',','.') || 0;
+    const chk = el.querySelector('[data-f="giuGia"]');
+    const khoa = !coSize ? giuGiaO(el, parseMoney(g('giaHang')), vp)
+      : chk && chk.checked ? `<div style="margin-bottom:6px">🔒 Con này có size — giá hãng điền ở <b>từng size</b>,
+          giá treo Shopee của mỗi size tự tính lại theo voucher ${ratePct(vp)} này khi bạn lưu.</div>` : '';
     const x = costFrom({gia: parseMoney(g('price')), F: shopFees(shopOf(g('shopId'))),
                         vPct: +String(g('voucherPct')).replace(',','.') || 0,
                         feePct: +String(g('feePct')).replace(',','.') || 0,
                         pack: parseMoney(g('packCost')), von: parseMoney(g('cost')),
                         gift: parseMoney(g('gift'))});
-    if (!x){ box.innerHTML = 'Điền <b>giá niêm yết</b> thì ô này hiện kết quả ngay khi bạn gõ.'; return; }
-    box.innerHTML = `Giá bán thực <b>${money(x.gbt)}</b> · Shopee giữ <b>${money(x.tongPhi)}</b> ·
+    if (!x){ box.innerHTML = khoa + 'Điền <b>giá niêm yết</b> thì ô này hiện kết quả ngay khi bạn gõ.'; return; }
+    box.innerHTML = khoa + `Giá bán thực <b>${money(x.gbt)}</b> · Shopee giữ <b>${money(x.tongPhi)}</b> ·
       thực nhận <b>${money(x.thucNhan)}</b>${x.gift ? ' · quà tặng ' + money(x.gift) : ''}<br>` + (x.lo
         ? `<span class="bad"><b>Lỗ ${money(-x.lai)} mỗi đơn dù không chạy quảng cáo.</b></span>`
         : `Lãi mỗi đơn <b>${money(x.lai)}</b> · ACOS max <b>${pctText(x.acos, 1)}</b> ·
@@ -3636,6 +3658,39 @@ function costLogBase(shopId){
   ds.forEach(u => costLogAdd(u.p.id, u.sid, u.cost, today(), u.lech ? 'khớp lại với giá đang dùng' : 'mốc đầu tiên'));
   ensure(); save(); render();
   toast('Đã ghi mốc cho ' + ds.length + ' mã');
+}
+
+/* Phần "giữ giá hãng" của biểu mẫu giá vốn / size, chạy theo từng phím gõ.
+
+   Tick vào thì ô giá niêm yết (giá treo Shopee) bị KHOÁ và tự điền bằng giá
+   hãng cộng voucher — để không ai gõ tay một giá treo khiến khách trả dưới
+   giá hãng. Bỏ tick thì ô mở lại, ô giá hãng ẩn đi. giaHang = 0 ở đây nghĩa
+   là con này có size (giá hãng nằm ở từng size), lúc đó chỉ bật/tắt ô.
+   Trả về một đoạn giải thích để đặt lên đầu ô xem trước. */
+function giuGiaO(el, giaHang, vPct, luonBat){
+  const chk  = el.querySelector('[data-f="giuGia"]');
+  const bat  = luonBat || !!(chk && chk.checked);
+  const oHang = el.querySelector('[data-f="giaHang"]');
+  const oGia  = el.querySelector('[data-f="price"]');
+  if (oHang && !luonBat) oHang.closest('.fld').style.display = bat ? '' : 'none';
+  if (!oGia) return '';
+  /* Nhãn đổi theo: ô bị khoá mà vẫn ghi "Giá niêm yết" thì dễ tưởng đó là
+     giá của hãng — hai con số khác nhau đúng bằng phần voucher. */
+  const nhan = oGia.closest('.fld').querySelector('label');
+  if (nhan && !nhan.dataset.goc) nhan.dataset.goc = nhan.innerHTML;
+  if (nhan) nhan.innerHTML = bat && giaHang ? '🔒 Giá treo trên Shopee — app tự tính' : nhan.dataset.goc;
+  if (!bat || !giaHang){
+    oGia.readOnly = false; oGia.classList.remove('locked');
+    return bat ? `<div class="warn" style="margin-bottom:6px">🔒 Điền <b>giá niêm yết của hãng</b> để app tính giá treo Shopee.</div>` : '';
+  }
+  const p = giaShopee(giaHang, vPct);
+  oGia.value = p.toLocaleString('vi-VN');
+  oGia.readOnly = true; oGia.classList.add('locked');
+  const tra = p - Math.round(p * vPct / 100);
+  return `<div style="margin-bottom:6px">🔒 Giá treo Shopee <b>${money(p)}</b> = giá hãng ${money(giaHang)}${
+    vPct ? ` ÷ (1 − ${ratePct(vPct)} voucher)` : ''} · khách dùng voucher trả <b>${money(tra)}</b>${
+    tra > giaHang ? ` <span class="dim">(cao hơn giá hãng ${money(tra - giaHang)} vì làm tròn lên nghìn)</span>` : ''}${
+    vPct ? '' : ` <span class="dim">— chưa đặt voucher shop nên giá treo bằng đúng giá hãng</span>`}</div>`;
 }
 
 /* Combo dựng từ một sản phẩm chính.
@@ -4009,7 +4064,8 @@ function sizeForm(pid, sid){
                  : (cu.name || 'Sửa size'),
     wide: true,
     saveLabel: isNew ? 'Thêm size' : 'Lưu',
-    values: cu || {name:'', cost: dau ? c.cost : 0, price: dau ? parseMoney(p.price) : 0, note:''},
+    values: cu || {name:'', cost: dau ? c.cost : 0, price: dau ? parseMoney(p.price) : 0, note:'',
+                   giaHang: dau && c.giuGia ? c.giaHang : 0},
     extra: dau
       ? `<div class="explain">Từ lúc có size, <b>giá vốn và giá bán ở bản ghi gốc không dùng tới nữa</b> —
          mỗi size tự mang số của nó. Hai ô dưới đã điền sẵn số đang có của ${esc(p.name)} để bạn
@@ -4021,6 +4077,8 @@ function sizeForm(pid, sid){
       {k:'name', l:'Tên size', t:'text', req:true, ph:'100gr'},
       {k:'cost', l:'Giá vốn của size này', t:'money', half:true, ph:'90.000',
        hint:'Mua vào, đã gồm ship về kho'},
+      c.giuGia ? {k:'giaHang', l:'Giá niêm yết của hãng cho size này', t:'money', half:true, ph:'189.000',
+                  hint:'Sản phẩm này đang 🔒 giữ giá hãng — giá treo Shopee app tự tính'} : null,
       {k:'price', l:'Giá niêm yết của size này', t:'money', half:true, ph:'189.000'},
       {k:'note', l:'Ghi chú', t:'textarea', rows:2}
     ],
@@ -4031,7 +4089,9 @@ function sizeForm(pid, sid){
       if (!Array.isArray(rec.sizes)) rec.sizes = [];
       const o = cu ? rec.sizes.find(x => x.sid === cu.sid) : {sid: uid()};
       const vonCu = cu ? cu.cost : 0;
-      Object.assign(o, {name: v.name.trim(), cost: v.cost, price: v.price, note: v.note});
+      if (c.giuGia && v.giaHang) v.price = giaShopee(v.giaHang, c.voucherPct);
+      Object.assign(o, {name: v.name.trim(), cost: v.cost, price: v.price, note: v.note,
+                        giaHang: c.giuGia ? v.giaHang : (cu ? cu.giaHang || 0 : 0)});
       if (!cu) rec.sizes.push(o);
       /* Size đầu tiên kế thừa giá vốn gốc — nên kế thừa luôn lịch sử của nó.
          Dời các dòng sổ sang size này chứ không chép: chép là hai bản lịch sử
@@ -4069,11 +4129,12 @@ function sizeForm(pid, sid){
   el.querySelector('.mbody').appendChild(box);
   const doc = () => {
     const g = k => { const i = el.querySelector(`[data-f="${k}"]`); return i ? i.value : ''; };
+    const khoa = c.giuGia ? giuGiaO(el, parseMoney(g('giaHang')), c.voucherPct, true) : '';
     const x = costFrom({gia: parseMoney(g('price')), F: shopFees(shopOf(c.shopId)),
                         vPct: c.voucherPct, feePct: c.feePct, pack: c.packCost,
                         von: parseMoney(g('cost')), gift: c.gift});
-    if (!x){ box.innerHTML = 'Điền <b>giá niêm yết</b> thì ô này hiện kết quả ngay khi bạn gõ.'; return; }
-    box.innerHTML = `Giá bán thực <b>${money(x.gbt)}</b> · Shopee giữ <b>${money(x.tongPhi)}</b> ·
+    if (!x){ box.innerHTML = khoa + 'Điền <b>giá niêm yết</b> thì ô này hiện kết quả ngay khi bạn gõ.'; return; }
+    box.innerHTML = khoa + `Giá bán thực <b>${money(x.gbt)}</b> · Shopee giữ <b>${money(x.tongPhi)}</b> ·
       thực nhận <b>${money(x.thucNhan)}</b><br>` + (x.lo
         ? `<span class="bad"><b>Lỗ ${money(-x.lai)} mỗi đơn dù không chạy quảng cáo.</b></span>`
         : `Lãi mỗi đơn <b>${money(x.lai)}</b> · ACOS max <b>${pctText(x.acos, 1)}</b> ·
