@@ -253,8 +253,8 @@ const Gate = (() => {
     }
     el.innerHTML = `
       <form class="gatebox" id="gateform">
-        <div class="logo lg">KH</div>
-        <h1>KOL Hub</h1>
+        <div class="logo lg">MH</div>
+        <h1>Marketing Hub</h1>
         <p class="dim">Nhập tên và mật khẩu tài khoản của bạn.</p>
         <input id="gatenm" type="text" autocomplete="username"
                placeholder="Tên tài khoản" autofocus>
@@ -332,4 +332,4 @@ const Gate = (() => {
 })();
 window.Gate = Gate;
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/api.js", "bac7050a"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/api.js", "d6ca3f68"]);

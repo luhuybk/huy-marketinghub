@@ -401,7 +401,7 @@ function tgTaskKeys(array $t): array {
 /* Tin mở đầu mỗi luồng, để trong group biết đợt nhắc này của mảng nào */
 function tgFeedHead(string $feed, int $n, string $todayYmd): string {
   $label = TG_FEED_LABEL[$feed] ?? $feed;
-  return '<b>KOL Hub · ' . tgEsc($label) . '</b> — ' . date('d/m/Y', (int)strtotime($todayYmd))
+  return '<b>Marketing Hub · ' . tgEsc($label) . '</b> — ' . date('d/m/Y', (int)strtotime($todayYmd))
        . "\n" . $n . ' việc tới hạn.';
 }
 

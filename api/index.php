@@ -1,6 +1,6 @@
 <?php
 /* ============================================================
-   KOL Hub — API đăng nhập + đồng bộ, chạy trên hosting PHP.
+   Marketing Hub — API đăng nhập + đồng bộ, chạy trên hosting PHP.
 
    Một điểm vào duy nhất: nhận JSON, trả JSON.
    Dữ liệu nằm ở máy chủ nên đây mới là thứ thật sự bảo vệ nó —
@@ -505,7 +505,7 @@ switch ($action) {
       [$chat, $topic] = tgTarget($c, $f);
       if ($chat === '') { if (count($list) === 1) fail('Luồng này chưa có chat id.'); continue; }
       [$ok, $msg] = tgSend($c['token'], $chat,
-        '✅ <b>KOL Hub · ' . TG_FEED_LABEL[$f] . "</b>\nLuồng này nối được rồi. Mỗi ngày lúc "
+        '✅ <b>Marketing Hub · ' . TG_FEED_LABEL[$f] . "</b>\nLuồng này nối được rồi. Mỗi ngày lúc "
         . (int)$c['feeds'][$f]['hour'] . ' giờ bạn sẽ nhận việc ở đây.', $topic);
       if (!$ok) fail(TG_FEED_LABEL[$f] . ': ' . $msg);
       $sent[] = TG_FEED_LABEL[$f];
@@ -529,7 +529,7 @@ switch ($action) {
     $body = mb_substr((string)($in['text'] ?? ''), 0, 3500, 'UTF-8');
     if (trim($body) === '') fail('Không có gì để gửi.');
     $text = "📊 <b>Báo cáo quảng cáo</b>\n<i>" . tgEsc($u['name'] ?? 'nhân viên')
-          . " gửi từ KOL Hub</i>\n\n" . tgEsc($body);
+          . " gửi từ Marketing Hub</i>\n\n" . tgEsc($body);
     [$ok, $msg] = tgSend($c['token'], $chat, $text, $topic);
     if (!$ok) fail('Telegram: ' . $msg);
     out(['ok' => true]);

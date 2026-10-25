@@ -3517,6 +3517,18 @@ function brandCard(t){
 
    Con KHÔNG có size vẫn chạy y như trước: combo treo thẳng dưới sản phẩm,
    đúng một cấp. Không bắt ai phải tạo một size giả chỉ để có chỗ treo combo. */
+/* Dấu 🔒 giữ giá hãng trên dòng sản phẩm. Thiếu giá hãng thì đổi sang chip
+   cảnh báo: đã tick giữ giá mà chưa có giá hãng nghĩa là giá treo vẫn đang
+   là số gõ tay — đúng thứ dễ phá giá nhất. */
+function giuGiaChip(c){
+  if (!c || !c.giuGia) return '';
+  const szs = c.sizes || [];
+  const thieu = szs.length ? szs.filter(z => !z.giaHang).length : (c.giaHang ? 0 : 1);
+  return thieu
+    ? ` <span class="chip warn" title="đã bật giữ giá hãng nhưng chưa điền giá hãng${szs.length ? ' cho ' + thieu + ' size' : ''}">🔒 thiếu giá hãng</span>`
+    : ` <span class="chip acc" title="hãng bắt giữ giá niêm yết — giá treo = giá hãng + voucher shop">🔒 giá hãng</span>`;
+}
+
 function costRow(r, pjId){
   const p = r.p, c = r.c;
   const szs = c ? (c.sizes || []) : [];
@@ -3546,7 +3558,7 @@ function costRow(r, pjId){
     const lo = dv.filter(u => u.x.lo).length;
     h = `<tr data-act="costsp" data-id="${p.id}">
       <td class="nw"><b>${esc(p.name)}</b>
-        <span class="chip">${szs.length} size</span>${
+        <span class="chip">${szs.length} size</span>${giuGiaChip(c)}${
         lo ? ` <span class="chip bad">${lo} lỗ sẵn</span>` : ''}${
         c && +c.feePct > 0 ? ` <span class="chip" title="con này đặt riêng, không theo bảng phí của gian hàng">phí ${ratePct(c.feePct)}</span>` : ''}${
         c && c.gift ? ` <span class="chip">🎁 ${moneyShort(c.gift)}</span>` : ''} ${nut}</td>
@@ -3563,7 +3575,7 @@ function costRow(r, pjId){
         <td colspan="9" class="dim">chưa điền giá bán nên chưa tính được — bấm để điền</td></tr>` +
         (mo ? costRowFoot(p, szs.length) : '');
     h = `<tr data-act="costsp" data-id="${p.id}">
-      <td class="nw"><b>${esc(p.name)}</b>${x.thieuVon
+      <td class="nw"><b>${esc(p.name)}</b>${giuGiaChip(c)}${x.thieuVon
         ? ` <span class="chip warn">chưa có giá vốn</span>` : ''}${
         c && +c.feePct > 0
           ? ` <span class="chip" title="con này đặt riêng, không theo bảng phí của gian hàng">phí ${ratePct(c.feePct)}</span>` : ''}${
@@ -4016,7 +4028,16 @@ function rivalBlock(p, x){
   if (re){
     const d = re.duoi;
     const duoc = bi.filter(z => z.duoi && !z.duoi.lo).sort((a,b) => a.r.price - b.r.price)[0];
-    h += `<div class="explain ${d && d.lo ? 'warn' : ''}" style="margin-top:10px">
+    /* Giữ giá hãng: không có chuyện hạ giá. Khuyên "hạ về 150k" cho một con
+       hãng bắt bán 189k là khuyên đi nhận cảnh cáo phá giá. */
+    const khoaGia = x.giuGia && x.giaHang && re.r.price < x.giaHang;
+    if (khoaGia)
+      h += `<div class="explain" style="margin-top:10px">Đang đắt hơn <b>${esc(re.r.name || 'đối thủ rẻ nhất')}</b>
+        ${moneyShort(re.gap)} (${pctText(Math.abs(re.gapPct), 0)}), nhưng con này <b>🔒 hãng bắt giữ giá
+        ${money(x.giaHang)}</b> — không được hạ giá khách trả xuống dưới mức đó. Không đuổi bằng giá được,
+        phải đánh bằng thứ khác: quà kèm, combo, hoặc nội dung. Đối thủ bán dưới giá hãng là họ đang
+        phá giá — có thể báo hãng.</div>`;
+    else h += `<div class="explain ${d && d.lo ? 'warn' : ''}" style="margin-top:10px">
       Đang đắt hơn <b>${esc(re.r.name || 'đối thủ rẻ nhất')}</b> ${moneyShort(re.gap)}
       (${pctText(Math.abs(re.gapPct), 0)}). ${!d ? ''
         : d.lo ? `Hạ về ${moneyShort(re.r.price)} là <b>lỗ ${moneyShort(-d.lai)} mỗi đơn</b> dù
@@ -4198,7 +4219,7 @@ function viewCostSp(id){
      người ta hay tự hỏi "sửa giá vốn đây thì ảnh hưởng chỗ nào nữa". */
   const trongPj = projsOfProduct(p.id);
   h += `<div class="card">
-    <h2>${esc(p.name)}</h2>
+    <h2>${esc(p.name)}${giuGiaChip(c)}</h2>
     <div class="dim">${esc(p.brand || 'chưa gắn thương hiệu')}${
       c && c.shopId ? ' · ' + esc(shopName(c.shopId)) : ' · chưa xếp gian hàng'}${
       p.sku ? ' · SKU ' + esc(p.sku) : ''}</div>
@@ -4247,13 +4268,20 @@ function viewCostSp(id){
   /* ---- bảng bóc phí, dựng đúng thứ tự Shopee ghi trên đơn ---- */
   h += `<div class="mod">` + moduleHead('🧾', 'Bóc từng khoản' + (cb ? ' — ' + (cb.name || 'combo') : sz ? ' — ' + (sz.name || 'size') : ''),
     'đặt cạnh một đơn thật trong Kênh Người Bán là đối chiếu được từng dòng');
-  h += `<div class="tblwrap"><table class="tbl sm ptbl"><tbody>
-    <tr><td class="nw">Giá niêm yết</td><td class="dim">giá treo trên trang</td>
+  const hang = x.giuGia && x.giaHang;
+  h += `<div class="tblwrap"><table class="tbl sm ptbl"><tbody>` +
+    (hang ? `<tr><td class="nw">🔒 Giá niêm yết của hãng</td><td class="dim">hãng bắt bán đúng giá này — khách trả không được thấp hơn</td>
+        <td class="r"><b>${money(x.giaHang)}</b></td></tr>` : '') +
+    `<tr${hang ? ' class="rowon"' : ''}><td class="nw">${hang ? '<b>Giá treo trên Shopee</b>' : 'Giá niêm yết'}</td><td class="dim">${hang
+          ? 'giá hãng ÷ (1 − ' + ratePct(x.vPct) + ' voucher), làm tròn lên nghìn — <b>đặt đúng số này trên Shopee</b>'
+          : 'giá treo trên trang'}</td>
         <td class="r"><b>${money(x.gia)}</b></td></tr>
     <tr><td class="nw">Voucher của shop</td><td class="dim">${x.vPct ? ratePct(x.vPct) + ' mình tự đặt' : 'không đặt'}</td>
         <td class="r">${x.vou ? '−' + money(x.vou) : money(0)}</td></tr>
     <tr class="rowon"><td class="nw"><b>Giá bán thực</b></td>
-        <td class="dim">mốc để tính mọi phí phần trăm bên dưới</td>
+        <td class="dim">${hang ? 'khách trả sau voucher — ' + (x.gbt >= x.giaHang
+          ? '<span class="ok">✓ không thấp hơn giá hãng</span>' : '<span class="bad">THẤP HƠN giá hãng</span>')
+          : 'mốc để tính mọi phí phần trăm bên dưới'}</td>
         <td class="r"><b>${money(x.gbt)}</b></td></tr>` +
     x.lines.map(l => `<tr><td class="nw">${esc(l.l)}</td><td class="dim">${esc(l.sub)}</td>
         <td class="r">−${money(l.v)}</td></tr>`).join('') +
@@ -5111,4 +5139,4 @@ function viewSettings(){
   return h;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "bac7050a"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "d6ca3f68"]);

@@ -1,6 +1,6 @@
 {
-  "name": "KOL Hub — booking & Shopee Ads",
-  "short_name": "KOL Hub",
+  "name": "Marketing Hub — KOC, bài đăng, Shopee Ads & chi phí",
+  "short_name": "Marketing Hub",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
