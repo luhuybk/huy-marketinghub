@@ -787,6 +787,70 @@ sửa một dòng nào ở máy chủ — đã kiểm cả hai: nút *Xong* trê
 
 ---
 
+## 🚀 Hàng mới về
+
+Chữa đúng một chuyện: hàng về rồi mà quên up, up rồi mà quên chạy quảng cáo.
+Mỗi lần hàng về tạo một **đợt** (brand, ngày về, danh sách sản phẩm — dán thẳng
+từ file báo giá được, mỗi dòng một con). Trang hiện một bảng: hàng là sản phẩm,
+cột là bước, mỗi ô là *✓ ngày xong · ⏳ chờ số liệu · còn N ngày · trễ N ngày*.
+
+| Bước | Hạn mặc định | Đóng khi |
+|---|---|---|
+| 💰 Tính giá vốn & ROAS | ngày hàng về | Sổ giá vốn có giá vốn + giá bán (ô hiện luôn ROAS hoà vốn, hoặc 🔴 đang lỗ) |
+| 📸 Hình & video | +2 ngày | người làm tự đánh dấu (tick được cả đợt một lần) |
+| 🛒 Up lên Shopee | +2 ngày | sản phẩm có link hoặc mã Shopee — dán link là app tự lấy mã |
+| 📊 Chạy quảng cáo | +3 ngày | file Shopee Ads (tháng hoặc ngày) có chiến dịch mang mã sản phẩm |
+| 🎬 Clip / bài đăng | +7 ngày | có bài đăng gắn sản phẩm |
+| 🔒 Hãng có bắt giữ giá? | ngày hàng về | trả lời một lần cho brand — *chỉ đợt brand mới* |
+| 📄 Uỷ quyền thương hiệu · 🎟 Voucher shop | +3 ngày | tự đánh dấu — *chỉ đợt brand mới* |
+
+**Bước tự kiểm không có nút "xong".** Quên đã dở, bấm xong cho qua còn dở hơn vì
+từ đó không ai nhắc nữa. Bước quảng cáo phải chờ file Ads, nên người chạy bấm
+*Đã bật quảng cáo* để ô sang **⏳ chờ số liệu** (không bị nhắc), rồi ô thành ✓
+khi file nạp vào có chiến dịch khớp mã. Quảng cáo và bài đăng chỉ tính từ tháng
+hàng về (bài lùi 30 ngày, vì clip quay từ hàng mẫu hay lên trước) — con cũ về
+thêm đợt mà quảng cáo đã tắt từ năm ngoái thì không được coi là đang chạy.
+
+**🔒 Giữ giá theo brand.** Trả lời *Có* ở bước 🔒 là thương hiệu được đánh dấu
+(`brands.giuGia = 'yes'`), mọi sản phẩm của brand đã có giá vốn bật 🔒, và con
+nào thêm vào Tính chi phí về sau cũng bật sẵn. Chỉ bật, không tắt: trả lời
+*Không* không gỡ 🔒 bạn đã tự bật ở một con nào đó.
+
+**Phân công** (nút ⚙ Các bước & phân công, chỉ chủ): mỗi bước một người làm,
+một hạn, bật/tắt, và thêm bước của riêng bạn. Đợt nào cần giao khác thì sửa
+riêng trong đợt. Nhân viên cần quyền **Hàng mới về**; trên trang Hôm nay họ chỉ
+thấy việc giao cho mình (và việc chưa giao cho ai), nút **👤 Việc của tôi** lọc
+bảng còn đúng các cột của mình.
+
+**Nhắc** đi chung luồng Telegram 🛍 Sản phẩm, **gộp theo (đợt, bước)**: *"Đợt X —
+Up lên Shopee: còn 3/4 sản phẩm · phụ trách Minh · tên 3 con đầu"*. Nhắc từng
+con thì một brand 20 sản phẩm là 20 tin nhắn. Nút dời hạn ghi vào
+`launches.dueOv.<bước>` — app và `api/tg.php` cùng ghi được đường dẫn đó.
+
+### Ba bộ dữ liệu, và vì sao tách
+
+- `launches` — mỗi đợt một bản.
+- `lsteps` — chỉ phần bạn **đổi** trên bộ bước mặc định (bộ mặc định nằm trong
+  mã, `LAUNCH_STEPS`), cộng bước tự thêm. Không ghi sẵn bộ mặc định vào dữ liệu:
+  hai máy cùng tạo là ra hai bản.
+- `lmarks` — mỗi ô đã xong một bản ghi, id `lm_<đợt>_<sp>_<bước>`. Không nhét
+  vào `launches` vì đồng bộ là *bản mới hơn thắng* theo từng bản ghi — hai người
+  tick hai ô của cùng một đợt thì một ô sẽ mất. Bỏ dấu dùng `off`, không dùng
+  `deleted`, vì nhân viên không được xoá gì trên máy chủ.
+
+Cả ba cần quyền `launch` (khai trong `KH_KIND_PERM` ở `api/lib.php` **và**
+`serve.js`).
+
+**Ai ghi dấu "đã xong".** Bằng chứng chỉ máy có quyền mới thấy — giá vốn ở máy
+có quyền Tính chi phí, chiến dịch ở máy có quyền Ads. `launchAutoMarks()` chạy
+trong `save()` và sau mỗi lần kéo dữ liệu: máy nào thấy bằng chứng thì ghi dấu
+cho máy khác cùng thấy. Dấu ROAS mang theo **ROAS hoà vốn nhưng không mang giá
+vốn** — người chạy quảng cáo biết ngưỡng mà không biết vốn. Hàm chỉ ghi chiều
+*có*, không bao giờ ghi *chưa*: một máy chưa kéo đủ dữ liệu không được xoá dấu
+của máy khác. Đợt đã khép thì thôi dò, chỉ đọc dấu.
+
+---
+
 ## Tài khoản & quyền
 
 Mỗi người một tài khoản có tên, tạo trong **Cài đặt → Người dùng**. Đăng nhập

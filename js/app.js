@@ -10,6 +10,7 @@
 /* `perm` là quyền cần có để thấy mục này. Không khai perm = ai cũng thấy. */
 const NAV = [
   {id:'today',    icon:'✓', label:'Hôm nay'},
+  {id:'launch',   icon:'🚀',label:'Hàng mới về',  perm:'launch'},
   {id:'dash',     icon:'◈', label:'Tổng quan',    perm:'dash'},
   {id:'pipeline', icon:'▤', label:'Booking',      perm:'pipeline'},
   {id:'kols',     icon:'☺', label:'KOL / KOC',    perm:'kols'},
@@ -34,7 +35,8 @@ const TITLES = {today:'Hôm nay', dash:'Tổng quan', pipeline:'Booking', kols:'
                 review:'Cần bạn duyệt', settings:'Cài đặt', kol:'Hồ sơ KOC', product:'Sản phẩm',
                 sp:'Sức khoẻ trên Shopee', adreport:'Báo cáo quảng cáo',
                 adcamp:'Chiến dịch', keywords:'Đánh top từ khoá', kw:'Dự án từ khoá',
-                cost:'Tính chi phí', costsp:'Chi phí sản phẩm', pj:'Dự án'};
+                cost:'Tính chi phí', costsp:'Chi phí sản phẩm', pj:'Dự án',
+                launch:'Hàng mới về'};
 /* Trang chỉ chủ mở được. Nhân viên gõ thẳng đường dẫn cũng bị đưa về Hôm nay. */
 const OWNER_PAGES = ['settings', 'review'];
 /* Trang con mở từ một trang chính — quyền đi theo trang cha. */
@@ -106,6 +108,7 @@ function render(){
       case 'ads':      html = viewAds(); break;
       case 'improve':  html = viewImprove(); break;
       case 'newprod':  html = viewNewProd(); break;
+      case 'launch':   html = viewLaunch(route.id); break;
       case 'sp':       html = viewSp(route.id); break;
       case 'compare':  html = viewCompare(); break;
       case 'product':  html = viewProduct(route.id); break;
@@ -181,11 +184,12 @@ function renderSide(){
     ads: products().filter(p => ['due','overdue'].includes(trackState(p.id).key)).length,
     improve: openImpacts().filter(im => dayDiff(im.reviewAt) <= 0).length,
     newprod: dueIdeas().length,
+    launch: reminderTasks().filter(t => t.id.startsWith('ln_') && t.due <= today()).length,
     dash: alerts().filter(a => a.level === 'bad').length,
     today: todayCount(),
     review: reviewCount()
   };
-  const hot = {dash:1, ads:1, today:1, improve:1, postfb:1, posttt:1};
+  const hot = {dash:1, ads:1, today:1, improve:1, postfb:1, posttt:1, launch:1};
   const active = route.page === 'kol' ? 'kols' : route.page === 'product' ? 'ads'
                : route.page === 'sp' ? 'improve' : route.page === 'kw' ? 'keywords'
                : route.page === 'costsp' || route.page === 'pj' ? 'cost' : route.page;
@@ -815,12 +819,12 @@ function askPostFlow(){
       <button class="btn sm" data-act="closem">Huỷ</button></div>`);
 }
 
-function postForm(p, presetFlow){
+function postForm(p, presetFlow, presetPids){
   const isNew = !p;
   const flow  = POST_FLOWS[isNew ? presetFlow : p.flow] ? (isNew ? presetFlow : p.flow) : 'fb';
   const F     = POST_FLOWS[flow];
   p = p || {flow, date: today(), poster:'', title:'', url:'', reupUrl:'', reupAt:'',
-            productIds:[], channels:[], note:''};
+            productIds: presetPids || [], channels:[], note:''};
 
   const ps  = products().filter(x => !x.archived || (p.productIds || []).includes(x.id))
     .sort((a,b) => norm((a.brand || '~') + a.name).localeCompare(norm((b.brand || '~') + b.name), 'vi'));
@@ -3417,7 +3421,8 @@ function costSpForm(id){
     voucherPct: c ? c.voucherPct : Fmd.voucherPct,
     feePct: c ? c.feePct : 0, packCost: c ? c.packCost : 0,
     note: c ? c.note : '',
-    giuGia: c ? !!c.giuGia : false, giaHang: c ? c.giaHang : 0,
+    /* Con mới của một brand đã khai "bắt giữ giá" thì bật sẵn 🔒 */
+    giuGia: c ? !!c.giuGia : brandGiuGia(p ? p.brand : ''), giaHang: c ? c.giaHang : 0,
     /* Thêm sản phẩm từ chính tab Key SKU thì gần như chắc chắn là đang thêm
        một con hero — đánh dấu sẵn, khỏi phải bấm thêm một nút nữa. */
     hero: c ? !!c.hero : ui.costTab === 'hero'
@@ -4183,6 +4188,432 @@ function costFeeCopy(fromId){
   });
 }
 
+/* ============================================================
+   HÀNG MỚI VỀ — biểu mẫu
+   ============================================================ */
+const myName = () => (window.Server && Server.name && Server.name()) || '';
+
+/* Ô chọn người phụ trách. Không đọc được danh sách tài khoản thì gõ tay,
+   giống bên việc làm trên chiến dịch. */
+function whoField(k, l, macDinh){
+  const nguoi = nameCfg || [];
+  return nguoi.length
+    ? {k, l, t:'select', half:true,
+       opts: [['', macDinh || '— chưa giao cho ai —']].concat(nguoi.map(u => [u.id, u.name]))}
+    : {k: k + 'Name', l, t:'text', half:true, ph:'gõ tên người phụ trách'};
+}
+/* Đọc lại ô trên thành {who, whoName}. Giữ cả tên chứ không chỉ id: nhắc
+   việc phải đọc được lúc mất mạng, và tin Telegram cần tên chứ không cần id. */
+function whoRead(v, k){
+  if (v[k] !== undefined){
+    const u = (nameCfg || []).find(x => x.id === v[k]);
+    return {who: v[k] || '', whoName: u ? u.name : ''};
+  }
+  return {who: '', whoName: String(v[k + 'Name'] || '').trim()};
+}
+
+/* Mã sản phẩm Shopee nằm ngay trong link: …-i.<shop>.<item> hoặc
+   /product/<shop>/<item>. Đó chính là "Mã sản phẩm" trong file Shopee Ads,
+   nên lấy được mã là quảng cáo về sau tự khớp vào sản phẩm. */
+function shopeeItemId(url){
+  const s = String(url || '');
+  const m = s.match(/-i\.(\d+)\.(\d+)/) || s.match(/\/product\/(\d+)\/(\d+)/);
+  if (m) return m[2];
+  const q = s.match(/[?&]itemid=(\d+)/i);
+  return q ? q[1] : '';
+}
+
+function launchForm(L){
+  const isNew = !L;
+  const chu = isOwner();
+  const ds = (may('ads') || may('cost')) ? shops().filter(s => !s.archived) : [];
+  L = L || {name:'', date: today(), brand:'', shopId: ds.length === 1 ? ds[0].id : '',
+            pids:[], newBrand:false, note:'', closed:false, who:{}, whoName:{}};
+  const ps = products().filter(x => !x.archived || L.pids.includes(x.id))
+    .sort((a,b) => norm((a.brand || '~') + a.name).localeCompare(norm((b.brand || '~') + b.name), 'vi'));
+  const steps = launchSteps();
+  const values = Object.assign({}, L, {productIds: L.pids});
+  steps.forEach(st => { values['who_' + st.id] = L.who[st.id] || ''; values['who_' + st.id + 'Name'] = L.whoName[st.id] || ''; });
+
+  formModal({
+    title: isNew ? 'Đợt hàng mới về' : 'Sửa đợt ' + launchName(L),
+    values, wide: true,
+    saveLabel: isNew ? 'Tạo đợt' : 'Lưu',
+    extra: `<div class="explain">Mỗi sản phẩm trong đợt sẽ có các bước:
+      ${steps.filter(s => s.scope === 'sp').map(s => s.icon + ' ' + esc(s.label) +
+        ' <span class="dim">(' + (s.days ? '+' + s.days + ' ngày' : 'ngay hôm về') + ')</span>').join(' · ')}.
+      Hạn tính từ <b>ngày hàng về</b>. Bước nào quá hạn thì app nhắc ở trang Hôm nay và qua Telegram —
+      gộp theo đợt, không nhắc từng sản phẩm.</div>`,
+    fields: [
+      {k:'brand', l:'Thương hiệu', t:'text', half:true, list: allBrands(),
+       ph:'chọn hoặc gõ tên brand mới'},
+      {k:'date', l:'Ngày hàng về', t:'date', half:true, req:true},
+      {k:'name', l:'Tên đợt', t:'text', half:true, ph:'để trống = Brand · ngày về'},
+      ds.length ? {k:'shopId', l:'Gian hàng', t:'select', half:true,
+                   opts: [['', '— không ghi —']].concat(ds.map(s => [s.id, s.name]))} : null,
+      {k:'newBrand', l:'', t:'check',
+       ph:'Brand mới — thêm các bước làm một lần cho cả brand (giữ giá, uỷ quyền, voucher)',
+       hint:'Gõ một brand chưa có trong app thì app tự tick ô này'},
+      {k:'productIds', l:'Sản phẩm trong đợt', t:'pick', allowNew:true, newLabel:'sản phẩm',
+       brands: allBrands(),
+       opts: ps.map(x => ({id:x.id, name:x.name, brand:x.brand || '',
+                           label:(x.brand ? x.brand + ' · ' : '') + x.name,
+                           sub: x.sku || x.shopeeSku || ''})),
+       ph:'Gõ tên để tìm — chưa có thì gõ tên rồi bấm Enter',
+       emptyHint:'Chưa chọn sản phẩm nào',
+       hint:'sản phẩm gõ thêm mà không chọn thương hiệu thì lấy thương hiệu của đợt'},
+      {k:'paste', l:'Hoặc dán cả danh sách', t:'textarea', rows:4,
+       ph:'mỗi dòng một sản phẩm — copy thẳng từ file báo giá của hãng',
+       hint:'tên đã có trong app thì nối vào, không tạo trùng · dán từ Excel thì lấy cột đầu'},
+      chu ? {t:'sec', l:'Giao riêng cho đợt này (để trống = theo mặc định)'} : null,
+      ...(chu ? steps.map(st => whoField('who_' + st.id, st.icon + ' ' + st.label,
+                 '— mặc định' + (st.whoName ? ': ' + st.whoName : ': chưa giao') + ' —')) : []),
+      {k:'note', l:'Ghi chú', t:'textarea', rows:2, ph:'số lượng về · điều kiện của hãng…'},
+      isNew ? null : {k:'closed', l:'', t:'check',
+        ph:'Khép đợt này — thôi nhắc, chuyển xuống mục đã khép'}
+    ],
+    onSave(v){
+      if (!v.date){ toast('Chọn ngày hàng về'); return false; }
+      const bCu = brandByName(String(v.brand || '').trim());
+      const brand = bCu ? bCu.name : String(v.brand || '').trim();
+      const sp = v.productIds || {ids:[], moi:[]};
+      /* Dán từ file báo giá: bỏ gạch đầu dòng, số thứ tự, và các cột sau
+         dấu tab. KHÔNG bỏ mọi chữ số đầu dòng — "3CE Velvet" là tên thật. */
+      const dong = String(v.paste || '').split(/\r?\n/)
+        .map(x => x.split('\t')[0].replace(/^\s*(?:[-•*+]|\d+[.)])\s+/, '').trim())
+        .filter(Boolean);
+      const moi = sp.moi.map(m => ({name: m.name, brand: m.brand || brand}))
+        .concat(dong.map(n => ({name: n, brand})));
+      if (!sp.ids.length && !moi.length){ toast('Chưa có sản phẩm nào trong đợt'); return false; }
+
+      let brandMoi = false;
+      if (brand && !bCu){ db.brands.push(stamp({name: brand, note:'', color:''})); brandMoi = true; }
+      const ids = sp.ids.slice(), taoMoi = [];
+      moi.forEach(m => {
+        const cu = products().find(x => norm(x.name) === norm(m.name) && (!m.brand || x.brand === m.brand));
+        if (cu){ ids.push(cu.id); return; }
+        const pr = stamp({name: m.name, brand: m.brand, archived:false});
+        db.products.push(pr); ids.push(pr.id); taoMoi.push(pr.name);
+      });
+      if (taoMoi.length) linkProducts();
+
+      const rec = isNew ? stamp({who:{}, whoName:{}, dueOv:{}}) : db.launches.find(x => x.id === L.id);
+      if (!rec) return;
+      rec.name = String(v.name || '').trim();
+      rec.date = v.date;
+      rec.brand = brand;
+      if (v.shopId !== undefined) rec.shopId = v.shopId;
+      rec.newBrand = !!v.newBrand || brandMoi;
+      rec.pids = [...new Set(ids)];
+      rec.note = v.note || '';
+      if (!isNew) rec.closed = !!v.closed;
+      if (chu){
+        rec.who = {}; rec.whoName = {};
+        steps.forEach(st => {
+          const w = whoRead(v, 'who_' + st.id);
+          if (w.who || w.whoName){ rec.who[st.id] = w.who; rec.whoName[st.id] = w.whoName; }
+        });
+      }
+      stamp(rec);
+      if (isNew) db.launches.push(rec);
+      ensure(); save();
+      toast((isNew ? 'Đã tạo đợt · ' + rec.pids.length + ' sản phẩm' : 'Đã lưu') +
+            (taoMoi.length ? ' · thêm mới ' + taoMoi.length + ' sản phẩm' : '') +
+            (brandMoi ? ' · brand mới ' + brand : ''));
+      if (isNew) setTimeout(() => go('launch', rec.id), 80);
+    },
+    onDelete: isNew ? null : () => {
+      if (!confirm('Xoá đợt "' + launchName(L) + '"?\n\nSản phẩm vẫn giữ nguyên, chỉ mất bảng việc của đợt này.')) return false;
+      const rec = db.launches.find(x => x.id === L.id);
+      rec.deleted = true; stamp(rec); save(); toast('Đã xoá đợt'); go('launch');
+    }
+  });
+}
+
+/* Ghi / bỏ dấu một ô. Bỏ dấu dùng `off` chứ không dùng `deleted`: nhân viên
+   không được xoá gì trên máy chủ, mà bỏ nhầm một dấu thì chính họ phải sửa
+   lại được. */
+function lmarkSet(L, pid, st, o){
+  const id = lmarkId(L.id, pid, st.id);
+  let m = db.lmarks.find(x => x.id === id);
+  if (!m){ m = {id}; db.lmarks.push(m); }
+  Object.assign(m, {launchId: L.id, pid, step: st.id, auto:false, pending:false, off:false,
+    deleted:false, val:null, at: today(), whoName: myName(), note:''}, o || {});
+  stamp(m);
+  return m;
+}
+function launchKey(key){
+  const [lid, pid, sid] = String(key).split('|');
+  const L = launchOf(lid);
+  const st = launchSteps(true).find(s => s.id === sid);
+  if (!L || !st) return null;
+  const p = pid === 'brand' ? null : productOf(pid);
+  if (pid !== 'brand' && !p){ toast('Sản phẩm này đã bị xoá'); return null; }
+  return {L, pid, st, p, c: launchCell(L, pid, st), key};
+}
+/* Hộp thoại chỉ để đọc, kèm vài nút */
+function infoModal(title, body, btns){
+  openModal(title, body, `<div class="btns end">${btns || ''}<div class="grow"></div>
+    <button class="btn sm" data-act="closem">Đóng</button></div>`);
+}
+const lmarkLine = m => m ? 'Đánh dấu ngày ' + fmtDate(m.at) + (m.whoName ? ' · ' + esc(m.whoName) : '') +
+  (m.auto ? ' · app tự ghi khi thấy bằng chứng' : '') + (m.note ? '<br>' + esc(m.note) : '') : '';
+
+function launchCellOpen(key){
+  const k = launchKey(key);
+  if (!k) return;
+  const {L, st, p, c} = k;
+  const tieuDe = st.icon + ' ' + st.label + (p ? ' — ' + p.name : L.brand ? ' — ' + L.brand : '');
+
+  switch (st.kind){
+    case 'roas': {
+      if (may('cost')){ if (c.s === 'done') go('costsp', p.id); else costSpForm(p.id); return; }
+      const r = c.val;
+      infoModal(tieuDe, `<div class="explain">${c.s === 'done'
+        ? (r && r.lo ? '<b class="bad">Đang lỗ ở giá bán hiện tại.</b> Đừng chạy quảng cáo con này trước khi chủ xem lại giá.'
+                     : 'ROAS hoà vốn: <b>' + xText(r && r.roas) + '</b>. Chạy quảng cáo thì đặt ROAS mục tiêu ' +
+                       '<b>cao hơn</b> số này — thấp hơn là mỗi đơn từ quảng cáo đều lỗ.')
+        : 'Bước này cần người có quyền <b>Tính chi phí</b> nhập giá vốn. Nhập xong ô này tự đóng.'}
+        ${launchWho(L, st).whoName ? '<br>Phụ trách: <b>' + esc(launchWho(L, st).whoName) + '</b>' : ''}</div>`);
+      return;
+    }
+    case 'up': return launchUpForm(k, tieuDe);
+    case 'ads': return launchAdsOpen(k, tieuDe);
+    case 'post': {
+      const flow = may('posttt') ? 'tt' : may('postfb') ? 'fb' : '';
+      if (c.s === 'done'){
+        const bs = postsOfProduct(p.id);
+        infoModal(tieuDe, `<div class="explain">${bs.length ? bs.length + ' bài đã gắn sản phẩm này' : 'Đã xong'}</div>` +
+          (bs.length ? `<div class="list">${bs.slice(0, 8).map(b => `<div class="li"><div class="grow">
+            <div class="li-t">${POST_FLOWS[b.flow].icon} ${esc(b.title || 'bài ngày ' + fmtDate(b.date))}</div>
+            <div class="li-s">${esc(fmtDate(b.date))}${b.poster ? ' · ' + esc(b.poster) : ''}</div></div></div>`).join('')}</div>` : ''),
+          flow ? `<button class="btn pri sm" data-act="lpost" data-id="${esc(p.id)}">+ Ghi thêm bài</button>` : '');
+        return;
+      }
+      if (!flow){ toast('Cần quyền Bài TikTok hoặc Bài Facebook để ghi bài'); return; }
+      postForm(null, flow, [p.id]);
+      return;
+    }
+    case 'giugia': return launchGiuGiaForm(k, tieuDe);
+  }
+
+  /* Bước tự đánh dấu */
+  if (c.s === 'done'){
+    infoModal(tieuDe, `<div class="explain">✓ Đã xong. ${lmarkLine(c.m)}</div>`,
+      `<button class="btn sm" data-act="lunmark" data-id="${esc(key)}">Bỏ đánh dấu</button>`);
+    return;
+  }
+  const conLai = p ? launchProducts(L).filter(x => x.id !== p.id && launchCell(L, x.id, st).s === 'open') : [];
+  formModal({
+    title: tieuDe,
+    values: {note:'', all:false},
+    saveLabel: '✅ Đã xong',
+    extra: `<div class="explain">${esc(st.hint || '')}${
+      launchWho(L, st).whoName ? '<br>Phụ trách: <b>' + esc(launchWho(L, st).whoName) + '</b>' : ''}</div>`,
+    fields: [
+      {k:'note', l:'Ghi chú', t:'textarea', rows:2, ph:'để trống cũng được'},
+      conLai.length ? {k:'all', l:'', t:'check',
+        ph:'Đánh dấu luôn cho ' + conLai.length + ' sản phẩm còn lại trong đợt'} : null
+    ],
+    onSave(v){
+      [p ? p.id : 'brand'].concat(v.all ? conLai.map(x => x.id) : [])
+        .forEach(pid => lmarkSet(L, pid, st, {note: v.note || ''}));
+      save();
+      toast('Đã ghi ' + (v.all ? conLai.length + 1 + ' sản phẩm' : ''));
+    }
+  });
+}
+
+function launchUpForm(k, tieuDe){
+  const {p, c} = k;
+  formModal({
+    title: tieuDe,
+    values: {url: p.url, shopeeSku: p.shopeeSku},
+    saveLabel: 'Lưu',
+    extra: `<div class="explain">${c.s === 'done' ? '✓ Sản phẩm đã có trên Shopee. Sửa link hoặc mã ở đây nếu sai.<br>' : ''}
+      Đăng xong thì dán <b>link sản phẩm</b> vào — app tự lấy mã sản phẩm từ link, và ô này tự đóng.
+      Mã này cũng là thứ file Shopee Ads dùng để khớp, nên có nó thì bước chạy quảng cáo về sau
+      cũng tự đóng.</div>`,
+    fields: [
+      {k:'url', l:'Link sản phẩm trên Shopee', t:'url', ph:'https://shopee.vn/…-i.123456.789012'},
+      {k:'shopeeSku', l:'Mã sản phẩm trên Shopee', t:'text', ph:'để trống thì lấy từ link',
+       hint:'là dãy số cuối trong link'}
+    ],
+    onSave(v){
+      const url = String(v.url || '').trim();
+      const ma = String(v.shopeeSku || '').trim() || shopeeItemId(url);
+      if (!url && !ma){ toast('Dán link hoặc mã sản phẩm Shopee'); return false; }
+      const trung = ma && products().find(x => x.id !== p.id && norm(x.shopeeSku) === norm(ma));
+      if (trung){ toast('Mã ' + ma + ' đang gắn với "' + trung.name + '"'); return false; }
+      const rec = db.products.find(x => x.id === p.id);
+      rec.url = url; rec.shopeeSku = ma;
+      stamp(rec); ensure(); save();
+      toast('Đã lưu' + (ma ? ' · mã Shopee ' + ma : ''));
+    }
+  });
+}
+
+function launchAdsOpen(k, tieuDe){
+  const {L, p, st, c, key} = k;
+  const rSt = launchSteps(true).find(s => s.id === 'roas');
+  const r = rSt ? launchCell(L, p.id, rSt).val : null;
+  const roasDong = r ? (r.lo
+      ? '<b class="bad">Sản phẩm đang lỗ ở giá bán hiện tại</b> — chạy quảng cáo là lỗ thêm. Báo chủ xem lại giá trước.'
+      : 'ROAS hoà vốn: <b>' + xText(r.roas) + '</b> — đặt ROAS mục tiêu <b>cao hơn</b> số này.')
+    : 'Chưa tính được ROAS hoà vốn (chưa có giá vốn) — hỏi chủ trước khi đặt ROAS mục tiêu.';
+  const coMa = !!(p.shopeeSku || p.shopeeName);
+
+  if (c.s === 'done'){
+    const cs = may('ads') ? campsOfProduct(p) : [];
+    infoModal(tieuDe, `<div class="explain">✓ File Shopee Ads đã có quảng cáo của sản phẩm này.
+      ${cs.length ? '<br>Chiến dịch: ' + [...new Set(cs.map(x => x.name))].slice(0, 4).map(esc).join(' · ') : ''}
+      <br>${roasDong}</div>`);
+    return;
+  }
+  if (c.s === 'pending'){
+    infoModal(tieuDe, `<div class="explain">⏳ Đã báo bật quảng cáo. ${lmarkLine(c.m)}<br>
+      Ô này thành ✓ khi file Shopee Ads nạp vào có chiến dịch của sản phẩm.${coMa ? ''
+        : '<br><b class="warn">Sản phẩm chưa có mã Shopee</b> nên file Ads chưa khớp được — làm bước Up (dán link) trước.'}
+      <br>${roasDong}</div>`,
+      `<button class="btn sm" data-act="lunmark" data-id="${esc(key)}">Bỏ đánh dấu</button>`);
+    return;
+  }
+  formModal({
+    title: tieuDe,
+    values: {note:''},
+    saveLabel: '✅ Đã bật quảng cáo',
+    extra: `<div class="explain">${roasDong}<br>Bấm nút dưới đây sau khi đã bật. Ô chuyển sang
+      <b>⏳ chờ số liệu</b>, và thành ✓ khi file Shopee Ads nạp vào có chiến dịch của sản phẩm này.${
+      coMa ? '' : '<br><b class="warn">Sản phẩm chưa có mã Shopee</b> — làm bước Up (dán link) trước, không thì file Ads không khớp được.'}</div>`,
+    fields: [
+      {k:'note', l:'Đã đặt thế nào', t:'textarea', rows:2,
+       ph:'tên chiến dịch · ROAS mục tiêu · ngân sách ngày'}
+    ],
+    onSave(v){
+      lmarkSet(L, p.id, st, {pending:true, note: v.note || ''});
+      save(); toast('Đã ghi · chờ file Shopee Ads');
+    }
+  });
+}
+
+function launchGiuGiaForm(k, tieuDe){
+  const {L, st} = k;
+  if (!L.brand){ toast('Đợt này chưa ghi thương hiệu — sửa đợt rồi chọn brand trước'); return; }
+  const b = brandByName(L.brand);
+  formModal({
+    title: tieuDe,
+    values: {ans: b ? b.giuGia : ''},
+    extra: `<div class="explain">Hãng bắt giữ giá thì giá treo trên Shopee phải là
+      <b>giá niêm yết + voucher shop</b>, để khách dùng voucher xong trả đúng giá hãng.
+      Chọn <b>Có</b> là mọi sản phẩm của ${esc(L.brand)} bật 🔒 trong Tính chi phí —
+      kể cả con thêm sau này.</div>`,
+    fields: [
+      {k:'ans', l:'Hãng ' + L.brand + ' có bắt bán đúng giá niêm yết không?', t:'select',
+       opts: [['', '— chưa hỏi được —'], ['yes', '🔒 Có — không được bán thấp hơn giá hãng'],
+              ['no', 'Không bắt']]}
+    ],
+    onSave(v){
+      const rec = b ? db.brands.find(x => x.id === b.id) : null;
+      if (rec){ rec.giuGia = v.ans; stamp(rec); }
+      if (!v.ans){
+        const m = lmarkOf(L.id, 'brand', st.id);
+        if (m){ m.off = true; stamp(m); }
+        save(); return;
+      }
+      lmarkSet(L, 'brand', st, {val: {yes: v.ans === 'yes'}});
+      /* Bật luôn cho những con đã có giá vốn. Chỉ bật, không tắt: "không
+         bắt" mà con nào đó bạn đã tự bật thì đó là chủ ý của bạn. */
+      let n = 0;
+      if (v.ans === 'yes' && may('cost'))
+        products().filter(x => norm(x.brand) === norm(L.brand)).forEach(x => {
+          const c = db.costs.find(y => y.productId === x.id && !y.deleted);
+          if (c && !c.giuGia){ c.giuGia = true; stamp(c); n++; }
+        });
+      ensure(); save();
+      toast(v.ans === 'yes' ? 'Đã ghi · ' + L.brand + ' giữ giá' +
+              (n ? ' · bật 🔒 cho ' + n + ' sản phẩm — nhớ điền giá niêm yết' : '')
+            : 'Đã ghi · ' + L.brand + ' không bắt giữ giá');
+    }
+  });
+}
+
+/* ---- các bước & phân công (chủ) ---- */
+const LDAY_OPTS = [0,1,2,3,4,5,7,10,14,21,30].map(n => [String(n), n ? '+' + n + ' ngày sau khi về' : 'ngay ngày hàng về']);
+function launchStepsForm(){
+  const steps = launchSteps(true);
+  const values = {};
+  steps.forEach(st => {
+    values['on_' + st.id] = !st.off; values['days_' + st.id] = String(st.days);
+    values['who_' + st.id] = st.who; values['who_' + st.id + 'Name'] = st.whoName;
+  });
+  const dong = st => [
+    {t:'sec', l: st.icon + ' ' + st.label + (st.scope === 'brand' ? ' · làm một lần cho brand mới' : '')},
+    whoField('who_' + st.id, 'Ai làm'),
+    {k:'days_' + st.id, l:'Hạn', t:'select', half:true,
+     opts: LDAY_OPTS.some(o => o[0] === String(st.days)) ? LDAY_OPTS : LDAY_OPTS.concat([[String(st.days), '+' + st.days + ' ngày']])},
+    {k:'on_' + st.id, l:'', t:'check', ph:'Dùng bước này' + (st.hint ? ' — ' + st.hint : '')}
+  ];
+  formModal({
+    title: 'Các bước & phân công',
+    values, wide: true,
+    extra: `<div class="explain">Người được giao thấy việc của mình ở trang Hôm nay, và tên họ hiện trong
+      tin Telegram. Đổi ở đây là áp cho mọi đợt — đợt nào cần giao khác thì sửa riêng trong đợt đó.
+      Nhân viên cần quyền <b>Hàng mới về</b> (Cài đặt → Tài khoản) mới mở được trang này.</div>
+      <div class="btns" style="margin-top:10px">${steps.filter(s => s.custom).map(s =>
+        `<button class="btn sm" data-act="lstepedit" data-id="${esc(s.id)}">✏ ${esc(s.label)}</button>`).join('')}
+        <button class="btn sm" data-act="lstepnew">+ Thêm bước</button></div>`,
+    fields: steps.flatMap(dong),
+    onSave(v){
+      let n = 0;
+      steps.forEach(st => {
+        const w = whoRead(v, 'who_' + st.id);
+        const moi = {days: +v['days_' + st.id] || 0, off: !v['on_' + st.id],
+                     who: w.who, whoName: w.whoName, order: st.order};
+        if (moi.days === st.days && moi.off === st.off && moi.who === st.who && moi.whoName === st.whoName) return;
+        let rec = db.lsteps.find(x => x.id === st.id);
+        if (!rec){ rec = {id: st.id, scope: st.scope}; db.lsteps.push(rec); }
+        Object.assign(rec, moi, {deleted:false});
+        stamp(rec); n++;
+      });
+      ensure(); save();
+      toast(n ? 'Đã lưu ' + n + ' bước' : 'Không có gì thay đổi');
+    }
+  });
+}
+function launchStepCustomForm(id){
+  const isNew = !id;
+  const cu = id ? db.lsteps.find(x => x.id === id && !x.deleted) : null;
+  if (id && !cu) return;
+  const st = cu || {label:'', icon:'✅', scope:'sp', days:2, who:'', whoName:''};
+  formModal({
+    title: isNew ? 'Thêm bước' : 'Sửa bước',
+    values: Object.assign({}, st, {days: String(st.days), who_x: st.who, who_xName: st.whoName}),
+    fields: [
+      {k:'label', l:'Tên bước', t:'text', req:true, ph:'vd Viết mô tả chuẩn SEO · Đăng ký Flash Sale'},
+      {k:'icon', l:'Biểu tượng', t:'text', half:true, ph:'✅'},
+      {k:'scope', l:'Làm cho', t:'select', half:true,
+       opts: [['sp', 'từng sản phẩm'], ['brand', 'cả brand (chỉ đợt brand mới)']]},
+      {k:'days', l:'Hạn', t:'select', half:true, opts: LDAY_OPTS},
+      whoField('who_x', 'Ai làm')
+    ],
+    onSave(v){
+      if (!String(v.label || '').trim()){ toast('Đặt tên cho bước'); return false; }
+      const w = whoRead(v, 'who_x');
+      const rec = cu || {id: 'c_' + uid(), order: 900 + db.lsteps.length};
+      Object.assign(rec, {label: v.label.trim(), icon: (v.icon || '✅').trim().slice(0, 4),
+        scope: v.scope, days: +v.days || 0, who: w.who, whoName: w.whoName, off:false});
+      stamp(rec);
+      if (!cu) db.lsteps.push(rec);
+      ensure(); save(); closeAllModals();
+      toast(isNew ? 'Đã thêm bước' : 'Đã lưu');
+    },
+    onDelete: isNew ? null : () => {
+      if (!confirm('Xoá bước "' + st.label + '"? Dấu đã tick ở bước này cũng không hiện nữa.')) return false;
+      cu.deleted = true; stamp(cu); save(); closeAllModals(); toast('Đã xoá bước');
+    }
+  });
+}
+
 const ACTIONS = {
   nav:  id => go(id),
   kol:  id => go('kol', id),
@@ -4337,6 +4768,23 @@ const ACTIONS = {
 
   /* sản phẩm mới */
   newidea:  () => ideaForm(null),
+
+  /* hàng mới về */
+  newlaunch:  async () => { await loadNames(); launchForm(null); },
+  editlaunch: async id => { const L = launchOf(id); if (!L) return; await loadNames(); launchForm(L); },
+  lcell:      id => launchCellOpen(id),
+  lunmark:    id => {
+    const k = launchKey(id);
+    const m = k && k.c.m;
+    if (!m){ closeModal(); return; }
+    m.off = true; stamp(m); save(); closeModal(); render(); toast('Đã bỏ đánh dấu');
+  },
+  lpost:      id => { closeModal(); postForm(null, may('posttt') ? 'tt' : 'fb', [id]); },
+  lsteps:     async () => { await loadNames(); launchStepsForm(); },
+  lstepnew:   async () => { await loadNames(); launchStepCustomForm(null); },
+  lstepedit:  async id => { await loadNames(); launchStepCustomForm(id); },
+  lmine:      () => { ui.lMine = !ui.lMine; render(); },
+  lclosed:    () => { ui.lShowClosed = !ui.lShowClosed; render(); },
   editidea: id => ideaForm(ideaOf(id)),
   idea:     id => ideaForm(ideaOf(id)),
   ideadead: () => { ui.ideaShowDead = !ui.ideaShowDead; render(); },
@@ -4380,6 +4828,7 @@ const ACTIONS = {
     else if (t.ref.kind === 'impacts'){ const im = impactOf(t.ref.id); if (im) go('sp', im.productId); }
     else if (t.ref.kind === 'products'){ go('sp', t.ref.id); setTimeout(() => spImportModal(t.ref.id), 150); }
     else if (t.ref.kind === 'ideas'){ go('newprod'); setTimeout(() => ideaForm(ideaOf(t.ref.id)), 120); }
+    else if (t.ref.kind === 'launches'){ go('launch', t.ref.id); }
     else if (t.ref.kind === 'posts'){
       const p = postOf(t.ref.id);
       go(p ? POST_FLOWS[p.flow].page : 'postfb');
@@ -4459,6 +4908,7 @@ const ACTIONS = {
     else if (p === 'sp') spImportModal(route.id);
     else if (p === 'improve') spImportModal('');
     else if (p === 'newprod') ideaForm(null);
+    else if (p === 'launch') ACTIONS.newlaunch();
     else if (p === 'keywords' || p === 'kw') kwForm(null);
     else if (p === 'pj') pjAddForm(route.id);
     else if (p === 'cost') { if (ui.costTab === 'pj') pjForm(null); else costSpForm(null); }

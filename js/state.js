@@ -751,6 +751,7 @@ const PERMS = [
   {id:'ads',       label:'Shopee Ads',   hint:'chi phí và doanh thu quảng cáo'},
   {id:'improve',   label:'Cải thiện SP', hint:'phễu và số liệu tuần trên Shopee'},
   {id:'newprod',   label:'Sản phẩm mới', hint:'ý tưởng sản phẩm đang dựng'},
+  {id:'launch',    label:'Hàng mới về',  hint:'đợt hàng về: tính ROAS, up sản phẩm, chạy quảng cáo'},
   {id:'compare',   label:'So sánh kênh', hint:'đối chiếu KOC với Shopee Ads'},
   {id:'resources', label:'Tài nguyên',   hint:'thương hiệu, sản phẩm, mẫu tin nhắn'},
   /* Quyền riêng, KHÔNG gộp vào `ads`: giá vốn là thứ nhạy nhất trong app.
@@ -794,13 +795,15 @@ const DEFAULT_POST_TARGETS = {fb:0, tt:0};
 const KEY = 'kolhub.v1';
 const COLLECTIONS = ['kols','bookings','clips','products','adperiods','actions','brands','statuses',
                      'templates','spweeks','impacts','ideas','posts','adcamps','shops','addays',
-                     'orderstats','adfixes','keywords','kwranks','costs','projects','costlogs'];
+                     'orderstats','adfixes','keywords','kwranks','costs','projects','costlogs',
+                     'launches','lsteps','lmarks'];
 
 function blank(){
   return {
     kols:[], bookings:[], clips:[], products:[], adperiods:[], actions:[], brands:[], statuses:[],
     templates:[], spweeks:[], impacts:[], ideas:[], posts:[], adcamps:[], shops:[], addays:[],
     orderstats:[], adfixes:[], keywords:[], kwranks:[], costs:[], projects:[], costlogs:[],
+    launches:[], lsteps:[], lmarks:[],
     settings:{
       theme:'dark',
       myName:'',
@@ -1229,6 +1232,31 @@ function ensure(){
     l.cost = parseMoney(l.cost);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(l.date || '')) l.date = String(l.updatedAt || '').slice(0,10) || today();
   });
+  /* Ba ô kiểu {bước: …} dưới đây phải kiểm cả Array.isArray: máy chủ PHP đọc
+     {} rỗng thành mảng rỗng rồi trả về [] — không chặn thì lần gán
+     dueOv.up đầu tiên ghi vào một mảng và mất luôn. */
+  const bang = o => (o && typeof o === 'object' && !Array.isArray(o)) ? o : {};
+  db.launches.forEach(L => {
+    ['name','shopId','brand','note'].forEach(f => { if (typeof L[f] !== 'string') L[f] = String(L[f] == null ? '' : L[f]); });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(L.date || '')) L.date = String(L.updatedAt || '').slice(0,10) || today();
+    L.newBrand = !!L.newBrand;
+    L.closed   = !!L.closed;
+    L.pids = Array.from(new Set((Array.isArray(L.pids) ? L.pids : []).map(String).filter(Boolean)));
+    L.dueOv = bang(L.dueOv); L.who = bang(L.who); L.whoName = bang(L.whoName);
+  });
+  db.lsteps.forEach(st => {
+    ['label','icon','scope','who','whoName'].forEach(f => { if (typeof st[f] !== 'string') st[f] = String(st[f] == null ? '' : st[f]); });
+    if (!['sp','brand'].includes(st.scope)) st.scope = 'sp';
+    st.days = Math.max(0, Math.min(90, Math.round(+st.days || 0)));
+    st.off  = !!st.off;
+    st.order = isFinite(+st.order) ? +st.order : 500;
+  });
+  db.lmarks.forEach(m => {
+    ['launchId','pid','step','whoName','note'].forEach(f => { if (typeof m[f] !== 'string') m[f] = String(m[f] == null ? '' : m[f]); });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(m.at || '')) m.at = String(m.updatedAt || '').slice(0,10) || today();
+    m.auto = !!m.auto; m.pending = !!m.pending; m.off = !!m.off;
+    if (!m.val || typeof m.val !== 'object' || Array.isArray(m.val)) m.val = null;
+  });
   db.projects.forEach(pj => {
     ['shopId','name','note','stage'].forEach(f => { if (typeof pj[f] !== 'string') pj[f] = String(pj[f] == null ? '' : pj[f]); });
     if (!PJ_STAGES.some(x => x.id === pj.stage)) pj.stage = 'draft';
@@ -1296,6 +1324,10 @@ function ensure(){
   db.brands.forEach(b => {
     if (typeof b.name !== 'string') b.name = String(b.name || 'Không tên');
     ['note','color'].forEach(f => { if (b[f] === undefined) b[f] = ''; });
+    /* Hãng có bắt giữ giá niêm yết không: 'yes' · 'no' · '' = chưa hỏi.
+       Để ở thương hiệu chứ không ở từng sản phẩm, vì luật này là của hãng —
+       hỏi một lần lúc nhận brand mới, con nào thêm sau cũng theo. */
+    if (!['yes','no'].includes(b.giuGia)) b.giuGia = '';
   });
   db.statuses.forEach((s, i) => {
     if (typeof s.name !== 'string') s.name = String(s.name || 'Không tên');
@@ -1396,6 +1428,9 @@ function persist(){
   }
 }
 function save(){
+  /* Vừa nhập giá vốn, dán link Shopee, ghi bài… thì ô tương ứng ở Hàng mới
+     về phải đóng ngay lúc này, không đợi lần đồng bộ sau */
+  try { launchAutoMarks(); } catch(e){ console.error(e); }
   persist();
   if (window.Sync) Sync.markDirty();
 }
@@ -1567,6 +1602,7 @@ const REVIEW_KINDS = {
   keywords:  'Dự án đánh từ khoá',
   costs:     'Giá vốn sản phẩm',
   costlogs:  'Cập nhật giá vốn',
+  launches:  'Đợt hàng mới về',
   projects:  'Dự án — sản phẩm tổng',
   adperiods: 'Kỳ số liệu quảng cáo',
   spweeks:   'Tuần số liệu Shopee',
@@ -1694,6 +1730,11 @@ function reviewLabel(kind, rec){
     case 'ideas':
       return {title: rec.name, sub: 'sản phẩm mới · ' + IDEA_STAGE[rec.stage].label,
               go: ['newprod', '']};
+    case 'launches':
+      return {title: 'Đợt hàng: ' + launchName(rec),
+              sub: 'về ' + fmtDate(rec.date) + ' · ' + (rec.pids || []).length + ' sản phẩm' +
+                   (rec.newBrand ? ' · brand mới' : '') + (rec.closed ? ' · đã khép' : ''),
+              go: ['launch', rec.id]};
     default:
       return {title: rec.name || '(không tên)', sub: REVIEW_KINDS[kind] || kind, go: null};
   }
@@ -1738,7 +1779,7 @@ const TG_FEEDS = {
   booking: {label:'Booking',    icon:'🤝', hint:'KOC tới hẹn liên hệ lại'},
   clip:    {label:'Clip',       icon:'🎬', hint:'chờ lên clip, đã gửi hàng lâu chưa thấy'},
   ads:     {label:'Shopee Ads', icon:'📊', hint:'thử nghiệm quảng cáo tới hạn xem kết quả'},
-  prod:    {label:'Sản phẩm',   icon:'🛍', hint:'cải thiện sản phẩm tới hạn đo lại · sản phẩm mới tới việc kế tiếp'},
+  prod:    {label:'Sản phẩm',   icon:'🛍', hint:'hàng mới về chưa up, chưa chạy quảng cáo · cải thiện sản phẩm tới hạn đo lại · sản phẩm mới tới việc kế tiếp'},
   post:    {label:'Bài đăng',   icon:'📝', hint:'bài đăng rồi mà chưa reup · gần hết tháng còn thiếu bài'}
 };
 const TG_FEED_IDS = Object.keys(TG_FEEDS);
@@ -1882,6 +1923,32 @@ function reminderTasks(){
          sub:'đã có ' + m.n + '/' + m.target + ' bài · còn ' + m.daysLeft + ' ngày' +
              (m.pace > 1 ? ' · cần ' + m.pace.toFixed(1).replace('.',',') + ' bài mỗi ngày' : ''),
          ref:{kind:'page', id:POST_FLOWS[m.flow].page}});
+  });
+
+  /* Hàng mới về: MỘT việc cho mỗi (đợt, bước), không phải mỗi sản phẩm — một
+     brand 20 con mà nhắc từng con là 20 tin nhắn, và bạn sẽ tắt luôn luồng
+     này. Không có nút "Xong": bước tự kiểm chỉ đóng bằng bằng chứng, bước tự
+     đánh dấu thì phải mở app tick từng con. Dời hạn thì được — dueOv.<bước>
+     là đường dẫn cả app lẫn api/tg.php đều ghi vào được. */
+  const laChu = !window.Server || Server.isOwner();
+  const toi = norm((window.Server && Server.name && Server.name()) || '');
+  launches().filter(L => !L.closed).forEach(L => {
+    launchBoard(L).stat.forEach(x => {
+      if (!x.open) return;
+      if (x.st.kind === 'roas' && !may('cost')) return;
+      const w = x.who.whoName;
+      /* Nhân viên chỉ thấy việc giao cho mình (và việc chưa giao cho ai) */
+      if (!laChu && w && norm(w) !== toi) return;
+      const ten = x.openPs.slice(0, 3).map(p => p.name).join(', ') +
+                  (x.openPs.length > 3 ? ' +' + (x.openPs.length - 3) : '');
+      add({id:'ln_' + L.id + '_' + x.st.id, feed:'prod', due:x.due, icon:x.st.icon,
+           title: x.st.scope === 'brand'
+             ? (L.brand || launchName(L)) + ': ' + x.st.label
+             : launchName(L) + ' — ' + x.st.label + ': còn ' + x.open + '/' + x.n + ' sản phẩm',
+           sub: (w ? 'phụ trách ' + w : 'chưa giao cho ai') + ' · hàng về ' + fmtDate(L.date) +
+                (ten ? ' · ' + ten : ''),
+           ref:{kind:'launches', id:L.id}, dueField:'dueOv.' + x.st.id});
+    });
   });
 
   return out.sort((x,y) => x.due.localeCompare(y.due));
@@ -4578,3 +4645,190 @@ function searchAll(q, limit){
 }
 const KIND_LABEL = {kol:'KOL/KOC', booking:'Booking', clip:'Clip', product:'Sản phẩm',
                     idea:'Sản phẩm mới', kwgo:'Từ khoá'};
+
+/* ============================================================
+   HÀNG MỚI VỀ — mỗi đợt hàng một bảng việc
+
+   Thứ nó chữa: hàng về rồi mà quên up, up rồi mà quên chạy quảng cáo.
+   Không ai cố ý — chỉ là không có chỗ nào nhìn vào là thấy con nào đang kẹt.
+
+   Bước nào app tự kiểm được thì KHÔNG có nút "xong": quên làm đã dở, bấm
+   xong cho qua còn dở hơn, vì từ lúc đó không ai nhắc nữa. Bước ấy chỉ đóng
+   khi có bằng chứng thật — Sổ giá vốn có số, sản phẩm có link Shopee, file
+   Ads có chiến dịch của nó, có bài đăng gắn nó.
+
+   Dữ liệu chia ba bộ:
+     launches — mỗi đợt một bản: ngày về, brand, danh sách sản phẩm.
+     lsteps   — phần bạn chỉnh trên bộ bước mặc định (hạn, người làm, tắt
+                bật) cộng các bước tự thêm. Bước mặc định nằm trong mã, bản
+                ghi chỉ giữ phần đã đổi — không có chuyện hai máy cùng tạo bộ
+                mặc định rồi ra hai bản.
+     lmarks   — mỗi ô đã xong một bản ghi riêng, id ghép từ đợt|sp|bước.
+                Không nhét vào `launches`: đồng bộ là "bản mới hơn thắng" theo
+                từng bản ghi, nên hai người tick hai ô khác nhau của cùng một
+                đợt thì ô của một người sẽ mất. Id cố định thì hai máy cùng
+                ghi một ô cũng chỉ ra đúng một bản.
+   ============================================================ */
+const LAUNCH_STEPS = [
+  {id:'roas',  scope:'sp', icon:'💰', label:'Tính giá vốn & ROAS', days:0, kind:'roas',
+   hint:'tự xong khi Sổ giá vốn có giá vốn và giá bán'},
+  {id:'media', scope:'sp', icon:'📸', label:'Hình & video', days:2, kind:'',
+   hint:'không có dữ liệu để kiểm — người làm tự đánh dấu'},
+  {id:'up',    scope:'sp', icon:'🛒', label:'Up lên Shopee', days:2, kind:'up',
+   hint:'tự xong khi sản phẩm có link hoặc mã Shopee'},
+  {id:'ads',   scope:'sp', icon:'📊', label:'Chạy quảng cáo', days:3, kind:'ads',
+   hint:'tự xong khi file Shopee Ads nạp vào có chiến dịch của sản phẩm'},
+  {id:'post',  scope:'sp', icon:'🎬', label:'Clip / bài đăng', days:7, kind:'post',
+   hint:'tự xong khi có bài đăng gắn sản phẩm'},
+  {id:'giugia',  scope:'brand', icon:'🔒', label:'Hãng có bắt giữ giá?', days:0, kind:'giugia',
+   hint:'trả lời một lần, mọi sản phẩm của brand theo'},
+  {id:'uyquyen', scope:'brand', icon:'📄', label:'Uỷ quyền thương hiệu trên Shopee', days:3, kind:'',
+   hint:'người làm tự đánh dấu'},
+  {id:'voucher', scope:'brand', icon:'🎟', label:'Voucher shop cho brand', days:3, kind:'',
+   hint:'người làm tự đánh dấu'}
+];
+const LSTEP_DEF  = Object.fromEntries(LAUNCH_STEPS.map(s => [s.id, s]));
+const LSTEP_AUTO = ['roas', 'up', 'ads', 'post'];
+
+/* Bộ bước đang dùng. all = lấy cả bước đã tắt (cho bảng cài đặt). */
+function launchSteps(all){
+  const ov = Object.fromEntries(alive(db.lsteps).map(r => [r.id, r]));
+  const out = LAUNCH_STEPS.map((d, i) => {
+    const r = ov[d.id];
+    return Object.assign({}, d, {order: i * 10, off: false, who: '', whoName: ''},
+      r ? {days: r.days, off: r.off, who: r.who, whoName: r.whoName, order: r.order} : {});
+  });
+  alive(db.lsteps).filter(r => !LSTEP_DEF[r.id]).forEach(r => out.push({
+    id: r.id, scope: r.scope, icon: r.icon || '✅', label: r.label || 'Bước tự thêm',
+    days: r.days, kind: '', hint: 'bước bạn tự thêm — người làm tự đánh dấu',
+    order: r.order, off: r.off, who: r.who, whoName: r.whoName, custom: true}));
+  return out.filter(s => all || !s.off).sort((a, b) => a.order - b.order);
+}
+
+const launches = () => alive(db.launches).sort((a, b) => b.date.localeCompare(a.date));
+const launchOf = id => launches().find(L => L.id === id) || null;
+const launchProducts = L => L.pids.map(productOf).filter(Boolean);
+/* Bước cấp brand chỉ có ở đợt đánh dấu brand mới — brand cũ đã làm rồi */
+const launchStepsOf = L => launchSteps().filter(s => s.scope === 'sp' || L.newBrand);
+const launchName = L => L.name || ((L.brand || 'Hàng về') + ' · ' + fmtShort(L.date));
+/* Người làm: đợt này giao riêng thì theo đợt, không thì theo mặc định của bước */
+function launchWho(L, st){
+  if (L.who[st.id] || L.whoName[st.id]) return {who: L.who[st.id] || '', whoName: L.whoName[st.id] || ''};
+  return {who: st.who, whoName: st.whoName};
+}
+const launchDue = (L, st) => /^\d{4}-\d{2}-\d{2}$/.test(L.dueOv[st.id] || '')
+  ? L.dueOv[st.id] : addDays(L.date, st.days);
+const lmarkId = (lid, pid, step) => 'lm_' + lid + '_' + pid + '_' + step;
+const lmarkOf = (lid, pid, step) => {
+  const id = lmarkId(lid, pid, step);
+  return db.lmarks.find(m => m.id === id && !m.deleted && !m.off) || null;
+};
+/* Thương hiệu theo TÊN — sản phẩm giữ brand bằng tên chứ không bằng id */
+const brandByName = name => name ? brands().find(b => norm(b.name) === norm(name)) || null : null;
+const brandGiuGia = name => { const b = brandByName(name); return !!(b && b.giuGia === 'yes'); };
+
+/* ---- bằng chứng cho từng bước tự kiểm ---- */
+/* ROAS hoà vốn của một sản phẩm. Có size thì lấy size KHẮT NHẤT (ROAS cao
+   nhất) — chạy chung một chiến dịch thì phải đủ nuôi cả con lãi mỏng nhất. */
+function launchRoas(p){
+  const c = costOf(p.id);
+  if (!c) return null;
+  const szs = c.sizes || [];
+  const xs = (szs.length ? szs.map(s => costCalc(p, {sid: s.sid})) : [costCalc(p)])
+    .filter(x => x && x.von > 0);
+  if (!xs.length) return null;
+  const ok = xs.filter(x => !x.lo && x.roas);
+  return {roas: ok.length ? Math.round(Math.max(...ok.map(x => x.roas)) * 100) / 100 : null,
+          lo: xs.some(x => x.lo)};
+}
+const launchUpSeen = p => !!(p.shopeeSku || /shopee\.|shp\.ee/i.test(p.url || ''));
+/* Quảng cáo: chiến dịch tháng hoặc file ngày, khớp đúng hai khoá của
+   campsOfProduct(). Chỉ tính từ tháng hàng về — con hàng cũ về thêm đợt mới
+   mà quảng cáo đã tắt từ năm ngoái thì không được coi là đang chạy. */
+function launchAdsSeen(p, from){
+  const sku = norm(p.shopeeSku || p.sku), nm = norm(p.shopeeName);
+  if (!sku && !nm) return false;
+  const khop = c => (sku && norm(c.sku) === sku) || (nm && norm(c.name) === nm);
+  return adcamps().some(c => c.ym >= from.slice(0, 7) && khop(c)) ||
+         addays().some(c => c.date >= from && khop(c));
+}
+function launchProof(L, p, st){
+  switch (st.kind){
+    case 'roas': { const r = launchRoas(p); return r ? {val: r} : null; }
+    case 'up':   return launchUpSeen(p) ? {val: null} : null;
+    case 'ads':  return launchAdsSeen(p, L.date) ? {val: null} : null;
+    /* Clip quay từ hàng mẫu thường lên trước ngày hàng về — lùi 30 ngày */
+    case 'post': return postsOfProduct(p.id).some(x => x.date >= addDays(L.date, -30)) ? {val: null} : null;
+  }
+  return null;
+}
+
+/* Một ô trong bảng: done · pending (đã bật quảng cáo, chờ số liệu về) · open */
+function launchCell(L, pid, st){
+  const m  = lmarkOf(L.id, pid, st.id);
+  const due = launchDue(L, st);
+  /* Đã có dấu xong thì khỏi dò bằng chứng — trừ ROAS, vì số ROAS phải theo
+     giá vốn mới nhất chứ không đứng ở con số lúc mới nhập. */
+  if (m && !m.pending && st.kind !== 'roas') return {s: 'done', m, val: m.val, due, at: m.at};
+  const p  = pid === 'brand' || L.closed ? null : productOf(pid);
+  const pr = p && LSTEP_AUTO.includes(st.kind) ? launchProof(L, p, st) : null;
+  if (pr) return {s: 'done', m, val: pr.val, due, at: m && !m.pending ? m.at : today()};
+  if (m && !m.pending) return {s: 'done', m, val: m.val, due, at: m.at};
+  if (m) return {s: 'pending', m, val: m.val, due};
+  return {s: 'open', m: null, val: null, due, tre: -dayDiff(due)};
+}
+
+/* Cả bảng của một đợt, kèm đếm theo từng bước */
+function launchBoard(L){
+  const steps = launchStepsOf(L);
+  const spSt  = steps.filter(s => s.scope === 'sp');
+  const rows  = launchProducts(L).map(p => ({p,
+    cells: Object.fromEntries(spSt.map(st => [st.id, launchCell(L, p.id, st)]))}));
+  const brandCells = Object.fromEntries(steps.filter(s => s.scope === 'brand')
+    .map(st => [st.id, launchCell(L, 'brand', st)]));
+  const stat = steps.map(st => {
+    const ds = st.scope === 'brand' ? [{p: null, c: brandCells[st.id]}]
+                                    : rows.map(r => ({p: r.p, c: r.cells[st.id]}));
+    const open = ds.filter(d => d.c.s === 'open');
+    return {st, n: ds.length, done: ds.filter(d => d.c.s === 'done').length,
+            pending: ds.filter(d => d.c.s === 'pending').length,
+            open: open.length, openPs: open.map(d => d.p).filter(Boolean),
+            due: launchDue(L, st), who: launchWho(L, st)};
+  });
+  const tong = stat.reduce((t, x) => t + x.n, 0);
+  const xong = stat.reduce((t, x) => t + x.done, 0);
+  return {steps, rows, brandCells, stat, tong, xong,
+          pct: tong ? Math.round(xong / tong * 100) : 0,
+          lo: rows.filter(r => r.cells.roas && r.cells.roas.val && r.cells.roas.val.lo).map(r => r.p),
+          complete: tong > 0 && xong === tong};
+}
+
+/* ---- ghi dấu "đã xong" cho ô có bằng chứng ----
+   Bằng chứng chỉ máy có quyền mới thấy: giá vốn nằm ở máy có quyền Tính chi
+   phí, chiến dịch ở máy có quyền Ads. Máy nào thấy thì máy đó ghi dấu, để
+   bạn chỉ có quyền Hàng mới về cũng thấy ô đã xong — và thấy luôn ROAS hoà
+   vốn mà KHÔNG thấy giá vốn. Chỉ ghi chiều "có", không bao giờ ghi "chưa":
+   một máy chưa kéo đủ dữ liệu không được xoá dấu của máy khác.
+   Trả về số dấu vừa ghi; gọi ở save() và sau mỗi lần kéo dữ liệu. */
+function launchAutoMarks(){
+  if (!may('launch')) return 0;
+  const steps = launchSteps().filter(s => s.scope === 'sp' && LSTEP_AUTO.includes(s.kind));
+  if (!steps.length) return 0;
+  const giong = (a, b) => JSON.stringify(a || null) === JSON.stringify(b || null);
+  let n = 0;
+  launches().filter(L => !L.closed).forEach(L => launchProducts(L).forEach(p => steps.forEach(st => {
+    const pr = launchProof(L, p, st);
+    if (!pr) return;
+    const id = lmarkId(L.id, p.id, st.id);
+    let m = db.lmarks.find(x => x.id === id);
+    const daXong = m && !m.deleted && !m.off && !m.pending;
+    if (daXong && giong(m.val, pr.val)) return;
+    if (!m){ m = {id}; db.lmarks.push(m); }
+    Object.assign(m, {launchId: L.id, pid: p.id, step: st.id, auto: true, pending: false,
+      off: false, deleted: false, val: pr.val, at: daXong ? m.at : today(),
+      whoName: m.whoName || '', note: m.note || ''});
+    stamp(m);
+    n++;
+  })));
+  return n;
+}

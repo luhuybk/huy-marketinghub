@@ -5138,3 +5138,140 @@ function viewSettings(){
     “Dán từ Excel” ở tab Shopee Ads.</div>`;
   return h;
 }
+
+/* ============================================================
+   HÀNG MỚI VỀ — mỗi đợt một bảng: hàng là sản phẩm, cột là bước
+   ============================================================ */
+function viewLaunch(id){
+  const chu = isOwner();
+  const toi = norm(myName());
+  const mine = !!(ui.lMine && toi);
+  const all = launches();
+
+  let h = `<div class="toolbar">
+    ${toi ? `<button class="btn sm ${mine ? 'pri' : ''}" data-act="lmine">👤 Việc của tôi</button>` : ''}
+    <div class="grow"></div>
+    ${chu ? `<button class="btn sm" data-act="lsteps">⚙ Các bước & phân công</button>` : ''}
+    <button class="btn pri" data-act="newlaunch">+ Đợt hàng mới</button>
+  </div>`;
+
+  if (!all.length)
+    return h + `<div class="empty"><b>Chưa có đợt hàng nào</b>
+      Hàng về là tạo một đợt: chọn brand, dán danh sách sản phẩm. Mỗi sản phẩm có sẵn các bước
+      ${launchSteps().filter(s => s.scope === 'sp').map(s => s.icon + ' ' + esc(s.label)).join(' · ')},
+      mỗi bước một người làm và một hạn chót. Bước nào app tự kiểm được thì tự đóng khi có bằng
+      chứng — không ai bấm "xong" cho qua được.
+      <div style="margin-top:14px" class="btns center">
+        <button class="btn pri" data-act="newlaunch">+ Tạo đợt đầu tiên</button></div></div>`;
+
+  if (id){
+    const L = launchOf(id);
+    if (!L) return h + emptyBox('Không tìm thấy đợt này', 'Có thể đã bị xoá.');
+    return h + `<div class="btns" style="margin-bottom:10px">
+      <button class="btn sm" data-act="nav2" data-id="launch:">‹ Tất cả các đợt</button></div>` +
+      launchBlock(L, mine, toi);
+  }
+
+  const mo = all.filter(L => !L.closed);
+  const blocks = mo.map(L => launchBlock(L, mine, toi)).filter(Boolean);
+  h += blocks.length ? blocks.join('')
+    : emptyBox(mine ? 'Không còn việc nào của bạn' : 'Không có đợt nào đang làm',
+               mine ? 'Bấm "Việc của tôi" lần nữa để xem cả bảng.' : 'Các đợt đã khép nằm ở dưới.');
+
+  const kh = all.filter(L => L.closed);
+  if (kh.length){
+    h += `<div class="mod">` + moduleHead('🗄', 'Đợt đã khép', kh.length + ' đợt',
+      `<button class="btn sm ${ui.lShowClosed ? 'pri' : ''}" data-act="lclosed">${ui.lShowClosed ? 'Thu lại' : 'Xem'}</button>`);
+    if (ui.lShowClosed)
+      h += `<div class="card list">` + kh.map(L => {
+        const b = launchBoard(L);
+        return `<div class="li" data-act="nav2" data-id="launch:${esc(L.id)}">
+          <div class="grow"><div class="li-t">${esc(launchName(L))}</div>
+            <div class="li-s">về ${esc(fmtDate(L.date))} · ${L.pids.length} sản phẩm</div></div>
+          <span class="chip ${b.complete ? 'ok' : ''}">${b.pct}%</span></div>`;
+      }).join('') + `</div>`;
+    h += `</div>`;
+  }
+  return h;
+}
+
+function launchBlock(L, mine, toi){
+  const b = launchBoard(L);
+  const laCuaToi = st => norm(launchWho(L, st).whoName) === toi;
+  const cot = b.steps.filter(st => !mine || laCuaToi(st));
+  /* "Việc của tôi": đợt không còn ô nào mở của mình thì ẩn hẳn */
+  if (mine && !b.stat.some(x => laCuaToi(x.st) && x.open + x.pending)) return '';
+  const spCot = cot.filter(s => s.scope === 'sp');
+  const brCot = cot.filter(s => s.scope === 'brand');
+  const sh = L.shopId && typeof shopOf === 'function' ? shopOf(L.shopId) : null;
+
+  let h = `<div class="mod">` + moduleHead('🚀', launchName(L),
+    'về ' + esc(fmtDate(L.date)) + ' · ' + b.rows.length + ' sản phẩm' +
+    (L.brand ? ' · ' + esc(L.brand) : '') + (sh ? ' · ' + esc(sh.name) : '') +
+    (L.newBrand ? ' · <span class="chip acc">brand mới</span>' : '') +
+    (L.closed ? ' · <span class="chip">đã khép</span>' : ''),
+    `<span class="chip ${b.complete ? 'ok' : ''}">${b.pct}%</span>
+     <button class="btn sm" data-act="editlaunch" data-id="${esc(L.id)}">Sửa</button>`);
+
+  h += `<div class="lprog"><span style="width:${b.pct}%"></span></div>`;
+
+  /* Mỗi bước một chip: xong mấy / bao nhiêu, trễ thì đỏ, kèm tên người làm */
+  h += `<div class="chips" style="margin:10px 0">` + b.stat.filter(x => cot.includes(x.st)).map(x => {
+    const d = dayDiff(x.due);
+    const cls = x.done === x.n ? 'ok' : x.open && d < 0 ? 'bad' : x.open && d === 0 ? 'warn' : '';
+    return `<span class="chip ${cls}" title="${esc(x.st.hint || '')}">${x.st.icon} ${esc(x.st.label)} ${
+      x.done}/${x.n}${x.pending ? ' · ⏳' + x.pending : ''}${
+      x.open ? (d < 0 ? ' · trễ ' + (-d) + ' ngày' : d === 0 ? ' · hạn hôm nay' : ' · hạn ' + fmtShort(x.due)) : ''}${
+      x.who.whoName ? ' · ' + esc(x.who.whoName) : ''}</span>`;
+  }).join('') + `</div>`;
+
+  if (b.lo.length)
+    h += `<div class="explain"><b class="bad">🔴 Đang lỗ ở giá bán hiện tại:</b> ${
+      b.lo.map(p => esc(p.name)).join(', ')} — đừng chạy quảng cáo những con này trước khi xem lại giá.</div>`;
+
+  if (brCot.length)
+    h += `<div class="card" style="margin-bottom:10px"><div class="dim" style="margin-bottom:8px">
+        Làm một lần cho cả brand ${esc(L.brand)}</div><div class="lbr">` +
+      brCot.map(st => `<div class="lbr-i"><span>${st.icon} ${esc(st.label)}${
+        launchWho(L, st).whoName ? ' <span class="dim">· ' + esc(launchWho(L, st).whoName) + '</span>' : ''}</span>${
+        lcellHTML(L, 'brand', st, b.brandCells[st.id])}</div>`).join('') + `</div></div>`;
+
+  if (spCot.length && b.rows.length){
+    h += `<div class="tblwrap"><table class="tbl sm stick lnt"><thead><tr><th>Sản phẩm</th>` +
+      spCot.map(st => {
+        const w = launchWho(L, st).whoName;
+        return `<th class="c" title="${esc(st.hint || '')}">${st.icon} ${esc(st.label)}
+          <div class="dim">${w ? esc(w) + ' · ' : ''}hạn ${esc(fmtShort(launchDue(L, st)))}</div></th>`;
+      }).join('') + `</tr></thead><tbody>` +
+      b.rows.map(r => `<tr><td><b>${esc(r.p.name)}</b>${
+          r.p.brand && r.p.brand !== L.brand ? `<div class="dim">${esc(r.p.brand)}</div>` : ''}</td>${
+        spCot.map(st => `<td class="c">${lcellHTML(L, r.p.id, st, r.cells[st.id])}</td>`).join('')}</tr>`).join('') +
+      `</tbody></table></div>`;
+  }
+  if (L.note) h += `<div class="dim" style="margin-top:8px">📝 ${esc(L.note)}</div>`;
+  if (b.complete && !L.closed)
+    h += `<div class="explain" style="margin-top:10px">✓ Đợt này xong hết các bước. Bấm <b>Sửa</b> →
+      tick <b>Khép đợt</b> để nó rời khỏi danh sách đang làm.</div>`;
+  return h + `</div>`;
+}
+
+/* Một ô trong bảng — bấm vào là mở đúng việc của bước đó */
+function lcellHTML(L, pid, st, c){
+  let t, cls = '';
+  if (c.s === 'done'){
+    cls = 'ok';
+    if (st.kind === 'roas' && c.val){
+      t = c.val.lo ? '🔴 đang lỗ' : 'ROAS ' + xText(c.val.roas);
+      if (c.val.lo) cls = 'bad';
+    } else if (st.kind === 'giugia' && c.val) t = c.val.yes ? '🔒 có giữ giá' : '✓ không bắt';
+    else t = '✓ ' + fmtShort(c.at);
+  } else if (c.s === 'pending'){
+    t = '⏳ chờ số liệu'; cls = 'acc';
+  } else {
+    const d = dayDiff(c.due);
+    t = d > 0 ? 'còn ' + d + ' ngày' : d === 0 ? 'hạn hôm nay' : 'trễ ' + (-d) + ' ngày';
+    cls = d < 0 ? 'bad' : d === 0 ? 'warn' : '';
+  }
+  return `<button type="button" class="chip lc ${cls}" data-act="lcell"
+    data-id="${esc(L.id + '|' + pid + '|' + st.id)}">${esc(t)}</button>`;
+}
