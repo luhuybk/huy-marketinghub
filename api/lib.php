@@ -152,7 +152,7 @@ function db(): PDO {
    'settings' và 'review' chỉ chủ vào được nên cũng không tick được.
    Danh sách này phải khớp PERMS trong js/state.js. */
 const KH_PERMS = ['dash','pipeline','kols','clips','postfb','posttt','ads',
-                  'improve','newprod','compare','resources','cost'];
+                  'improve','newprod','compare','resources','cost','launch'];
 
 /* Bộ dữ liệu nào cần quyền nào. Có MỘT trong số quyền liệt kê là đọc được.
 
@@ -182,6 +182,11 @@ const KH_KIND_PERM = [
   'spweeks'   => ['improve','ads'],
   'impacts'   => ['improve'],
   'ideas'     => ['newprod'],
+  /* Hàng mới về. Dấu "đã xong" (lmarks) mang ROAS hoà vốn nhưng không mang
+     giá vốn — cố ý, để người chạy quảng cáo biết ngưỡng mà không biết vốn. */
+  'launches'  => ['launch'],
+  'lsteps'    => ['launch'],
+  'lmarks'    => ['launch'],
 ];
 
 function khNorm(string $s): string {

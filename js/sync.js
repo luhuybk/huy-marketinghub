@@ -163,6 +163,9 @@ const Sync = (() => {
         return;
       }
       if (changed) ensure();
+      /* Dữ liệu mới kéo về có thể là bằng chứng cho một ô ở Hàng mới về
+         (file Ads ai đó vừa nạp, giá vốn vừa nhập) — ghi dấu rồi hẹn đẩy lên */
+      try { if (launchAutoMarks()) markDirty(); } catch(e){ console.error(e); }
       persist();
       try { await pushReminders(); } catch(e){}   /* nhắc lỗi thì cũng đừng làm hỏng đồng bộ */
       setState('idle');
@@ -234,4 +237,4 @@ const Sync = (() => {
 })();
 window.Sync = Sync;
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/sync.js", "d6ca3f68"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/sync.js", "63075ac5"]);
