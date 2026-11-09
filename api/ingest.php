@@ -60,4 +60,4 @@ if ($trangThai !== 'ok')
 
 $r = adIngest((string)($in['history_csv'] ?? ''), (string)($in['campaigns_csv'] ?? ''));
 ingestTouch($devId, $r);
-ingOut(['ok' => true] + $r);
+ingOut(['ok' => true, 'need_full' => ingestNeedFull($devId)] + $r);

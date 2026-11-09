@@ -809,15 +809,23 @@ tác vụ ── curl <Hub>/api/ingest.php?script=1 → push_hub.py ── POST 
 Máy chủ chỉ giữ mã băm; tối đa 5 thiết bị chờ một lúc để ai gõ bừa vào cổng
 cũng không làm phình bảng. Thiết bị lạ thì đừng cho phép, hoặc bấm *Thu hồi*.
 
-**Lần gửi đầu kèm cả lịch sử**: Hub trả `need_full` khi chưa từng nhận gói nào
-phủ ≥ 28 ngày, script tự gửi tiếp toàn bộ `history.csv` chia theo tháng.
+**Lần gửi đầu kèm cả lịch sử**: Hub trả `need_full` khi THIẾT BỊ ĐÓ chưa từng gửi
+gói nào phủ ≥ 28 ngày, script tự gửi tiếp toàn bộ `history.csv` chia theo tháng.
+Tính riêng từng thiết bị — máy khác nạp file cũ không làm tác vụ tưởng đã đủ.
+
+**Nạp lịch sử cũ hơn** (từ file CSV ngày xuất tay, vd. `Data ADS/Data Ads Bau/`):
+`tools/nap_csv_cu.py` đổi chúng sang đúng định dạng của tác vụ, rồi gửi bằng
+`push_hub.py --full --label "Nạp lịch sử từ máy Mac"` (cách dùng ghi đầu file).
+Mã chiến dịch dựng từ (mã sản phẩm, tên) nên Hub gộp đúng chiến dịch dù số đến
+từ file cũ hay từ tác vụ.
 
 Vài luật đáng nhớ:
 
-- **Tháng chỉ ghi khi đã kết thúc và kho thô phủ trọn từ ngày 1 tới ngày cuối.**
-  Ghi tháng đang chạy thì báo cáo tháng đem nửa tháng so cả tháng trước, cờ
-  "tụt" kêu ầm ĩ. Tháng bắt đầu giữa chừng (tháng đầu của lịch sử) bị bỏ qua để
-  không đè lên tháng đã nạp tay đầy đủ.
+- **Tháng chỉ ghi khi đã kết thúc và kho thô có ĐỦ TỪNG NGÀY của tháng.** Ghi
+  tháng đang chạy thì báo cáo tháng đem nửa tháng so cả tháng trước, cờ "tụt"
+  kêu ầm ĩ. Tháng thiếu ngày (vd. tháng 7 tác vụ chỉ có từ ngày 10) bị bỏ qua để
+  không đè lên tháng đã nạp tay đầy đủ — xét theo số ngày chứ không theo "ngày
+  sớm nhất ≤ mùng 1", vì có file tháng 4 rồi thì điều kiện kia lọt mất tháng 7.
 - **Cùng khoá với `adcampKey()`**: gian hàng + mã sản phẩm + tên. Phải có tên vì
   Shopee chạy nhiều quảng cáo trên một sản phẩm và đặt tên "… [2]", "… [3]".
   Cùng khoá thì tháng đã nạp tay từ CSV được **ghi đè đúng bản ghi cũ**.

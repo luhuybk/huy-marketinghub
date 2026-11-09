@@ -579,7 +579,13 @@ function ingestTouch(string $id, array $r): void {
   $devs[$id]['lastAt'] = gmdate('c');
   $devs[$id]['last'] = ['rows' => $r['rows'], 'shops' => $r['shops'],
                         'dates' => $r['dates'], 'adcamps' => $r['adcamps'], 'addays' => $r['addays']];
+  /* "Đã gửi lịch sử" tính RIÊNG từng thiết bị: một máy khác nạp file cũ
+     không được làm tác vụ tưởng Hub đã có đủ lịch sử của nó. */
+  if (($r['span'] ?? 0) >= 28) $devs[$id]['full'] = gmdate('c');
   kvSet('ingest_devs', $devs);
+}
+function ingestNeedFull(string $id): bool {
+  return empty(ingestDevs()[$id]['full']);
 }
 
 /* Đọc CSV có tiêu đề thành mảng dòng [tên cột => giá trị]. Tên sản phẩm có
@@ -731,9 +737,11 @@ function adIngest(string $histCsv, string $campCsv): array {
               $m ? ingBid(['type' => $m['type'], 'roas_target' => $m['roas']]) : ''];
     };
 
-    /* tháng: chỉ tháng đã hết, và kho thô phủ trọn từ ngày 1 tới ngày cuối */
-    $q = $pdo->prepare('SELECT MIN(date) a, MAX(date) b FROM ad_raw WHERE shop = ?');
-    $q->execute([$ten]); $phu = $q->fetch();
+    /* tháng: chỉ tháng đã hết, và kho thô có ĐỦ TỪNG NGÀY của tháng đó.
+       Không xét kiểu "ngày sớm nhất ≤ mùng 1": có tháng 4 nạp từ file cũ mà
+       tháng 7 chỉ có từ ngày 10 thì tháng 7 vẫn lọt — và đè mất tháng 7 đầy
+       đủ đã nạp tay từ CSV. */
+    $q = $pdo->prepare('SELECT COUNT(DISTINCT date) n FROM ad_raw WHERE shop = ? AND date BETWEEN ? AND ?');
     $yms = array_unique(array_map(fn($d) => substr($d, 0, 7), array_keys($dates)));
     $theoKhoa = [];
     foreach ($camps as $i => $c) if (($c['shopId'] ?? '') === $sid)
@@ -742,7 +750,8 @@ function adIngest(string $histCsv, string $campCsv): array {
       if ($ym >= $thangNay) continue;
       $dau = $ym . '-01';
       $cuoi = (new DateTime($dau))->modify('last day of this month')->format('Y-m-d');
-      if (!$phu || $phu['a'] > $dau || $phu['b'] < $cuoi) continue;
+      $q->execute([$ten, $dau, $cuoi]);
+      if ((int)$q->fetch()['n'] < (int)substr($cuoi, 8, 2)) continue;
       $s = $pdo->prepare('SELECT cid, SUM(cost) cost, SUM(gmv) gmv, SUM(orders) orders, SUM(sold) sold,
           SUM(impr) impr, SUM(clicks) clicks FROM ad_raw WHERE shop = ? AND date BETWEEN ? AND ? GROUP BY cid');
       $s->execute([$ten, $dau, $cuoi]);
@@ -802,13 +811,12 @@ function adIngest(string $histCsv, string $campCsv): array {
 
   $soNgay = 0;
   foreach ($dung as $ds) $soNgay = max($soNgay, count($ds));
-  if ($soNgay >= 28) kvSet('ingest_full', gmdate('c'));
+  if ($soNgay >= 28) kvSet('ingest_full', gmdate('c'));      // chỉ để Cài đặt hiện ra
   $tatCa = array_merge(...array_map('array_keys', array_values($dung) ?: [[]]));
   sort($tatCa);
   return ['rows' => $n, 'shops' => array_keys($dung),
           'dates' => $tatCa ? [$tatCa[0], end($tatCa)] : [],
-          'months' => array_keys($thangs), 'adcamps' => $nCamp, 'addays' => $nDay,
-          'need_full' => !kvGet('ingest_full', '')];
+          'months' => array_keys($thangs), 'adcamps' => $nCamp, 'addays' => $nDay, 'span' => $soNgay];
 }
 /* Hai chiến dịch cùng một sản phẩm (một con tay, một con tự động chẳng hạn)
    ra cùng một khoá — gộp số lại như lúc nạp CSV, đừng để con sau đè con trước. */

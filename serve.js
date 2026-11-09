@@ -954,8 +954,10 @@ function ingestTouch(id, r){
   if (!devs[id]) return;
   devs[id].lastAt = new Date().toISOString();
   devs[id].last = {rows:r.rows, shops:r.shops, dates:r.dates, adcamps:r.adcamps, addays:r.addays};
+  if ((r.span || 0) >= 28) devs[id].full = new Date().toISOString();
   kvSet('ingest_devs', devs);
 }
+const ingestNeedFull = id => !(ingestDevs()[id] || {}).full;
 function ingCsv(text){
   text = String(text || '').replace(/^﻿/, '');
   if (!text.trim()) return [];
@@ -1063,13 +1065,13 @@ function adIngest(histCsv, campCsv){
     const nhan = cid => { const m = M[cid];
       return [m ? String(m.item || '') : '', m && String(m.title || '').trim() ? String(m.title).trim() : 'Chiến dịch ' + cid,
               m ? ingStatus(m.state) : '', m ? ingBid({type:m.type, roas_target:m.roas}) : '']; };
-    const phu = D.prepare('SELECT MIN(date) a, MAX(date) b FROM ad_raw WHERE shop = ?').get(ten);
+    const demNgay = D.prepare('SELECT COUNT(DISTINCT date) n FROM ad_raw WHERE shop = ? AND date BETWEEN ? AND ?');
     const theoKhoa = {};
     camps.forEach((c, i) => { if (c.shopId === sid) theoKhoa[(c.ym || '') + '|' + ingKey(String(c.sku || ''), c.name)] = i; });
     [...new Set(Object.keys(dates).map(d => d.slice(0, 7)))].forEach(ym => {
       if (ym >= thangNay) return;
       const dau = ym + '-01', cuoi = lastDay(ym);
-      if (!phu || phu.a > dau || phu.b < cuoi) return;
+      if (demNgay.get(ten, dau, cuoi).n < +cuoi.slice(8, 10)) return;
       const tong = D.prepare(`SELECT cid, SUM(cost) cost, SUM(gmv) gmv, SUM(orders) orders, SUM(sold) sold,
           SUM(impr) impr, SUM(clicks) clicks FROM ad_raw WHERE shop = ? AND date BETWEEN ? AND ? GROUP BY cid`).all(ten, dau, cuoi);
       Object.entries(ingGom(tong, nhan)).forEach(([k0, t]) => {
@@ -1113,7 +1115,7 @@ function adIngest(histCsv, campCsv){
   if (soNgay >= 28) kvSet('ingest_full', new Date().toISOString());
   const tatCa = Object.values(dung).flatMap(d => Object.keys(d)).sort();
   return {rows:n, shops:Object.keys(dung), dates: tatCa.length ? [tatCa[0], tatCa[tatCa.length - 1]] : [],
-          months:Object.keys(thangs), adcamps:nCamp, addays:nDay, need_full: !kvGet('ingest_full', '')};
+          months:Object.keys(thangs), adcamps:nCamp, addays:nDay, span:soNgay};
 }
 function ingestRoute(req, res, body){
   const out = (o, code = 200) => { res.writeHead(code, {'Content-Type':'application/json; charset=utf-8', 'Cache-Control':'no-store'}); res.end(JSON.stringify(o)); };
@@ -1132,7 +1134,7 @@ function ingestRoute(req, res, body){
     : 'Thiết bị này đã bị thu hồi quyền gửi số.'}, 403);
   const r = adIngest(String(inp.history_csv || ''), String(inp.campaigns_csv || ''));
   ingestTouch(devId, r);
-  return out(Object.assign({ok:true}, r));
+  return out(Object.assign({ok:true, need_full:ingestNeedFull(devId)}, r));
 }
 
 /* ---------------- máy chủ ---------------- */

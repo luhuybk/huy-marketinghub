@@ -20,6 +20,9 @@ for i, a in enumerate(sys.argv):
         DAYS = int(sys.argv[i + 1])
 FULL = "--full" in sys.argv
 LABEL = "Tác vụ Báo cáo quảng cáo Shopee"
+for i, a in enumerate(sys.argv):
+    if a == "--label" and i + 1 < len(sys.argv):
+        LABEL = sys.argv[i + 1]
 
 
 def doc(ten):
