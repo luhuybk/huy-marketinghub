@@ -832,6 +832,21 @@ Vài luật đáng nhớ:
 
 Nạp file CSV tay **vẫn dùng được** như cũ (vd. tệp giữa ngày ở tab Hôm nay).
 
+Đoạn đã thêm vào lời dặn của tác vụ (sửa trong app Claude → Cowork → tác vụ đã
+lên lịch). Script lấy từ Hub mỗi lần chạy, nên sửa `push_hub.py` ở đây là tác vụ
+dùng bản mới ngay, không phải sửa lại lời dặn:
+
+```
+Ngay sau merge.py, gửi số sang Marketing Hub: project_read claude/shopee/hub_token.txt
+(nếu có) rồi ghi vào shopee/hub_token.txt; trong thư mục shopee chạy
+curl -fsS 'https://darkblue-bat-395619.hostingersite.com/api/ingest.php?script=1' -o push_hub.py && python3 push_hub.py
+Script in TOKEN_MOI → project_write shopee/hub_token.txt vào claude/shopee/hub_token.txt.
+Mã thoát 2 → thêm vào tin nhắn: "Vào Marketing Hub → Cài đặt → Nhận số liệu quảng cáo
+tự động → bấm Cho phép". Mã thoát 3 (lỗi mạng) → thử lại lệnh đó bằng device_bash trên
+máy anh Huy; vẫn lỗi thì ghi "Chưa gửi được sang Hub: <lỗi>". Bước này lỗi gì cũng
+không được làm hỏng các bước còn lại; ghi 1 dòng kết quả cuối tin nhắn.
+```
+
 Đây là chỗ hiếm hoi máy chủ **có hiểu nghiệp vụ**: phải cộng ngày thành tháng
 ngay trên máy chủ thì báo cáo mới có số lúc chưa ai mở app. Luật nằm ở
 `adIngest()` trong `api/lib.php`, bản Node đối xứng trong `serve.js` — đã chạy
