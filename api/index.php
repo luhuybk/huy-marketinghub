@@ -417,6 +417,33 @@ switch ($action) {
 
   /* ---------------- Telegram ---------------- */
 
+  /* ---- nhận số liệu quảng cáo tự động (api/ingest.php) ----
+     Danh sách thiết bị đã gửi số tới cổng. Không trả mã băm token. */
+  case 'ingest_list': {
+    requireOwner();
+    $ds = [];
+    foreach (ingestDevs() as $id => $d) {
+      unset($d['hash']);
+      $ds[] = ['id' => (string)$id] + $d;
+    }
+    out(['ok' => true, 'devices' => $ds, 'url' => apiBase() . '/ingest.php',
+         'full' => (string)kvGet('ingest_full', '')]);
+  }
+  /* Cho phép / thu hồi / xoá một thiết bị */
+  case 'ingest_set': {
+    requireOwner();
+    $id = (string)($in['id'] ?? '');
+    $devs = ingestDevs();
+    if (!isset($devs[$id])) fail('Không thấy thiết bị này.', 404);
+    $lam = (string)($in['do'] ?? '');
+    if ($lam === 'ok')       { $devs[$id]['ok'] = true;  $devs[$id]['off'] = false; }
+    elseif ($lam === 'off')  { $devs[$id]['ok'] = false; $devs[$id]['off'] = true; }
+    elseif ($lam === 'del')  { unset($devs[$id]); }
+    else fail('Không hiểu thao tác.');
+    kvSet('ingest_devs', $devs);
+    out(['ok' => true]);
+  }
+
   /* Trả về cấu hình để hiện lên màn Cài đặt. KHÔNG trả mã bot —
      chỉ nói là "đã có" hay chưa. */
   case 'tg_get': {

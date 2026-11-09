@@ -1,7 +1,8 @@
-# Chỉ index.php, cron.php và tg.php được gọi từ ngoài.
+# Chỉ index.php, cron.php, tg.php và ingest.php được gọi từ ngoài.
+# push_hub.py chỉ phát qua ingest.php?script=1 (đã điền sẵn địa chỉ Hub).
 # Cấu hình, thư viện dùng chung và dữ liệu thì không.
 
-<FilesMatch "^(config.*\.php|lib\.php|.*\.sqlite.*|.*\.db)$">
+<FilesMatch "^(config.*\.php|lib\.php|push_hub\.py|.*\.sqlite.*|.*\.db)$">
   Require all denied
   Order allow,deny
   Deny from all

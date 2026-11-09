@@ -787,6 +787,66 @@ sửa một dòng nào ở máy chủ — đã kiểm cả hai: nút *Xong* trê
 
 ---
 
+## 🔌 Số liệu quảng cáo tự động
+
+Tác vụ **"Báo cáo quảng cáo Shopee 8h45"** (Claude, chạy theo lịch) mỗi sáng kéo
+số quảng cáo 3 ngày gần nhất của các shop về `history.csv` + `campaigns.csv`,
+rồi gửi thẳng vào Hub. Không ai phải tải file CSV từ Shopee để nạp tay nữa —
+báo cáo ngày, báo cáo tháng, cờ chiến dịch, bước 📊 ở Hàng mới về đều có số
+từ sáng sớm, cả khi chưa ai mở app.
+
+```
+tác vụ ── curl <Hub>/api/ingest.php?script=1 → push_hub.py ── POST 2 file ──▶ api/ingest.php
+                                                                         │
+                     ad_raw (kho thô, không đồng bộ) ◀───────────────────┤
+                     adcamps: tổng tháng đã kết thúc ◀───────────────────┤
+                     addays : từng ngày, 45 ngày gần nhất ◀──────────────┘
+```
+
+**Ghép nối, không ai cầm khoá.** Lần đầu chạy, `push_hub.py` tự sinh token vào
+`hub_token.txt` (tác vụ lưu file này vào project) và Hub để nó ở trạng thái
+**chờ**. Chủ vào **Cài đặt → Nhận số liệu quảng cáo tự động → Cho phép** một lần.
+Máy chủ chỉ giữ mã băm; tối đa 5 thiết bị chờ một lúc để ai gõ bừa vào cổng
+cũng không làm phình bảng. Thiết bị lạ thì đừng cho phép, hoặc bấm *Thu hồi*.
+
+**Lần gửi đầu kèm cả lịch sử**: Hub trả `need_full` khi chưa từng nhận gói nào
+phủ ≥ 28 ngày, script tự gửi tiếp toàn bộ `history.csv` chia theo tháng.
+
+Vài luật đáng nhớ:
+
+- **Tháng chỉ ghi khi đã kết thúc và kho thô phủ trọn từ ngày 1 tới ngày cuối.**
+  Ghi tháng đang chạy thì báo cáo tháng đem nửa tháng so cả tháng trước, cờ
+  "tụt" kêu ầm ĩ. Tháng bắt đầu giữa chừng (tháng đầu của lịch sử) bị bỏ qua để
+  không đè lên tháng đã nạp tay đầy đủ.
+- **Cùng khoá với `adcampKey()`**: gian hàng + mã sản phẩm + tên. Phải có tên vì
+  Shopee chạy nhiều quảng cáo trên một sản phẩm và đặt tên "… [2]", "… [3]".
+  Cùng khoá thì tháng đã nạp tay từ CSV được **ghi đè đúng bản ghi cũ**.
+- Chữ trạng thái và cách đấu thầu viết y như file CSV (*Đang diễn ra*, *Tạm
+  dừng*, *Đã dừng* · *Tối đa Doanh thu Tùy chỉnh ROAS*, *GMV Max Auto Bidding
+  (Shop)*) — app đọc chữ này để biết chiến dịch còn chạy.
+- Số đơn = cột `sold` (*Sản phẩm đã bán*), đúng cột app đọc khi nạp CSV.
+- Shop chưa có thì tự tạo theo tên. Dòng ngày tự động quá 45 ngày tự bị dọn.
+- Bản ghi tự động mang `src:'auto'` và `by:'auto'`. Đầu trang Báo cáo Ads có dòng
+  *"🔌 Số tự động… đã có tới hết ngày …"* — tác vụ hỏng hôm nào thì dòng này
+  đứng ở ngày cũ và báo trễ.
+
+Nạp file CSV tay **vẫn dùng được** như cũ (vd. tệp giữa ngày ở tab Hôm nay).
+
+Đây là chỗ hiếm hoi máy chủ **có hiểu nghiệp vụ**: phải cộng ngày thành tháng
+ngay trên máy chủ thì báo cáo mới có số lúc chưa ai mở app. Luật nằm ở
+`adIngest()` trong `api/lib.php`, bản Node đối xứng trong `serve.js` — đã chạy
+cùng một bộ số qua cả hai và so từng bản ghi ra giống hệt. Định dạng hai file là
+của tác vụ (`merge.py`): đổi cột ở đó thì phải sửa `ingCsv`/`adIngest` theo.
+
+### Cờ 🩸 Dưới ROAS hoà vốn
+
+Báo cáo ngày và tháng có thêm cờ này: chiến dịch có ROAS thấp hơn ngưỡng hoà
+vốn tính từ **Sổ giá vốn** (size khắt nhất, như ô ROAS ở Hàng mới về), hoặc sản
+phẩm đang bán lỗ cả khi chưa tính quảng cáo. Cần sản phẩm được khoá mã Shopee
+và có giá vốn — nên chỉ máy có quyền Tính chi phí mới thấy cờ này.
+
+---
+
 ## 🚀 Hàng mới về
 
 Chữa đúng một chuyện: hàng về rồi mà quên up, up rồi mà quên chạy quảng cáo.

@@ -49,7 +49,9 @@ let tgCfg = null;
 let usersCfg = null;
 /* Máy chủ từ chối hoặc mất mạng: phải nói ra. Trước đây lỗi làm danh sách
    thành rỗng, nhìn y hệt "chưa có tài khoản nào" — chủ sẽ tưởng mất sạch. */
-let cfgErr = {tg:'', users:'', stats:''};
+let cfgErr = {tg:'', users:'', stats:'', ing:''};
+/* Thiết bị gửi số liệu quảng cáo tự động (api/ingest.php). Chỉ chủ đọc được. */
+let ingCfg = null;
 /* Máy chủ đang để file dữ liệu ở đâu, nặng bao nhiêu. Chỉ máy chủ biết —
    nhìn từ trình duyệt thì không có cách nào đoán ra, mà đây lại đúng là câu
    quyết định "lần cập nhật code tới có xoá mất dữ liệu không". */
@@ -953,10 +955,26 @@ function viewAdReport(){
   </div>`;
 
   h += shopBar(shopIds, shopId);
+  h += adAutoLine(shopId);
   return h + (tab === 'now'   ? viewAdNow(shopId)
             : tab === 'gio'   ? viewAdHours(shopId)
             : tab === 'month' ? viewAdMonth()
                               : viewAdDay(shopId));
+}
+
+/* Dòng nhỏ đầu trang: số đang về tự động từ tác vụ, lần cuối lúc nào. Hôm nào
+   tác vụ hỏng thì dòng này đứng ở ngày cũ — nhìn là biết, không phải đoán vì
+   sao báo cáo vắng. */
+function adAutoLine(shopId){
+  const ds = addays().filter(c => c.src === 'auto' && (!shopId || c.shopId === shopId));
+  if (!ds.length) return '';
+  const ngay = ds.reduce((m, c) => c.date > m ? c.date : m, '');
+  const luc  = ds.reduce((m, c) => (c.updatedAt || '') > m ? c.updatedAt : m, '');
+  const tre  = -dayDiff(ngay) - 1;
+  return `<div class="dim" style="margin:-4px 0 12px">🔌 Số tự động từ tác vụ mỗi sáng · đã có tới hết ngày
+    <b>${esc(fmtDate(ngay))}</b>${luc ? ' · nhận lúc ' + esc(new Date(luc).toLocaleString('vi-VN',
+      {hour:'2-digit', minute:'2-digit', day:'2-digit', month:'2-digit'})) : ''}${
+    tre > 0 ? ' · <b class="warn">trễ ' + tre + ' ngày — xem tác vụ có chạy không</b>' : ''}</div>`;
 }
 
 /* ============================================================
@@ -5074,6 +5092,11 @@ function viewSettings(){
     ? `<span class="dim">${usersCfg.length} tài khoản</span>` : '');
   h += usersCard();
 
+  /* ---- nhận số liệu quảng cáo tự động ---- */
+  h += sectionTitle('Nhận số liệu quảng cáo tự động', ingCfg && ingCfg.devices.some(d => d.ok)
+    ? '<span class="chip ok">đang nhận</span>' : '<span class="chip">chưa nối</span>');
+  h += ingestCard();
+
   /* ---- nhắc qua Telegram ---- */
   const g = tgCfg;
   h += sectionTitle('Nhắc qua Telegram', g && g.enabled
@@ -5274,4 +5297,37 @@ function lcellHTML(L, pid, st, c){
   }
   return `<button type="button" class="chip lc ${cls}" data-act="lcell"
     data-id="${esc(L.id + '|' + pid + '|' + st.id)}">${esc(t)}</button>`;
+}
+
+/* Thẻ "Nhận số liệu quảng cáo tự động" ở Cài đặt. Mỗi thiết bị là một token
+   do script push_hub.py tự sinh; lần đầu nó gửi số thì nằm ở trạng thái chờ,
+   bạn bấm Cho phép một lần là từ đó số tự vào mỗi sáng. */
+function ingestCard(){
+  if (cfgErr.ing) return `<div class="card"><b class="bad">Không đọc được danh sách thiết bị.</b>
+    <div class="dim">${esc(cfgErr.ing)}</div>
+    <div class="btns" style="margin-top:10px"><button class="btn sm" data-act="ingreload">Thử lại</button></div></div>`;
+  if (!ingCfg) return `<div class="card dim">Đang đọc…</div>`;
+  const tg = s => s ? new Date(s).toLocaleString('vi-VN', {hour:'2-digit', minute:'2-digit', day:'2-digit', month:'2-digit'}) : '—';
+  const ds = ingCfg.devices.slice().sort((a, b) => (b.ok - a.ok) || String(b.lastAt).localeCompare(String(a.lastAt)));
+  return `<div class="card">
+    <div class="dim" style="margin-bottom:10px">Tác vụ <b>Báo cáo quảng cáo Shopee</b> chạy mỗi sáng, kéo số
+      quảng cáo của các shop rồi gửi thẳng vào đây — báo cáo ngày, báo cáo tháng và cờ chiến dịch có số mà
+      không ai phải tải file CSV. Lần đầu gửi, tác vụ hiện ra dưới đây ở trạng thái <b>chờ</b>: bấm
+      <b>Cho phép</b> một lần là xong. Thấy thiết bị lạ thì đừng cho phép.</div>` +
+    (ds.length ? ds.map(d => `<div class="li" style="cursor:default">
+        <div class="grow"><div class="li-t">${esc(d.label || 'Không tên')}
+          <span class="chip ${d.ok ? 'ok' : d.off ? 'bad' : 'warn'}">${d.ok ? 'đang nhận' : d.off ? 'đã thu hồi' : 'chờ cho phép'}</span></div>
+          <div class="li-s">gửi lần đầu ${esc(tg(d.firstAt))} · lần gần nhất ${esc(tg(d.lastAt))}${
+            d.last ? ' · ' + num(d.last.rows || 0) + ' dòng' + (d.last.dates && d.last.dates.length
+              ? ' (' + esc(fmtShort(d.last.dates[0])) + '–' + esc(fmtShort(d.last.dates[1])) + ')' : '') +
+              ((d.last.shops || []).length ? ' · ' + esc(d.last.shops.join(', ')) : '') : ''}</div></div>
+        ${!d.ok ? `<button class="btn pri sm" data-act="ingok" data-id="${esc(d.id)}">Cho phép</button>` : ''}
+        ${d.ok ? `<button class="btn sm" data-act="ingoff" data-id="${esc(d.id)}">Thu hồi</button>` : ''}
+        <button class="btn sm" data-act="ingrm" data-id="${esc(d.id)}">Xoá</button>
+      </div>`).join('')
+      : `<div class="dim">Chưa có thiết bị nào gửi số tới. Tác vụ chạy lần tới sẽ hiện ở đây.</div>`) +
+    `<div class="dim" style="margin-top:10px">Cổng nhận: <code>${esc(ingCfg.url)}</code> ·
+      lịch sử: ${ingCfg.full ? 'đã nhận đủ (' + esc(tg(ingCfg.full)) + ')' : 'chưa nhận — lần gửi đầu sẽ kèm cả lịch sử'}</div>
+    <div class="btns" style="margin-top:10px"><button class="btn sm" data-act="ingreload">Tải lại</button></div>
+  </div>`;
 }

@@ -540,6 +540,24 @@ function api(req, res, body){
       return send({ok:true});
     }
 
+    /* ---- nhận số liệu quảng cáo tự động ---- */
+    case 'ingest_list': {
+      if (!owner()) return;
+      const ds = Object.entries(ingestDevs()).map(([id, d]) => { const x = Object.assign({id}, d); delete x.hash; return x; });
+      return send({ok:true, devices:ds, url:`http://localhost:${PORT}/api/ingest.php`, full:kvGet('ingest_full', '') || ''});
+    }
+    case 'ingest_set': {
+      if (!owner()) return;
+      const devs = ingestDevs(), id = String(inp.id || '');
+      if (!devs[id]) return fail('Không thấy thiết bị này.', 404);
+      if (inp.do === 'ok') Object.assign(devs[id], {ok:true, off:false});
+      else if (inp.do === 'off') Object.assign(devs[id], {ok:false, off:true});
+      else if (inp.do === 'del') delete devs[id];
+      else return fail('Không hiểu thao tác.');
+      kvSet('ingest_devs', devs);
+      return send({ok:true});
+    }
+
     /* ---- Telegram: cùng hợp đồng với bản PHP ---- */
     case 'tg_get': {
       if (!owner()) return;
@@ -911,6 +929,212 @@ async function tgHook(req, res, body){
   return txt('ok');
 }
 
+/* ---------------- nhận số liệu quảng cáo tự động: bản Node của api/ingest.php ----------------
+   Cùng luật từng dòng với adIngest() trong api/lib.php. Sửa bên này thì sửa cả bên kia. */
+const ING_MAX_PENDING = 5, ING_DAY_KEEP = 45;
+const ingestDevs = () => { const d = kvGet('ingest_devs', {}); return d && typeof d === 'object' && !Array.isArray(d) ? d : {}; };
+function ingestDevice(tok, label, ip){
+  const h = sha(tok), devs = ingestDevs();
+  for (const [id, d] of Object.entries(devs)){
+    if (d.hash !== h) continue;
+    if (d.ok) return ['ok', id];
+    return [d.off ? 'off' : 'pending', id];
+  }
+  const cho = Object.entries(devs).filter(([, d]) => !d.ok && !d.off)
+    .sort((a, b) => String(a[1].firstAt).localeCompare(String(b[1].firstAt)));
+  if (cho.length >= ING_MAX_PENDING) delete devs[cho[0][0]];
+  const id = 'dv' + crypto.randomBytes(4).toString('hex');
+  devs[id] = {hash:h, label:(String(label || '').trim() || 'Không tên').slice(0, 80), ok:false, off:false,
+              firstAt:new Date().toISOString(), lastAt:new Date().toISOString(), ip:ip || '', last:null};
+  kvSet('ingest_devs', devs);
+  return ['pending', id];
+}
+function ingestTouch(id, r){
+  const devs = ingestDevs();
+  if (!devs[id]) return;
+  devs[id].lastAt = new Date().toISOString();
+  devs[id].last = {rows:r.rows, shops:r.shops, dates:r.dates, adcamps:r.adcamps, addays:r.addays};
+  kvSet('ingest_devs', devs);
+}
+function ingCsv(text){
+  text = String(text || '').replace(/^﻿/, '');
+  if (!text.trim()) return [];
+  const rows = []; let row = [], cell = '', q = false;
+  for (let i = 0; i < text.length; i++){
+    const c = text[i];
+    if (q){
+      if (c === '"'){ if (text[i+1] === '"'){ cell += '"'; i++; } else q = false; }
+      else cell += c;
+      continue;
+    }
+    if (c === '"'){ q = true; continue; }
+    if (c === ','){ row.push(cell); cell = ''; continue; }
+    if (c === '\r') continue;
+    if (c === '\n'){ row.push(cell); rows.push(row); row = []; cell = ''; continue; }
+    cell += c;
+  }
+  if (cell !== '' || row.length){ row.push(cell); rows.push(row); }
+  const head = (rows.shift() || []).map(h => h.trim());
+  return rows.filter(r => !(r.length === 1 && !r[0].trim()))
+             .map(r => Object.fromEntries(head.map((h, i) => [h, r[i] == null ? '' : r[i]])));
+}
+const ingId = v => { const s = String(v == null ? '' : v).trim(); if (!s || s.toLowerCase() === 'nan') return '';
+                     const m = s.match(/^(\d+)(\.0+)?$/); return m ? m[1] : s; };
+const ingStatus = st => { const s = String(st || '').trim().toLowerCase();
+  return ['ongoing','running','active','scheduled','normal'].includes(s) ? 'Đang diễn ra' : s === 'paused' ? 'Tạm dừng' : 'Đã dừng'; };
+const ingBid = m => { const t = String(m.type || '').toLowerCase();
+  if (+m.roas_target > 0) return 'Tối đa Doanh thu Tùy chỉnh ROAS';
+  if (t.includes('shop') || t.includes('gmv') || t.includes('auto')) return 'GMV Max Auto Bidding (Shop)';
+  return String(m.type || ''); };
+const ingKey = (sku, name) => (sku ? 's:' + sku + '|' : '') + 'n:' + String(name || '').trim().toLowerCase();
+const ingExists = (kind, id) => !!db().prepare('SELECT 1 FROM items WHERE kind = ? AND item_id = ?').get(kind, id);
+function ingItemSave(kind, id, data, co){
+  const at = new Date().toISOString();
+  Object.assign(data, {id, updatedAt:at, deleted:false, by:'auto'});
+  const j = JSON.stringify(data);
+  if (co) db().prepare('UPDATE items SET data = ?, updated_at = ?, deleted = 0 WHERE kind = ? AND item_id = ?').run(j, at, kind, id);
+  else    db().prepare('INSERT INTO items (kind, item_id, data, updated_at, deleted) VALUES (?,?,?,?,0)').run(kind, id, j, at);
+}
+const ingItems = kind => db().prepare('SELECT item_id, data FROM items WHERE kind = ? AND deleted = 0').all(kind)
+  .map(r => { try { return Object.assign(JSON.parse(r.data), {id:r.item_id}); } catch(e){ return null; } }).filter(Boolean);
+function ingGom(rows, nhan){
+  const g = {};
+  rows.forEach(t => {
+    const [sku, name, st, bid] = nhan(String(t.cid));
+    const k = ingKey(sku, name);
+    if (!g[k]){ g[k] = Object.assign({}, t, {sku, name, st, bid}); return; }
+    ['cost','gmv','orders','sold','impr','clicks'].forEach(f => g[k][f] = (+g[k][f] || 0) + (+t[f] || 0));
+    if (st === 'Đang diễn ra') g[k].st = st;
+  });
+  return g;
+}
+const lastDay = ym => { const [y, m] = ym.split('-').map(Number); return ym + '-' + String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0'); };
+function adIngest(histCsv, campCsv){
+  const D = db();
+  D.exec(`CREATE TABLE IF NOT EXISTS ad_raw (shop TEXT NOT NULL, cid TEXT NOT NULL, date TEXT NOT NULL,
+      cost INTEGER, gmv INTEGER, orders INTEGER, sold INTEGER, impr INTEGER, clicks INTEGER,
+      PRIMARY KEY (shop, cid, date));
+    CREATE TABLE IF NOT EXISTS ad_meta (shop TEXT NOT NULL, cid TEXT NOT NULL, title TEXT,
+      type TEXT, state TEXT, roas REAL, item TEXT, PRIMARY KEY (shop, cid))`);
+  const meta = ingCsv(campCsv), rows = ingCsv(histCsv);
+  const homNay = vnNow().date, thangNay = homNay.slice(0, 7);
+  const g = new Date(homNay + 'T00:00:00Z'); g.setUTCDate(g.getUTCDate() - ING_DAY_KEEP);
+  const giuTu = g.toISOString().slice(0, 10);
+
+  D.exec('BEGIN');
+  const insM = D.prepare(`INSERT INTO ad_meta (shop,cid,title,type,state,roas,item) VALUES (?,?,?,?,?,?,?)
+      ON CONFLICT(shop,cid) DO UPDATE SET title=excluded.title, type=excluded.type, state=excluded.state,
+      roas=excluded.roas, item=excluded.item`);
+  meta.forEach(m => {
+    const shop = String(m.shop || '').trim(), cid = ingId(m.campaign_id);
+    if (shop && cid) insM.run(shop, cid, String(m.title || '').trim(), String(m.type || ''), String(m.state || ''),
+                              +m.roas_target || 0, ingId(m.item_id));
+  });
+  const insR = D.prepare(`INSERT INTO ad_raw (shop,cid,date,cost,gmv,orders,sold,impr,clicks) VALUES (?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(shop,cid,date) DO UPDATE SET cost=excluded.cost, gmv=excluded.gmv, orders=excluded.orders,
+      sold=excluded.sold, impr=excluded.impr, clicks=excluded.clicks`);
+  const dung = {}; let n = 0;
+  rows.forEach(r => {
+    const shop = String(r.shop || '').trim(), cid = ingId(r.campaign_id), date = String(r.date || '');
+    if (!shop || !cid || !/^\d{4}-\d{2}-\d{2}$/.test(date) || date >= homNay) return;
+    insR.run(shop, cid, date, Math.round(+r.cost || 0), Math.round(+r.gmv || 0), Math.trunc(+r.orders || 0),
+             Math.trunc(+r.sold || 0), Math.trunc(+r.impr || 0), Math.trunc(+r.clicks || 0));
+    (dung[shop] = dung[shop] || {})[date] = true;
+    n++;
+  });
+  D.exec('COMMIT');
+
+  const shops = ingItems('shops'), shopId = {};
+  Object.keys(dung).forEach(ten => {
+    let co = shops.find(s => String(s.name || '').trim().toLowerCase() === ten.toLowerCase());
+    if (!co){
+      const id = 'sh' + Math.floor(Date.now() / 1000).toString(36) + crypto.randomBytes(3).toString('hex');
+      co = {id, name:ten, code:'', note:'tự tạo khi nhận số liệu quảng cáo tự động', archived:false};
+      ingItemSave('shops', id, co, false); shops.push(co);
+    }
+    shopId[ten] = String(co.id);
+  });
+
+  const camps = ingItems('adcamps'), days = ingItems('addays');
+  let nCamp = 0, nDay = 0; const thangs = {};
+  Object.entries(dung).forEach(([ten, dates]) => {
+    const sid = shopId[ten];
+    const M = Object.fromEntries(D.prepare('SELECT * FROM ad_meta WHERE shop = ?').all(ten).map(m => [String(m.cid), m]));
+    const nhan = cid => { const m = M[cid];
+      return [m ? String(m.item || '') : '', m && String(m.title || '').trim() ? String(m.title).trim() : 'Chiến dịch ' + cid,
+              m ? ingStatus(m.state) : '', m ? ingBid({type:m.type, roas_target:m.roas}) : '']; };
+    const phu = D.prepare('SELECT MIN(date) a, MAX(date) b FROM ad_raw WHERE shop = ?').get(ten);
+    const theoKhoa = {};
+    camps.forEach((c, i) => { if (c.shopId === sid) theoKhoa[(c.ym || '') + '|' + ingKey(String(c.sku || ''), c.name)] = i; });
+    [...new Set(Object.keys(dates).map(d => d.slice(0, 7)))].forEach(ym => {
+      if (ym >= thangNay) return;
+      const dau = ym + '-01', cuoi = lastDay(ym);
+      if (!phu || phu.a > dau || phu.b < cuoi) return;
+      const tong = D.prepare(`SELECT cid, SUM(cost) cost, SUM(gmv) gmv, SUM(orders) orders, SUM(sold) sold,
+          SUM(impr) impr, SUM(clicks) clicks FROM ad_raw WHERE shop = ? AND date BETWEEN ? AND ? GROUP BY cid`).all(ten, dau, cuoi);
+      Object.entries(ingGom(tong, nhan)).forEach(([k0, t]) => {
+        if (!+t.impr && !+t.cost) return;
+        const k = ym + '|' + k0, cu = theoKhoa[k] != null ? camps[theoKhoa[k]] : null;
+        const rec = Object.assign({}, cu || {}, {ym, from:dau, to:cuoi, name:t.name, sku:t.sku,
+          status:t.st || (cu && cu.status) || '', bid:t.bid || (cu && cu.bid) || '',
+          impressions:+t.impr, clicks:+t.clicks, orders:+t.sold || +t.orders, cost:+t.cost, gmv:+t.gmv,
+          shopId:sid, src:'auto', cid:String(t.cid)});
+        const id = cu ? String(cu.id) : 'aa' + sha(sid + '|' + t.cid + '|' + ym).slice(0, 14);
+        ingItemSave('adcamps', id, rec, !!cu || ingExists('adcamps', id));
+        nCamp++;
+      });
+      thangs[ym] = true;
+    });
+
+    const theoNgay = {};
+    days.forEach((c, i) => { if (c.shopId === sid) theoNgay[(c.date || '') + '|' + ingKey(String(c.sku || ''), c.name)] = i; });
+    const q = D.prepare('SELECT * FROM ad_raw WHERE shop = ? AND date = ?');
+    Object.keys(dates).forEach(date => {
+      if (date < giuTu) return;
+      Object.entries(ingGom(q.all(ten, date), nhan)).forEach(([k0, t]) => {
+        const k = date + '|' + k0, cu = theoNgay[k] != null ? days[theoNgay[k]] : null;
+        if (!+t.cost && !cu) return;
+        const rec = Object.assign({}, cu || {}, {ym:date.slice(0, 7), from:date, to:date, date,
+          name:t.name, sku:t.sku, status:t.st, bid:t.bid, impressions:+t.impr, clicks:+t.clicks,
+          orders:+t.sold || +t.orders, cost:+t.cost, gmv:+t.gmv, shopId:sid,
+          partial:false, atHour:23, src:'auto', cid:String(t.cid)});
+        const id = cu ? String(cu.id) : 'ad' + sha(sid + '|' + t.cid + '|' + date).slice(0, 14);
+        ingItemSave('addays', id, rec, !!cu || ingExists('addays', id));
+        nDay++;
+      });
+    });
+  });
+
+  const at = new Date().toISOString();
+  const don = D.prepare('UPDATE items SET deleted = 1, updated_at = ? WHERE kind = ? AND item_id = ?');
+  days.forEach(c => { if (c.src === 'auto' && c.date && c.date < giuTu) don.run(at, 'addays', String(c.id)); });
+
+  const soNgay = Math.max(0, ...Object.values(dung).map(d => Object.keys(d).length));
+  if (soNgay >= 28) kvSet('ingest_full', new Date().toISOString());
+  const tatCa = Object.values(dung).flatMap(d => Object.keys(d)).sort();
+  return {rows:n, shops:Object.keys(dung), dates: tatCa.length ? [tatCa[0], tatCa[tatCa.length - 1]] : [],
+          months:Object.keys(thangs), adcamps:nCamp, addays:nDay, need_full: !kvGet('ingest_full', '')};
+}
+function ingestRoute(req, res, body){
+  const out = (o, code = 200) => { res.writeHead(code, {'Content-Type':'application/json; charset=utf-8', 'Cache-Control':'no-store'}); res.end(JSON.stringify(o)); };
+  if (req.method === 'GET'){
+    if (!/[?&]script=/.test(req.url)) return out({ok:false, error:'Cổng này chỉ nhận POST từ tác vụ tự động.'}, 405);
+    res.writeHead(200, {'Content-Type':'text/plain; charset=utf-8', 'Cache-Control':'no-store'});
+    return res.end(fs.readFileSync(path.join(__dirname, 'api/push_hub.py'), 'utf8')
+      .replace('__HUB_INGEST__', `http://localhost:${PORT}/api/ingest.php`));
+  }
+  let inp; try { inp = JSON.parse(body || '{}'); } catch(e){ return out({ok:false, error:'Không đọc được JSON.'}, 400); }
+  const tok = String(inp.token || '');
+  if (tok.length < 32) return out({ok:false, error:'Thiếu token.'}, 400);
+  const [tt, devId] = ingestDevice(tok, inp.label, req.socket.remoteAddress);
+  if (tt !== 'ok') return out({ok:false, pending: tt === 'pending', error: tt === 'pending'
+    ? 'Chờ chủ cho phép: Marketing Hub → Cài đặt → Nhận số liệu quảng cáo tự động → Cho phép.'
+    : 'Thiết bị này đã bị thu hồi quyền gửi số.'}, 403);
+  const r = adIngest(String(inp.history_csv || ''), String(inp.campaigns_csv || ''));
+  ingestTouch(devId, r);
+  return out(Object.assign({ok:true}, r));
+}
+
 /* ---------------- máy chủ ---------------- */
 http.createServer((req, res) => {
   let p = decodeURIComponent(req.url.split('?')[0]);
@@ -925,6 +1149,16 @@ http.createServer((req, res) => {
     req.on('data', c => { body += c; if (body.length > 2e6) req.destroy(); });
     req.on('end', () => tgHook(req, res, body)
       .catch(e => { res.writeHead(500); res.end('lỗi: ' + e.message); }));
+    return;
+  }
+
+  if (p === '/api/ingest.php'){
+    let body = '';
+    req.on('data', c => { body += c; if (body.length > 25e6) req.destroy(); });
+    req.on('end', () => { try { ingestRoute(req, res, body); } catch(e){
+      res.writeHead(500, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ok:false, error:e.message}));
+    }});
     return;
   }
 

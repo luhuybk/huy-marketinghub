@@ -329,6 +329,9 @@ const AD_ISSUES = {
   waste: {icon:'🔥', label:'Đốt tiền không ra doanh số', cls:'bad',
           hint:'có chi phí nhưng doanh số bằng 0 — kể cả khi Shopee vẫn đếm có sản phẩm bán ra, ' +
                'thường là đơn bị huỷ hoặc chưa được tính về chiến dịch'},
+  /* Cần Sổ giá vốn: chỉ máy có quyền Tính chi phí mới thấy cờ này */
+  loss:  {icon:'🩸', label:'Dưới ROAS hoà vốn',     cls:'bad',
+          hint:'ROAS thấp hơn mức hoà vốn tính từ Sổ giá vốn — mỗi đơn từ quảng cáo đang lỗ'},
   under: {icon:'📉', label:'Dưới ngưỡng ROAS',      cls:'warn',
           hint:'thấp hơn mức ROAS bạn đã chốt cho sản phẩm này'},
   quiet: {icon:'😴', label:'Gần như đứng im',       cls:'warn',
@@ -364,6 +367,8 @@ const DEFAULT_AD_RULES = {wasteCost:50000, underTol:10, quietDrop:70, roasDrop:3
 const AD_DAY_FLAGS = {
   nosale: {icon:'🔥', label:'Tiêu mà không ra doanh số', cls:'bad',
            hint:'hôm qua có chi nhưng doanh số bằng 0'},
+  loss:   {icon:'🩸', label:'Dưới ROAS hoà vốn',         cls:'bad',
+           hint:'ROAS thấp hơn mức hoà vốn tính từ Sổ giá vốn — mỗi đơn từ quảng cáo đang lỗ'},
   burn:   {icon:'💸', label:'Tiêu vọt mà kém hiệu quả',  cls:'bad',
            hint:'tiêu nhiều hơn hẳn mọi ngày, trong khi ROAS lại thấp hơn mức tháng trước'},
   down:   {icon:'📉', label:'ROAS tụt so tháng trước',   cls:'warn',
@@ -821,7 +826,7 @@ let db = blank();
 /* Ai vừa sửa bản ghi này. Có nhân viên cùng dùng thì lúc số liệu trông lạ,
    câu hỏi đầu tiên luôn là "ai nhập cái này" — không ghi lại thì không trả
    lời được. 'telegram' là do bấm nút dưới tin nhắn (xem api/tg.php). */
-const BY = {owner:'bạn', staff:'nhân viên', telegram:'nút Telegram'};
+const BY = {owner:'bạn', staff:'nhân viên', telegram:'nút Telegram', auto:'tác vụ tự động'};
 const whoAmI = () => (window.Server && Server.role() === 'staff') ? 'staff' : 'owner';
 
 function stamp(o){
@@ -3022,6 +3027,16 @@ function projCard(pj){
 }
 
 /* Bốn dấu hiệu cần soi. Trả về mảng mã, có thể nhiều cái cùng lúc. */
+/* Chạy dưới ROAS hoà vốn: lấy ngưỡng từ Sổ giá vốn (size khắt nhất, như ô
+   ROAS ở Hàng mới về). Sản phẩm bán đang lỗ cả khi chưa tính quảng cáo thì
+   đồng nào chi cho quảng cáo cũng là lỗ thêm. Không có giá vốn → không kết luận. */
+function adBelowBE(p, m){
+  const hv = launchRoas(p);
+  if (!hv) return false;
+  if (hv.lo) return true;
+  return !!(hv.roas && m.gmv && m.roas != null && m.roas < hv.roas);
+}
+
 function adcampIssues(c){
   const R = db.settings.adRules || DEFAULT_AD_RULES;
   const m = adMetrics(c), out = [];
@@ -3035,6 +3050,7 @@ function adcampIssues(c){
   if (!chay) return out;
 
   const p = adcampProduct(c);
+  if (p && duLon && adBelowBE(p, m)) out.push('loss');
   if (p && p.roasTarget && duLon && m.roas != null &&
       m.roas < p.roasTarget * (1 - (+R.underTol || 0) / 100)) out.push('under');
 
@@ -3232,6 +3248,8 @@ function adDayReport(shopId, date, tyLe, che){
     const dOrders = dd(m.orders, b && b.orders);
 
     if (duLon && !m.gmv) flags.push('nosale');
+    const sp = duLon && m.gmv ? adcampProduct(c) : null;
+    if (sp && adBelowBE(sp, m)) flags.push('loss');
     if (duLon && dCost != null && dCost >= (+R.dayCostUp || 0) &&
         (!m.gmv || (dRoas != null && dRoas <= -(+R.dayRoasDrop || 0)))) flags.push('burn');
     if (duLon && m.gmv && dRoas != null && dRoas <= -(+R.dayRoasDrop || 0)) flags.push('down');
