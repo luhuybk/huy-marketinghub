@@ -540,6 +540,13 @@ function api(req, res, body){
       return send({ok:true});
     }
 
+    /* Số liệu cho Báo cáo Ads → Radar — ai có quyền Shopee Ads */
+    case 'ad_radar': {
+      if (!need()) return;
+      if (!khMay(me, 'ads')) return fail('Tài khoản này chưa được xem Shopee Ads.', 403);
+      return send(Object.assign({ok:true}, adRadarData()));
+    }
+
     /* ---- nhận số liệu quảng cáo tự động ---- */
     case 'ingest_list': {
       if (!owner()) return;
@@ -1011,36 +1018,73 @@ function ingGom(rows, nhan){
   return g;
 }
 const lastDay = ym => { const [y, m] = ym.split('-').map(Number); return ym + '-' + String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0'); };
-function adIngest(histCsv, campCsv){
-  const D = db();
+/* Kho thô số liệu quảng cáo — giống adTables() bên PHP: tạo nếu chưa có, thêm
+   các cột ra đời sau (conv, atc, budget, start) cho kho cũ. */
+function adTables(D){
   D.exec(`CREATE TABLE IF NOT EXISTS ad_raw (shop TEXT NOT NULL, cid TEXT NOT NULL, date TEXT NOT NULL,
       cost INTEGER, gmv INTEGER, orders INTEGER, sold INTEGER, impr INTEGER, clicks INTEGER,
       PRIMARY KEY (shop, cid, date));
     CREATE TABLE IF NOT EXISTS ad_meta (shop TEXT NOT NULL, cid TEXT NOT NULL, title TEXT,
       type TEXT, state TEXT, roas REAL, item TEXT, PRIMARY KEY (shop, cid))`);
+  const them = {ad_raw:{conv:'INTEGER', atc:'INTEGER'}, ad_meta:{budget:'INTEGER', start:'INTEGER'}};
+  Object.entries(them).forEach(([bang, cot]) => {
+    const co = D.prepare(`PRAGMA table_info(${bang})`).all().map(r => r.name);
+    Object.entries(cot).forEach(([ten, kieu]) => { if (!co.includes(ten)) D.exec(`ALTER TABLE ${bang} ADD COLUMN ${ten} ${kieu}`); });
+  });
+}
+/* Số liệu cho Radar — giống adRadarData() bên PHP */
+function adRadarData(soNgay = 400){
+  const D = db(); adTables(D);
+  const now = vnNow().date, g = new Date(now + 'T00:00:00Z'); g.setUTCDate(g.getUTCDate() - soNgay);
+  const rows = D.prepare(`SELECT shop, cid, date, cost, gmv, orders, conv, sold, impr, clicks, atc
+      FROM ad_raw WHERE date >= ? ORDER BY date`).all(g.toISOString().slice(0, 10));
+  const out = {updated:now, dates:[], shops:[], camps:[]};
+  if (!rows.length) return out;
+  const d0 = rows[0].date, dl = rows[rows.length - 1].date, t0 = Date.parse(d0 + 'T00:00:00Z');
+  for (let t = t0; ; t += 864e5){ const d = new Date(t).toISOString().slice(0, 10); if (d > dl) break; out.dates.push(d); }
+  const shopIdx = {}, camp = new Map();
+  rows.forEach(r => {
+    if (!(r.shop in shopIdx)){ shopIdx[r.shop] = out.shops.length; out.shops.push(r.shop); }
+    const k = r.shop + '\0' + r.cid;
+    if (!camp.has(k)) camp.set(k, {s:shopIdx[r.shop], id:String(r.cid), d:{}});
+    camp.get(k).d[String(Math.round((Date.parse(r.date + 'T00:00:00Z') - t0) / 864e5))] =
+      [r.cost, r.gmv, r.orders, r.conv, r.sold, r.impr, r.clicks, r.atc].map(v => Math.trunc(+v || 0));
+  });
+  const meta = Object.fromEntries(D.prepare('SELECT * FROM ad_meta').all().map(m => [m.shop + '\0' + m.cid, m]));
+  camp.forEach((c, k) => { const m = meta[k] || {};
+    out.camps.push(Object.assign(c, {t:String(m.title || '').trim() || 'Chiến dịch ' + c.id,
+      ty:String(m.type || ''), st:String(m.state || ''), b:Math.trunc(+m.budget || 0), tg:+m.roas || 0,
+      item:String(m.item || ''), start:Math.trunc(+m.start || 0)})); });
+  return out;
+}
+function adIngest(histCsv, campCsv){
+  const D = db();
+  adTables(D);
   const meta = ingCsv(campCsv), rows = ingCsv(histCsv);
   const homNay = vnNow().date, thangNay = homNay.slice(0, 7);
   const g = new Date(homNay + 'T00:00:00Z'); g.setUTCDate(g.getUTCDate() - ING_DAY_KEEP);
   const giuTu = g.toISOString().slice(0, 10);
 
   D.exec('BEGIN');
-  const insM = D.prepare(`INSERT INTO ad_meta (shop,cid,title,type,state,roas,item) VALUES (?,?,?,?,?,?,?)
+  const insM = D.prepare(`INSERT INTO ad_meta (shop,cid,title,type,state,roas,item,budget,start) VALUES (?,?,?,?,?,?,?,?,?)
       ON CONFLICT(shop,cid) DO UPDATE SET title=excluded.title, type=excluded.type, state=excluded.state,
-      roas=excluded.roas, item=excluded.item`);
+      roas=excluded.roas, item=excluded.item, budget=excluded.budget, start=excluded.start`);
   meta.forEach(m => {
     const shop = String(m.shop || '').trim(), cid = ingId(m.campaign_id);
     if (shop && cid) insM.run(shop, cid, String(m.title || '').trim(), String(m.type || ''), String(m.state || ''),
-                              +m.roas_target || 0, ingId(m.item_id));
+                              +m.roas_target || 0, ingId(m.item_id), Math.round(+m.budget || 0), Math.round(+m.start_time || 0));
   });
-  const insR = D.prepare(`INSERT INTO ad_raw (shop,cid,date,cost,gmv,orders,sold,impr,clicks) VALUES (?,?,?,?,?,?,?,?,?)
+  const insR = D.prepare(`INSERT INTO ad_raw (shop,cid,date,cost,gmv,orders,sold,impr,clicks,conv,atc)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(shop,cid,date) DO UPDATE SET cost=excluded.cost, gmv=excluded.gmv, orders=excluded.orders,
-      sold=excluded.sold, impr=excluded.impr, clicks=excluded.clicks`);
+      sold=excluded.sold, impr=excluded.impr, clicks=excluded.clicks, conv=excluded.conv, atc=excluded.atc`);
   const dung = {}; let n = 0;
   rows.forEach(r => {
     const shop = String(r.shop || '').trim(), cid = ingId(r.campaign_id), date = String(r.date || '');
     if (!shop || !cid || !/^\d{4}-\d{2}-\d{2}$/.test(date) || date >= homNay) return;
     insR.run(shop, cid, date, Math.round(+r.cost || 0), Math.round(+r.gmv || 0), Math.trunc(+r.orders || 0),
-             Math.trunc(+r.sold || 0), Math.trunc(+r.impr || 0), Math.trunc(+r.clicks || 0));
+             Math.trunc(+r.sold || 0), Math.trunc(+r.impr || 0), Math.trunc(+r.clicks || 0),
+             Math.trunc(+r.conv || 0), Math.trunc(+r.atc || 0));
     (dung[shop] = dung[shop] || {})[date] = true;
     n++;
   });

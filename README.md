@@ -1003,12 +1003,35 @@ Nên chúng là hai tab, không phải hai nửa của một trang.
 
 Cùng dùng quyền `ads`, nên không phải tick thêm gì cho người đã có Shopee Ads.
 
-Tab có hai mục con:
+Tab có ba mục con:
 
 | Mục | Nạp gì | Trả lời câu gì |
 |---|---|---|
+| **Radar** (mặc định) | không nạp gì — số tự động từ tác vụ mỗi sáng | kỳ này so với kỳ trước, con nào cần chú ý |
 | **Theo tháng** | file trọn một tháng | tháng rồi con nào hỏng, con nào gánh tiền |
 | **Hôm qua** | file đúng một ngày | hôm qua có gì lệch so với mọi ngày |
+
+### Radar
+
+Là trang **"Radar Quảng Cáo Shopee"** mà tác vụ mỗi sáng từng dựng riêng, chuyển
+vào Hub gần như nguyên vẹn vì người dùng đã quen đọc nó: chọn shop, kỳ xem / kỳ
+so sánh, ba khối tổng quan, nhóm cảnh báo, biểu đồ theo ngày, ROAS mục tiêu so
+với thực tế, bảng tất cả quảng cáo, bấm một dòng mở ngăn chi tiết.
+
+- Mã nằm ở `radar.html` (trang tự đứng được — nút *Mở toàn màn hình*). Hub nhúng
+  nó trong một iframe đặt **ngoài** `#view` (`radarBox()` trong `js/app.js`):
+  `render()` thay cả `#view` mỗi lần vẽ, iframe nằm trong đó thì vẽ lại là tải
+  lại, mất kỳ đang chọn và ngăn chi tiết. Chỉ ẩn/hiện, không bao giờ gỡ ra.
+- Số lấy bằng action `ad_radar` (cần quyền `ads` — chỉ có chi phí quảng cáo,
+  không có giá vốn), đọc thẳng **kho thô `ad_raw`/`ad_meta`** mà
+  `api/ingest.php` ghi, tối đa 400 ngày. Không đọc adcamps/addays: hai kho đó
+  đã gộp theo tháng hoặc chỉ giữ 45 ngày.
+- `ad_raw` có thêm `conv`, `atc` và `ad_meta` có thêm `budget`, `start` cho
+  Radar — `adTables()` tự thêm cột vào kho cũ. Dòng gửi trước khi có cột thì
+  bằng 0 tới khi tác vụ gửi lại.
+- Màu sáng/tối theo Hub (`kolhub.theme`). Đổi luật cảnh báo trong Radar là sửa
+  `computeAlerts()` trong `radar.html` — nó tách biệt với cờ của tab Theo
+  tháng / Hôm qua.
 
 File lấy cùng một chỗ: *Kênh Người Bán › Kênh Marketing › Quảng cáo Shopee ›
 Báo cáo*. Đọc được cả `.csv` lẫn `.xlsx`.

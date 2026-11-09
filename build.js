@@ -24,7 +24,7 @@ const JS = ['js/state.js','js/shopee.js','js/charts.js','js/api.js','js/sync.js'
             'js/views.js','js/app.js'];
 
 /* ---------- mã phiên bản: đổi khi và chỉ khi mã nguồn đổi ---------- */
-const srcFiles = ['index.html', 'css/style.css', ...JS];
+const srcFiles = ['index.html', 'css/style.css', 'radar.html', ...JS];
 const VERSION = crypto.createHash('sha1')
   .update(srcFiles.map(read).join('\0')).digest('hex').slice(0, 8);
 
@@ -62,6 +62,8 @@ copy('css/style.css');
    Có mã này thì boot() phát hiện ngay và tự tải lại (xem js/app.js). */
 JS.forEach(f => put(f, read(f) +
   `\n;(window.__KH_BUILD = window.__KH_BUILD || []).push([${JSON.stringify(f)}, ${JSON.stringify(VERSION)}]);\n`));
+/* radar.html — trang Radar của Báo cáo Ads, Hub nhúng trong khung (xem radarBox() ở js/app.js) */
+copy('radar.html');
 copy('manifest.webmanifest');
 copy('icon.svg');
 
@@ -118,7 +120,7 @@ put('.htaccess', `# Marketing Hub — cấu hình cho Apache/LiteSpeed (Hostinge
     Header set Cache-Control "public, max-age=2592000"
   </FilesMatch>
   # hai tệp này phải luôn hỏi lại máy chủ, nếu không sẽ kẹt ở bản cũ
-  <FilesMatch "^(index\\.html|manifest\\.webmanifest)$">
+  <FilesMatch "^(index\\.html|radar\\.html|manifest\\.webmanifest)$">
     Header set Cache-Control "no-cache, must-revalidate"
   </FilesMatch>
   # app riêng tư — đừng để bị lập chỉ mục

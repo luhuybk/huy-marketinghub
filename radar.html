@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>Radar quảng cáo · Marketing Hub</title>
+<!--
+  RADAR QUẢNG CÁO SHOPEE — trong Marketing Hub
+
+  Đây là trang "Radar Quảng Cáo Shopee" mà tác vụ mỗi sáng từng dựng riêng,
+  chuyển vào Hub gần như nguyên vẹn vì người dùng đã quen đọc nó: chọn shop,
+  kỳ xem / kỳ so sánh, ba khối tổng quan, nhóm cảnh báo, biểu đồ theo ngày,
+  ROAS mục tiêu, bảng tất cả quảng cáo, bấm dòng mở ngăn chi tiết.
+
+  Khác bản cũ đúng một chỗ: số không nhúng sẵn trong trang mà lấy từ máy
+  chủ (api/index.php, action ad_radar — đọc kho thô ad_raw mà tác vụ đẩy
+  vào qua api/ingest.php). Cần đăng nhập Hub và có quyền Shopee Ads.
+
+  Tab Báo cáo Ads → Radar nhúng trang này trong một iframe giữ cố định
+  (xem radarBox() trong js/app.js) để Hub vẽ lại không làm nó tải lại.
+  Mở thẳng radar.html là xem toàn màn hình.
+-->
+<script>
+  /* Theo màu sáng/tối của Hub (Hub ghi vào kolhub.theme) — đặt trước khi vẽ để không nháy */
+  try { const t = localStorage.getItem('kolhub.theme'); if (t) document.documentElement.dataset.theme = t; } catch(e){}
+  const NHUNG = window.parent !== window;
+  if (NHUNG) document.documentElement.classList.add('nhung');
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: controls → KPI strip → alerts → trend chart → campaign table; row click opens a detail drawer */
+:root{
+  --bg:#f6f5f2; --panel:#ffffff; --ink:#1d2326; --muted:#66706f; --line:#e3e1db; --hover:#f1efea;
+  --accent:#e2561f; --accent-soft:#fbe6dc;
+  --good:#1f8a5b; --good-soft:#dff2e8; --warn:#b7791f; --warn-soft:#fbf0d9; --bad:#c53030; --bad-soft:#fbe1e1;
+  --bar:#d6d9d7; --bar-hi:#7d8684; --cmp:#f0b89c; --scrim:rgba(20,24,25,.35);
+  --sans:"Be Vietnam Pro",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#141819; --panel:#1c2224; --ink:#e8ebea; --muted:#9aa4a3; --line:#2c3437; --hover:#232a2c;
+  --accent:#f07a45; --accent-soft:#3a2419; --good:#4cc38a; --good-soft:#173328; --warn:#e2b04a; --warn-soft:#352a14; --bad:#f07171; --bad-soft:#3a1c1c;
+  --bar:#323b3e; --bar-hi:#7a8689; --cmp:#8a4a2c; --scrim:rgba(0,0,0,.55); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#141819; --panel:#1c2224; --ink:#e8ebea; --muted:#9aa4a3; --line:#2c3437; --hover:#232a2c;
+  --accent:#f07a45; --accent-soft:#3a2419; --good:#4cc38a; --good-soft:#173328; --warn:#e2b04a; --warn-soft:#352a14; --bad:#f07171; --bad-soft:#3a1c1c;
+  --bar:#323b3e; --bar-hi:#7a8689; --cmp:#8a4a2c; --scrim:rgba(0,0,0,.55); color-scheme:dark}
+*{box-sizing:border-box} [hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5}
+.wrap{max-width:1180px;margin:0 auto;padding-inline:16px;padding-block:20px 48px;display:grid;gap:20px}
+header{display:grid;gap:12px}
+.hrow{display:flex;flex-wrap:wrap;align-items:end;justify-content:space-between;gap:12px}
+h1{font-size:22px;font-weight:700;margin:0;text-wrap:balance}
+h2{font-size:15px;font-weight:600;margin:0}
+h3{font-size:13px;font-weight:600;margin:0;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.sub,.note{color:var(--muted);font-size:12.5px}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.seg button{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:6px 12px;border-radius:999px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+button:focus-visible,select:focus-visible,input:focus-visible,tr[tabindex]:focus-visible,.alert:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.kpi{background:var(--panel);padding:14px 16px;display:grid;gap:2px;align-content:start}
+.kpi .l{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.kpi .v{font-size:22px;font-weight:600}
+.delta{font-size:12px}
+.up{color:var(--good)} .down{color:var(--bad)} .flat{color:var(--muted)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;display:grid;gap:12px;min-width:0}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.alerts{display:grid;gap:8px}
+.alert{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start;padding:10px 12px;border-radius:8px;border-left:4px solid var(--warn);background:var(--warn-soft);cursor:pointer}
+.alert.bad{border-left-color:var(--bad);background:var(--bad-soft)}
+.alert.info{border-left-color:var(--muted);background:var(--bg)}
+.alert .pill{font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:var(--panel);white-space:nowrap}
+.alert .n{font-weight:500;overflow-wrap:anywhere}
+.alert .m{color:var(--muted);font-size:13px}
+.alert .shop{font-size:12px;color:var(--muted);white-space:nowrap}
+.grp{border:1px solid var(--line);border-left:4px solid var(--warn);border-radius:8px;background:var(--panel)}
+.grp.bad{border-left-color:var(--bad)} .grp.info{border-left-color:var(--muted)}
+.grp summary{list-style:none;display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:10px 12px;cursor:pointer}
+.grp summary::-webkit-details-marker{display:none}
+.grp summary .pill{font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:var(--warn-soft);white-space:nowrap}
+.grp.bad summary .pill{background:var(--bad-soft)} .grp.info summary .pill{background:var(--bg)}
+.grp .gt{font-weight:600;min-width:0} .grp .chev{color:var(--muted);transition:transform .15s}
+.grp[open] .chev{transform:rotate(90deg)}
+.grp summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:8px}
+.glist{display:grid;gap:6px;padding:0 10px 10px}
+.more{font:inherit;font-size:13px;background:none;border:0;color:var(--accent);cursor:pointer;padding:0;justify-self:start}
+.chart{width:100%;height:auto;display:block}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--muted);flex-wrap:wrap}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+input[type=search],select{font:inherit;font-size:13px;padding:6px 10px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink)}
+input[type=search]{min-width:0;width:220px;max-width:100%}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left;white-space:normal;min-width:240px;max-width:380px}
+th{font-size:12px;color:var(--muted);font-weight:500;background:var(--panel)}
+th button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0}
+tbody tr[tabindex]{cursor:pointer}
+tbody tr[tabindex]:hover{background:var(--hover)}
+td .sn{display:block;font-size:11px;color:var(--muted)}
+.chip{display:inline-block;font-size:11px;padding:1px 7px;border-radius:999px;font-family:var(--sans)}
+.chip.good{background:var(--good-soft);color:var(--good)} .chip.bad{background:var(--bad-soft);color:var(--bad)} .chip.warn{background:var(--warn-soft);color:var(--warn)} .chip.mut{background:var(--bg);color:var(--muted)}
+.empty{color:var(--muted);font-size:13px;padding:8px 0}
+/* drawer */
+.scrim{position:fixed;inset:0;background:var(--scrim);z-index:10}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(760px,100%);background:var(--panel);z-index:11;overflow-y:auto;border-left:1px solid var(--line);
+  padding-inline:20px;padding-block:calc(16px + env(safe-area-inset-top,0px)) calc(32px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:16px}
+.drawer>*{flex-shrink:0}
+.dhead{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:start}
+.dhead h2{font-size:17px;line-height:1.35;overflow-wrap:anywhere}
+.close{font:inherit;font-size:20px;line-height:1;width:36px;height:36px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer}
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px 16px;font-size:13px}
+.meta div{display:grid}
+.meta span:first-child{font-size:11.5px;color:var(--muted)}
+.mgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.mgrid div{background:var(--panel);padding:10px 12px;display:grid;gap:1px}
+.mgrid .l{font-size:11.5px;color:var(--muted)}
+.mgrid .v{font-size:16px;font-weight:600}
+.link{display:inline-flex;gap:6px;align-items:center;font-size:13px;color:var(--accent);text-decoration:none;font-weight:500}
+.link:hover{text-decoration:underline}
+.callout{font-size:13px;padding:10px 12px;border-radius:8px;background:var(--accent-soft)}
+.ulink{font-size:12px;width:min(100%,340px);padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink)}
+.callout.open{line-height:1.9}
+.callout button{font:inherit;background:none;border:0;color:var(--accent);cursor:pointer;padding:0;text-decoration:underline}
+.dtbl{max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:8px}
+.dtbl th{position:sticky;top:0}
+.dtbl th:first-child,.dtbl td:first-child{min-width:0}
+.inperiod td{background:var(--hover)}
+@media (prefers-reduced-motion:no-preference){.drawer{animation:slide .18s ease-out}@keyframes slide{from{transform:translateX(24px);opacity:.6}to{transform:none;opacity:1}}}
+/* compare bar */
+.cmpbar{display:grid;gap:10px;padding:12px 14px;background:var(--panel);border:1px solid var(--line);border-radius:10px}
+.cmprow{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center}
+.cmprow label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;min-width:64px}
+.cmprow .grp{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+input[type=date]{font:inherit;font-size:13px;padding:5px 8px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink)}
+.rng{font-size:13px}
+.rng b{font-weight:600}
+/* modules */
+.mods{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:12px}
+.mod{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px 14px;display:grid;gap:10px;align-content:start;min-width:0}
+.mod h3{display:flex;gap:8px;align-items:center}
+.mod h3 i{width:8px;height:8px;border-radius:2px;background:var(--accent);display:inline-block}
+.mod.m2 h3 i{background:var(--bar-hi)} .mod.m3 h3 i{background:var(--warn)}
+.cells{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px 16px}
+.cell{display:grid;gap:1px;min-width:0}
+.cell .l{font-size:12px;color:var(--muted)}
+.cell .v{font-size:20px;font-weight:600;line-height:1.25}
+.cell .c{font-size:12px;color:var(--muted)}
+.drawer .cell .v{font-size:17px}
+/* target table */
+.gbar{display:inline-block;width:80px;height:6px;border-radius:3px;background:var(--line);vertical-align:middle;margin-right:6px;overflow:hidden}
+.gbar i{display:block;height:100%;border-radius:3px}
+.inperiod td{background:var(--hover)} .incmp td{background:var(--accent-soft)}
+html,body{margin:0}
+.hlinks{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.nhung h1{display:none}
+.nhung .wrap{padding-block:4px 32px}
+.msg{max-width:560px;margin:56px 16px;padding:20px;background:var(--panel);border:1px solid var(--line);border-radius:10px;display:grid;gap:8px;font-size:14px}
+@media (min-width:600px){.msg{margin:56px auto}}
+.msg h2{font-size:16px}
+</style>
+</head>
+<body>
+<div class="msg" id="msg"><span class="note">Đang tải số liệu…</span></div>
+<div id="app" hidden>
+<div class="wrap">
+  <header>
+    <div class="hrow">
+      <div>
+        <h1>Radar Quảng Cáo Shopee</h1>
+        <div class="sub" id="upd"></div>
+      </div>
+      <div class="hlinks"><button type="button" class="more" id="reload">↻ Tải lại số</button><a class="link" id="hubLink" href="./#adreport">← Về Marketing Hub</a></div>
+    </div>
+    <div class="seg" id="shops" role="group" aria-label="Chọn shop"></div>
+  </header>
+
+  <section class="cmpbar" aria-label="Chọn kỳ so sánh">
+    <div class="cmprow"><label for="aSel">Kỳ xem</label>
+      <div class="grp"><select id="aSel">
+        <option value="y">Hôm qua</option><option value="7">7 ngày qua</option><option value="14">14 ngày qua</option><option value="30">30 ngày qua</option>
+        <option value="tm">Tháng này</option><option value="lm">Tháng trước</option><option value="c">Tự chọn ngày…</option></select>
+        <span id="aCustom" hidden><input type="date" id="aFrom" aria-label="Kỳ xem từ ngày"> – <input type="date" id="aTo" aria-label="Kỳ xem đến ngày"></span></div></div>
+    <div class="cmprow"><label for="bSel">So với</label>
+      <div class="grp"><select id="bSel">
+        <option value="prev">Kỳ liền trước (cùng số ngày)</option><option value="p7">7 ngày ngay trước kỳ xem</option><option value="p30">30 ngày ngay trước kỳ xem</option>
+        <option value="mom">Cùng kỳ tháng trước</option><option value="lm">Tháng trước</option><option value="c">Tự chọn ngày…</option></select>
+        <span id="bCustom" hidden><input type="date" id="bFrom" aria-label="So với từ ngày"> – <input type="date" id="bTo" aria-label="So với đến ngày"></span></div></div>
+    <div class="rng" id="rng"></div>
+  </section>
+
+  <section class="mods" id="mods" aria-label="Tổng quan"></section>
+
+  <section class="panel">
+    <div class="row"><h2>Cần chú ý</h2><span class="note" id="alertNote"></span></div>
+    <div class="alerts" id="alerts"></div>
+  </section>
+
+  <section class="panel">
+    <div class="row"><h2>Theo ngày</h2>
+      <div class="legend"><span><i class="sw" style="background:var(--bar-hi)"></i>Chi phí kỳ xem</span><span><i class="sw" style="background:var(--cmp)"></i>Chi phí kỳ so sánh</span><span><i class="sw" style="background:var(--accent)"></i>ROAS</span></div></div>
+    <svg class="chart" id="chart" viewBox="0 0 900 240" role="img" aria-label="Biểu đồ chi phí và ROAS theo ngày"></svg>
+  </section>
+
+  <section class="panel">
+    <div class="row"><h2>ROAS mục tiêu so với thực tế</h2><span class="note" id="tgNote"></span></div>
+    <div class="tbl"><table><thead><tr><th scope="col">Quảng cáo</th><th scope="col">Chi phí</th><th scope="col">ROAS thực tế</th><th scope="col">ROAS mục tiêu</th><th scope="col">Đạt</th></tr></thead><tbody id="tgBody"></tbody></table></div>
+    <button type="button" class="more" id="tgMore" hidden></button>
+  </section>
+
+  <section class="panel">
+    <div class="row"><h2>Tất cả quảng cáo</h2>
+      <div class="tools">
+        <input type="search" id="q" placeholder="Tìm tên, mã SP hoặc ID QC" aria-label="Tìm quảng cáo">
+        <select id="flt" aria-label="Lọc"><option value="active">Có chi tiêu trong kỳ</option><option value="flag">Chỉ quảng cáo bị cảnh báo</option><option value="all">Tất cả</option></select>
+      </div></div>
+    <div class="tbl"><table><thead><tr id="thead"></tr></thead><tbody id="tbody"></tbody></table></div>
+    <div class="note">Bấm vào một dòng để xem chi tiết. Doanh thu và ROAS theo cách Shopee tính (trực tiếp + gián tiếp). Tiền tính bằng VNĐ.</div>
+  </section>
+</div>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="dTitle" hidden></aside>
+</div>
+
+<script>
+/* ---------- lấy số từ Hub ---------- */
+function bao(tieuDe, loi){
+  const m = document.getElementById('msg');
+  m.hidden = false;
+  m.innerHTML = '<h2></h2><div class="note"></div><a class="link" href="./" target="_top">Mở Marketing Hub ↗</a>';
+  m.querySelector('h2').textContent = tieuDe;
+  m.querySelector('.note').textContent = loi || '';
+}
+async function napSo(){
+  let res, d = null;
+  try {
+    res = await fetch('api/index.php', {method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'ad_radar'})});
+    try { d = await res.json(); } catch(e){}
+  } catch(e){ return bao('Không nối được máy chủ', 'Kiểm tra mạng rồi tải lại trang.'); }
+  if (res.status === 401) return bao('Chưa đăng nhập', 'Mở Marketing Hub và đăng nhập trước, rồi quay lại trang này.');
+  if (!res.ok || !d || d.ok === false) return bao('Không lấy được số liệu', (d && d.error) || ('Máy chủ trả lỗi ' + res.status));
+  if (!d.dates || !d.dates.length)
+    return bao('Chưa có số liệu quảng cáo tự động',
+      'Radar lấy số từ tác vụ "Báo cáo quảng cáo Shopee" chạy mỗi sáng. Khi tác vụ gửi được số vào Hub ' +
+      '(Cài đặt → Nhận số liệu quảng cáo tự động → Cho phép), trang này sẽ tự có.');
+  document.getElementById('msg').hidden = true;
+  document.getElementById('app').hidden = false;
+  window.radarLuc = Date.now();
+  start(d);
+}
+
+function start(DATA){
+  /* Trong Hub thì thanh tab của Hub đã có nút "Mở toàn màn hình" — bỏ liên kết về Hub */
+  if (NHUNG) document.getElementById('hubLink').hidden = true;
+  document.getElementById('reload').onclick = () => location.reload();
+  const ND = DATA.dates.length, D0 = DATA.dates[0], DL = DATA.dates[ND-1];
+  const fmt = n => Math.round(n).toLocaleString('vi-VN');
+  const fmtM = n => Math.abs(n)>=1e6 ? (n/1e6).toLocaleString('vi-VN',{maximumFractionDigits:1})+' tr' : fmt(n);
+  const dshort = d => { const p=d.split('-'); return p[2]+'/'+p[1]; };
+  const dlong = d => d.split('-').reverse().join('/');
+  const esc = s => String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const IDS = c => (c.item?`Mã SP ${c.item} · `:'')+`ID QC ${c.id}`;
+  const TYPE = {product_manual:'QC sản phẩm thủ công', product_mpd:'QC nhóm sản phẩm', product_gms:'QC tự động chọn sản phẩm (cấp shop)'};
+  const STATE = {ongoing:['Đang chạy','good'], paused:['Tạm dừng','warn'], ended:['Đã kết thúc','mut'], closed:['Đã đóng','mut'], deleted:['Đã xoá','mut']};
+
+  // ---------- dates ----------
+  const iso = dt => dt.toISOString().slice(0,10);
+  const pd = s => new Date(s+'T00:00:00Z');
+  const addD = (s,n) => { const d=pd(s); d.setUTCDate(d.getUTCDate()+n); return iso(d); };
+  const addM = (s,n) => { const d=pd(s), day=d.getUTCDate(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth()+n); const last=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,0)).getUTCDate(); d.setUTCDate(Math.min(day,last)); return iso(d); };
+  const idx = s => Math.round((pd(s)-pd(D0))/864e5);          // may be <0 or >=ND
+  const ndays = (a,b) => idx(b)-idx(a)+1;
+  function resolveA(v){
+    if (v==='y') return [DL,DL];
+    if (v==='7'||v==='14'||v==='30') return [addD(DL,1-+v),DL];
+    if (v==='tm') return [DL.slice(0,8)+'01',DL];
+    if (v==='lm'){ const f=addM(DL.slice(0,8)+'01',-1); return [f, addD(DL.slice(0,8)+'01',-1)]; }
+    return [ST.af||addD(DL,-6), ST.at||DL];
+  }
+  function resolveB(v,a){
+    const n=ndays(a[0],a[1]);
+    if (v==='prev') return [addD(a[0],-n), addD(a[0],-1)];
+    if (v==='p7') return [addD(a[0],-7), addD(a[0],-1)];
+    if (v==='p30') return [addD(a[0],-30), addD(a[0],-1)];
+    if (v==='mom') return [addM(a[0],-1), addM(a[1],-1)];
+    if (v==='lm'){ const f=addM(a[0].slice(0,8)+'01',-1); return [f, addD(a[0].slice(0,8)+'01',-1)]; }
+    return [ST.bf||addD(a[0],-n), ST.bt||addD(a[0],-1)];
+  }
+
+  // ---------- state ----------
+  let ST={shop:'all',a:'7',b:'prev',af:null,at:null,bf:null,bt:null};
+  try{ Object.assign(ST, JSON.parse(localStorage.getItem('kolhub.radar')||'{}')); }catch(e){}
+  if (ST.shop!=='all' && !DATA.shops[ST.shop]) ST.shop='all';
+  const save=()=>{ try{localStorage.setItem('kolhub.radar',JSON.stringify(ST))}catch(e){} };
+  let A,B,LA,LB,SAME, sortKey='cost', sortDir=-1, openId=null, showAllA=false, showAllT=false;
+  function computeRanges(){
+    A=resolveA(ST.a); B=resolveB(ST.b,A);
+    if (A[0]>A[1]) A=[A[1],A[0]]; if (B[0]>B[1]) B=[B[1],B[0]];
+    LA=ndays(A[0],A[1]); LB=ndays(B[0],B[1]); SAME = LA===LB;
+  }
+
+  // ---------- metrics: d[i] = [cost,gmv,ord(checkout),conv,sold,imp,clk,atc] ----------
+  function agg(c, r){ const a=[0,0,0,0,0,0,0,0], f=Math.max(0,idx(r[0])), t=Math.min(ND-1,idx(r[1])); for(let i=f;i<=t;i++){const v=c.d[i]; if(v) for(let j=0;j<8;j++) a[j]+=v[j];} return a; }
+  function derive(a){ return {cost:a[0],gmv:a[1],ord:a[2],conv:a[3],sold:a[4],imp:a[5],clk:a[6],atc:a[7],
+    roas:a[0]?a[1]/a[0]:0, ctr:a[5]?a[6]/a[5]*100:0, cpc:a[6]?a[0]/a[6]:0, cr:a[6]?a[3]/a[6]*100:0, atcr:a[6]?a[7]/a[6]*100:0, aov:a[2]?a[1]/a[2]:0}; }
+  function sumAll(cs, r){ const a=[0,0,0,0,0,0,0,0]; cs.forEach(c=>{const v=agg(c,r); for(let j=0;j<8;j++) a[j]+=v[j];}); return a; }
+  function stats(c){ return {n:derive(agg(c,A)), p:derive(agg(c,B))}; }
+  const pick = () => DATA.camps.filter(c => ST.shop==='all' || c.s===+ST.shop);
+  const VOL = new Set(['cost','gmv','ord','sold','imp','clk','atc']);   // absolute metrics → compare per-day when lengths differ
+
+  // metric definitions: key, label, formatter, direction (1 up good, -1 down good, 0 neutral)
+  const MET = {
+    cost:['Chi phí', v=>fmt(v)+'đ', 0], gmv:['Doanh thu', v=>fmt(v)+'đ', 1], roas:['ROAS', v=>v.toFixed(2), 1],
+    imp:['Lượt hiển thị', fmt, 1], clk:['Lượt click', fmt, 1], ctr:['CTR', v=>v.toFixed(2)+'%', 1], atcr:['Tỉ lệ thêm vào giỏ', v=>v.toFixed(1)+'%', 1], cr:['CVR (đơn/click)', v=>v.toFixed(1)+'%', 1],
+    ord:['Số đơn hàng', fmt, 1], sold:['Sản phẩm đã bán', fmt, 1], aov:['Giá trị đơn TB', v=>fmt(v)+'đ', 1], cpc:['CPC', v=>fmt(v)+'đ', -1], atc:['Lượt thêm vào giỏ', fmt, 1],
+  };
+  const MODS = [['m1','Chi tiêu & doanh thu',['cost','gmv','roas']], ['m2','Hành vi khách hàng',['imp','clk','ctr','atcr','cr']], ['m3','Đơn hàng & giá click',['ord','sold','aov','cpc','atc']]];
+  function cmpLine(k, n, p){
+    const [_,f,dir]=MET[k], a=n[k], b=p[k];
+    const na = VOL.has(k)&&!SAME ? a/LA : a, nb = VOL.has(k)&&!SAME ? b/LB : b;
+    if (!nb || (DEN[k]&&!n[DEN[k]])) return `<span class="c">Kỳ so sánh: ${b&&!(DEN[k]&&!p[DEN[k]])?f(b):'—'}</span>`;
+    const pct=(na-nb)/nb*100, cls=Math.abs(pct)<3||dir===0?'flat':((pct>0)===(dir>0)?'up':'down');
+    return `<span class="c"><span class="${cls}">${pct>0?'▲':'▼'} ${Math.abs(pct).toFixed(0)}%</span> · kỳ so sánh ${VOL.has(k)&&!SAME?f(b/LB)+'/ngày':f(b)}</span>`;
+  }
+  const DEN={roas:'cost',ctr:'imp',cr:'clk',atcr:'clk',cpc:'clk',aov:'ord'};
+  function modulesHTML(n,p){
+    return MODS.map(([cls,title,keys])=>`<div class="mod ${cls}"><h3><i></i>${title}</h3><div class="cells">${keys.map(k=>`<div class="cell"><span class="l">${MET[k][0]}</span><span class="v num">${DEN[k]&&!n[DEN[k]]?'—':MET[k][1](n[k])}</span>${cmpLine(k,n,p)}</div>`).join('')}</div></div>`).join('');
+  }
+
+  // ---------- alerts ----------
+  function computeAlerts(cs){
+    const shopR={}; DATA.shops.forEach((_,i)=>{ const a=sumAll(DATA.camps.filter(c=>c.s===i),A); shopR[i]=a[0]?a[1]/a[0]:0; });
+    const k=LA/7, out=[], lastI=Math.min(ND-1,idx(A[1]));
+    for (const c of cs){
+      const {n,p}=stats(c), sr=shopR[c.s], last=c.d[lastI]||[0,0,0];
+      const add=(f,m)=>out.push({c,f,m,cost:n.cost});
+      const pdC = n.cost/LA, pdP = p.cost/LB;
+      if (n.cost>=50000*k && n.ord===0) add('Đốt tiền',`Tiêu ${fmt(n.cost)}đ trong ${LA} ngày, 0 đơn`);
+      if (n.cost>=50000*k && p.roas>0 && n.roas<0.7*p.roas) add('ROAS giảm',`ROAS ${n.roas.toFixed(1)} (kỳ so sánh ${p.roas.toFixed(1)})`);
+      if (n.cost>=100000*k && n.ord>0 && n.roas<0.6*sr) add('ROAS thấp',`ROAS ${n.roas.toFixed(1)}, trung bình shop ${sr.toFixed(1)}`);
+      if (n.imp>=2000*k && p.ctr>0 && n.ctr<0.6*p.ctr) add('CTR giảm',`CTR ${n.ctr.toFixed(1)}% (kỳ so sánh ${p.ctr.toFixed(1)}%), hiển thị/ngày ${fmt(p.imp/LB)} → ${fmt(n.imp/LA)}`);
+      if (n.cost>=150000*k && pdC>=2*Math.max(pdP,1) && (n.ord===0 || n.roas<sr)) add('Chi phí tăng vọt',`Chi phí/ngày ${fmt(pdP)} → ${fmt(pdC)}đ, ROAS ${n.roas.toFixed(1)}`);
+      const gA=n.gmv/LA, gB=p.gmv/LB;
+      if (gB>=100000 && gA<0.7*gB) { add('Doanh số giảm',`Doanh số/ngày ${fmt(gB)} → ${fmt(gA)}đ (−${((1-gA/gB)*100).toFixed(0)}%), ROAS ${n.cost?n.roas.toFixed(1):'—'} (kỳ so sánh ${p.roas.toFixed(1)})`); out[out.length-1].loss=(gB-gA)*LA; }
+      if (c.b && last[0]>=0.9*c.b && n.roas>=sr && c.st==='ongoing') add('Hết ngân sách',`Ngày ${dlong(DATA.dates[lastI])} tiêu ${fmt(last[0])}/${fmt(c.b)}đ ngân sách, ROAS ${n.roas.toFixed(1)} tốt`);
+    }
+    return out;
+  }
+  const SEV={'Đốt tiền':'bad','ROAS giảm':'bad','Doanh số giảm':'bad','ROAS thấp':'warn','CTR giảm':'warn','Chi phí tăng vọt':'warn','Hết ngân sách':'info'};
+  const ORDER=['Đốt tiền','Doanh số giảm','ROAS giảm','ROAS thấp','Chi phí tăng vọt','CTR giảm','Hết ngân sách'];
+  let ALERTS=[];
+
+  // ---------- render pieces ----------
+  function renderShops(){
+    const sh=document.getElementById('shops');
+    sh.innerHTML=[['all','Tất cả shop'],...DATA.shops.map((s,i)=>[String(i),s])].map(([v,l])=>`<button type="button" aria-pressed="${String(ST.shop)===v}" data-v="${v}">${esc(l)}</button>`).join('');
+    sh.querySelectorAll('button').forEach(b=>b.onclick=()=>{ST.shop=b.dataset.v==='all'?'all':+b.dataset.v; showAllA=showAllT=false; save(); render();});
+  }
+  function renderRange(){
+    const out = r => `${dlong(r[0])} – ${dlong(r[1])}`;
+    const clipped = idx(B[0])<0 || idx(A[0])<0;
+    document.getElementById('rng').innerHTML = `<b>${out(A)}</b> (${LA} ngày) so với <b>${out(B)}</b> (${LB} ngày)`
+      + (!SAME?` · <span class="note">Hai kỳ dài khác nhau nên chi phí, doanh thu, đơn, hiển thị, click được so theo trung bình mỗi ngày.</span>`:'')
+      + (clipped?` · <span class="note">Dữ liệu chỉ có từ ${dlong(D0)}, phần trước đó tính là 0.</span>`:'');
+    document.getElementById('aCustom').hidden = ST.a!=='c'; document.getElementById('bCustom').hidden = ST.b!=='c';
+    ['aFrom','aTo','bFrom','bTo'].forEach(id=>{const el=document.getElementById(id); el.min=D0; el.max=DL;});
+    aFrom.value=A[0]; aTo.value=A[1]; bFrom.value=B[0]; bTo.value=B[1];
+    aSel.value=ST.a; bSel.value=ST.b;
+  }
+  function renderMods(cs){ document.getElementById('mods').innerHTML = modulesHTML(derive(sumAll(cs,A)), derive(sumAll(cs,B))); }
+  const DESC={'Đốt tiền':'Tiêu tiền nhưng không có đơn','Doanh số giảm':'Doanh số mỗi ngày giảm từ 30% trở lên','ROAS giảm':'ROAS giảm từ 30% trở lên','ROAS thấp':'ROAS dưới 60% mức trung bình của shop','Chi phí tăng vọt':'Chi phí mỗi ngày tăng gấp đôi nhưng hiệu quả kém','CTR giảm':'Tỉ lệ click giảm từ 40% trở lên','Hết ngân sách':'Quảng cáo tốt nhưng gần hết ngân sách ngày'};
+  let OPEN=new Set();
+  function shopDrop(cs){
+    const ids = ST.shop==='all' ? DATA.shops.map((_,i)=>i) : [+ST.shop], out=[];
+    ids.forEach(i=>{ const c2=DATA.camps.filter(c=>c.s===i), a=derive(sumAll(c2,A)), b=derive(sumAll(c2,B)); const gA=a.gmv/LA, gB=b.gmv/LB;
+      if (gB>=200000 && gA<0.8*gB) out.push(`<div class="alert bad" style="cursor:default"><span class="pill">Doanh số shop giảm</span><div style="min-width:0"><div class="n">${esc(DATA.shops[i])}</div><div class="m num">Doanh số QC/ngày ${fmt(gB)} → ${fmt(gA)}đ (−${((1-gA/gB)*100).toFixed(0)}%) · chi phí/ngày ${fmt(b.cost/LB)} → ${fmt(a.cost/LA)}đ · ROAS ${b.roas.toFixed(1)} → ${a.roas.toFixed(1)}</div></div><span></span></div>`); });
+    return out.join('');
+  }
+  function renderAlerts(cs){
+    ALERTS=computeAlerts(cs).sort((a,b)=>ORDER.indexOf(a.f)-ORDER.indexOf(b.f)||(b.loss||b.cost)-(a.loss||a.cost));
+    document.getElementById('alertNote').textContent=`${ALERTS.length} cảnh báo · bấm vào từng nhóm để xem`;
+    const el=document.getElementById('alerts'), groups=ORDER.map(f=>[f,ALERTS.filter(a=>a.f===f)]).filter(g=>g[1].length);
+    el.innerHTML = shopDrop(cs) + (groups.length ? groups.map(([f,list],gi)=>{
+      const tot=list.reduce((s,a)=>s+a.cost,0), loss=list.reduce((s,a)=>s+(a.loss||0),0);
+      return `<details class="grp ${SEV[f]||''}" data-f="${f}" ${OPEN.has(f)?'open':''}><summary><span class="pill">${f}</span><span class="gt">${list.length} quảng cáo<span class="note"> · ${DESC[f]} · ${loss?`doanh số hụt khoảng ${fmtM(loss)}đ so với kỳ so sánh`:`chi phí kỳ xem ${fmt(tot)}đ`}</span></span><span class="chev" aria-hidden="true">▸</span></summary>
+        <div class="glist">${list.map((a,i)=>`<div class="alert ${SEV[f]||''}" tabindex="0" role="button" data-g="${gi}" data-i="${i}"><div style="min-width:0;grid-column:1/3"><div class="n">${esc(a.c.t)}</div><div class="m num">${IDS(a.c)} · ${a.m}</div></div><span class="shop">${ST.shop==='all'?esc(DATA.shops[a.c.s]):''}</span></div>`).join('')}</div></details>`;}).join('')
+      : '<div class="empty">Không có quảng cáo bất thường trong kỳ này.</div>');
+    el.querySelectorAll('details').forEach(d=>d.ontoggle=()=>{ d.open?OPEN.add(d.dataset.f):OPEN.delete(d.dataset.f); });
+    el.querySelectorAll('.alert[data-g]').forEach(x=>{const go=()=>openDetail(groups[+x.dataset.g][1][+x.dataset.i].c); x.onclick=go; x.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();go();}};});
+  }
+  function drawChart(svg, rows, dates, marks){
+    const W=900,H=240,pl=58,pr=44,pt=12,pb=28,iw=W-pl-pr,ih=H-pt-pb,n=rows.length;
+    const cost=rows.map(r=>r[0]), roas=rows.map(r=>r[0]?r[1]/r[0]:null);
+    const maxC=Math.max(...cost,1)*1.1, rv=roas.filter(x=>x!=null), maxR=Math.max(Math.ceil(Math.max(...rv,1)*1.15),1);
+    const bw=iw/n, step=Math.ceil(n/12); let s='';
+    for(let j=0;j<=4;j++){const y=pt+ih-ih*j/4; s+=`<line x1="${pl}" x2="${W-pr}" y1="${y}" y2="${y}" stroke="var(--line)"/><text x="${pl-6}" y="${y+4}" text-anchor="end" font-size="11" fill="var(--muted)" font-family="var(--mono)">${fmtM(maxC*j/4)}</text><text x="${W-pr+6}" y="${y+4}" font-size="11" fill="var(--accent)" font-family="var(--mono)">${(maxR*j/4).toFixed(maxR<8?1:0)}</text>`;}
+    rows.forEach((r,i)=>{const d=dates[i], h=ih*r[0]/maxC, x=pl+i*bw+bw*0.15, inA=d>=A[0]&&d<=A[1], inB=d>=B[0]&&d<=B[1];
+      s+=`<rect x="${x.toFixed(1)}" y="${(pt+ih-h).toFixed(1)}" width="${Math.max(bw*0.7,0.8).toFixed(1)}" height="${h.toFixed(1)}" rx="${bw>6?2:0}" fill="${inA?'var(--bar-hi)':inB?'var(--cmp)':'var(--bar)'}"><title>${dlong(d)}: chi ${fmt(r[0])}đ · doanh thu ${fmt(r[1])}đ · ${r[2]} đơn · ROAS ${r[0]?(r[1]/r[0]).toFixed(1):'—'}</title></rect>`;
+      if((n-1-i)%step===0) s+=`<text x="${(pl+i*bw+bw/2).toFixed(1)}" y="${H-8}" text-anchor="middle" font-size="11" fill="var(--muted)">${dshort(d)}</text>`;});
+    let path='',on=false; roas.forEach((r,i)=>{ if(r==null){on=false;return;} const x=(pl+i*bw+bw/2).toFixed(1), y=(pt+ih-ih*Math.min(r,maxR)/maxR).toFixed(1); path+=(on?'L':'M')+x+','+y; on=true; });
+    s+=`<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linejoin="round"/>`;
+    svg.innerHTML=s;
+  }
+  function chartSpan(minFrom){ const f=Math.max(0, Math.min(idx(A[0]), idx(B[0]), ND-30, minFrom??ND)), t=Math.min(ND-1, Math.max(idx(A[1]), idx(B[1]))); return [f,t]; }
+  function renderChart(cs){
+    const [f,t]=chartSpan(), rows=[], ds=[];
+    for(let i=f;i<=t;i++){ const a=[0,0,0]; cs.forEach(c=>{const v=c.d[i]; if(v){a[0]+=v[0];a[1]+=v[1];a[2]+=v[2];}}); rows.push(a); ds.push(DATA.dates[i]); }
+    drawChart(document.getElementById('chart'), rows, ds);
+  }
+  function renderTargets(cs){
+    const minCost = Math.max(50000, 15000*LA);
+    let rows=cs.filter(c=>c.tg>0 && c.st==='ongoing').map(c=>({c,...derive(agg(c,A))})).filter(r=>r.cost>=minCost).map(r=>({...r,pct:r.roas/r.c.tg*100}));
+    rows.sort((a,b)=>a.pct-b.pct);
+    const met=rows.filter(r=>r.pct>=90).length, med=rows.length?rows.map(r=>r.pct).sort((a,b)=>a-b)[Math.floor(rows.length/2)]:0;
+    document.getElementById('tgNote').textContent = rows.length ? `${rows.length} quảng cáo chi ≥ ${fmt(minCost)}đ trong kỳ · ${met} đạt ≥ 90% mục tiêu · trung vị đạt ${med.toFixed(0)}%` : '';
+    const list = showAllT?rows:rows.slice(0,15);
+    const tb=document.getElementById('tgBody');
+    tb.innerHTML = rows.length ? list.map((r,i)=>{ const col=r.pct>=90?'var(--good)':r.pct>=60?'var(--warn)':'var(--bad)';
+      return `<tr tabindex="0" data-i="${i}"><td>${esc(r.c.t)}<span class="sn">${ST.shop==='all'?esc(DATA.shops[r.c.s])+' · ':''}${IDS(r.c)}</span></td><td class="num">${fmt(r.cost)}</td><td class="num">${r.roas.toFixed(1)}</td><td class="num">${r.c.tg}</td><td class="num"><span class="gbar"><i style="width:${Math.min(100,r.pct).toFixed(0)}%;background:${col}"></i></span>${r.pct.toFixed(0)}%</td></tr>`;}).join('')
+      : '<tr><td colspan="5" class="empty">Không có quảng cáo đặt ROAS mục tiêu đủ chi tiêu trong kỳ.</td></tr>';
+    tb.querySelectorAll('tr[tabindex]').forEach(tr=>{const go=()=>openDetail(list[+tr.dataset.i].c); tr.onclick=go; tr.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();go();}};});
+    const mb=document.getElementById('tgMore'); mb.hidden = showAllT || rows.length<=15; mb.textContent=`Xem thêm ${rows.length-15} quảng cáo`; mb.onclick=()=>{showAllT=true; renderTargets(cs);};
+  }
+  const COLS=[['name','Quảng cáo'],['cost','Chi phí'],['gmv','Doanh thu'],['ord','Đơn'],['roas','ROAS'],['roasP','ROAS kỳ so sánh'],['ctr','CTR'],['cpc','CPC'],['atcr','Tỉ lệ thêm giỏ'],['cr','CVR'],['tg','ROAS mục tiêu']];
+  function renderTable(cs){
+    const flagged=new Set(ALERTS.map(a=>a.c.id)), mode=document.getElementById('flt').value, q=document.getElementById('q').value.trim().toLowerCase();
+    let rows=cs.map(c=>{const {n,p}=stats(c); return {c,...n,roasP:p.roas,costP:p.cost,name:c.t,tg:c.tg};})
+      .filter(r=>(mode==='all'||(mode==='active'&&r.cost>0)||(mode==='flag'&&flagged.has(r.c.id))) && (!q || r.name.toLowerCase().includes(q) || String(r.c.id).includes(q) || String(r.c.item||'').includes(q)));
+    rows.sort((a,b)=>sortKey==='name'?sortDir*a.name.localeCompare(b.name):sortDir*((a[sortKey]||0)-(b[sortKey]||0)));
+    document.getElementById('thead').innerHTML=COLS.map(([k,l])=>`<th scope="col"><button type="button" data-k="${k}">${l}${sortKey===k?(sortDir<0?' ↓':' ↑'):''}</button></th>`).join('');
+    document.querySelectorAll('#thead button').forEach(b=>b.onclick=()=>{const k=b.dataset.k; sortDir=sortKey===k?-sortDir:-1; sortKey=k; renderTable(cs);});
+    const tb=document.getElementById('tbody'), list=rows.slice(0,400);
+    tb.innerHTML=list.length?list.map((r,i)=>{
+      let chip='';
+      if(r.cost>0&&r.ord===0) chip='<span class="chip bad">0 đơn</span>';
+      else if(r.roasP&&r.roas<0.7*r.roasP) chip='<span class="chip bad">giảm</span>';
+      else if(r.roasP&&r.roas>1.2*r.roasP) chip='<span class="chip good">tăng</span>';
+      const st=STATE[r.c.st]||[r.c.st,'mut'];
+      return `<tr tabindex="0" data-i="${i}"><td>${esc(r.name)}<span class="sn">${ST.shop==='all'?esc(DATA.shops[r.c.s])+' · ':''}${IDS(r.c)} · ${st[0]}</span></td>
+        <td class="num">${fmt(r.cost)}</td><td class="num">${fmt(r.gmv)}</td><td class="num">${r.ord}</td>
+        <td class="num">${r.cost?r.roas.toFixed(1):'—'} ${chip}</td><td class="num">${r.costP?r.roasP.toFixed(1):'—'}</td>
+        <td class="num">${r.imp?r.ctr.toFixed(1)+'%':'—'}</td><td class="num">${r.clk?fmt(r.cpc):'—'}</td><td class="num">${r.clk?r.atcr.toFixed(1)+'%':'—'}</td><td class="num">${r.clk?r.cr.toFixed(1)+'%':'—'}</td><td class="num">${r.tg||'—'}</td></tr>`;}).join('')
+      :'<tr><td colspan="11" class="empty">Không có quảng cáo nào khớp bộ lọc.</td></tr>';
+    tb.querySelectorAll('tr[tabindex]').forEach(tr=>{const go=()=>openDetail(list[+tr.dataset.i].c); tr.onclick=go; tr.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();go();}};});
+  }
+
+  // ---------- detail drawer ----------
+  function siblings(c){ const k=t=>t.replace(/\s*\[\d+\]$/,'').replace(/\s*-\s*(Waxshop|Cinplus|CINPLUS)?\s*-?\s*C\d.*$/i,'').slice(0,45); return DATA.camps.filter(x=>x!==c && x.s===c.s && k(x.t)===k(c.t)); }
+  let lastFocus=null;
+  function openDetail(c, keep){
+    const prevScroll=document.getElementById('drawer').scrollTop;
+    openId=c.id; if(!document.getElementById('drawer').contains(document.activeElement)) lastFocus=document.activeElement;
+    const {n,p}=stats(c), st=STATE[c.st]||[c.st,'mut'];
+    const first=Object.keys(c.d).map(Number).reduce((a,b)=>Math.min(a,b),ND);
+    const [f,t]=chartSpan(first), rows=[], ds=[];
+    for(let i=f;i<=t;i++){rows.push(c.d[i]||[0,0,0,0,0,0,0,0]); ds.push(DATA.dates[i]);}
+    const all=derive(agg(c,[D0,DL])), sib=siblings(c);
+    const url=c.ty==='product_manual'?`https://banhang.shopee.vn/portal/marketing/pas/product/manual/${c.id}`:'https://banhang.shopee.vn/portal/marketing/pas/index';
+    const tgPct = c.tg&&n.cost ? n.roas/c.tg*100 : null;
+    const dr=document.getElementById('drawer');
+    dr.innerHTML=`
+      <div class="dhead"><div><div class="note">${esc(DATA.shops[c.s])} · ${TYPE[c.ty]||c.ty}</div><h2 id="dTitle">${esc(c.t)}</h2></div>
+        <button type="button" class="close" id="dClose" aria-label="Đóng">×</button></div>
+      <div class="meta">
+        <div><span>Trạng thái</span><span><span class="chip ${st[1]}">${st[0]}</span></span></div>
+        <div><span>ID chiến dịch</span><span class="num">${c.id}</span></div>
+        <div><span>Ngân sách/ngày</span><span class="num">${c.b?fmt(c.b)+'đ':'Không giới hạn'}</span></div>
+        <div><span>ROAS mục tiêu</span><span class="num">${c.tg||'—'}${tgPct!=null?` <span class="chip ${tgPct>=90?'good':tgPct>=60?'warn':'bad'}">đạt ${tgPct.toFixed(0)}%</span>`:''}</span></div>
+        <div><span>Bắt đầu chạy</span><span class="num">${c.start?new Date(c.start*1000).toLocaleDateString('vi-VN'):'—'}</span></div>
+        <div><span>Mã sản phẩm</span><span class="num">${c.item||'—'}</span></div>
+      </div>
+      <div class="callout open">
+        <b>Mở quảng cáo này trên Shopee</b> — nhớ chọn đúng shop <b>${esc(DATA.shops[c.s])}</b> trước khi mở link.<br>
+        <input class="ulink num" id="dUrl" readonly value="${url}" aria-label="Link quảng cáo"> <button type="button" id="dCopy">Sao chép link</button> <span class="note" id="dCopied"></span><br>
+        <a class="link" href="${url}" target="_blank" rel="noopener">Mở trong tab mới ↗</a>
+      </div>
+      ${sib.length?`<div class="callout">Shop này còn ${sib.length} quảng cáo khác cho cùng sản phẩm: ${sib.map((x,i)=>`<button type="button" data-sib="${i}">ID ${x.id}</button>`).join(', ')}. Khi so với số trên Shopee, nhớ đối chiếu đúng ID.</div>`:''}
+      <div class="cmpbar" aria-label="Chọn ngày xem và ngày so sánh">
+        <div class="cmprow"><label for="dASel">Kỳ xem</label><div class="grp"><select id="dASel">${aSel.innerHTML}</select>
+          <span id="dACustom" ${ST.a==='c'?'':'hidden'}><input type="date" id="dAFrom" aria-label="Kỳ xem từ ngày" min="${D0}" max="${DL}" value="${A[0]}"> – <input type="date" id="dATo" aria-label="Kỳ xem đến ngày" min="${D0}" max="${DL}" value="${A[1]}"></span></div></div>
+        <div class="cmprow"><label for="dBSel">So với</label><div class="grp"><select id="dBSel">${bSel.innerHTML}</select>
+          <span id="dBCustom" ${ST.b==='c'?'':'hidden'}><input type="date" id="dBFrom" aria-label="So với từ ngày" min="${D0}" max="${DL}" value="${B[0]}"> – <input type="date" id="dBTo" aria-label="So với đến ngày" min="${D0}" max="${DL}" value="${B[1]}"></span></div></div>
+        <div class="rng"><b>${dlong(A[0])} – ${dlong(A[1])}</b> (${LA} ngày) so với <b>${dlong(B[0])} – ${dlong(B[1])}</b> (${LB} ngày)${!SAME?' · <span class="note">so theo trung bình mỗi ngày</span>':''}</div>
+        <div class="note">Đổi ở đây cũng đổi kỳ cho cả trang.</div>
+      </div>
+      ${modulesHTML(n,p)}
+      <h3>Theo ngày</h3>
+      <svg class="chart" id="dChart" viewBox="0 0 900 240" role="img" aria-label="Chi phí và ROAS theo ngày của quảng cáo này"></svg>
+      <div class="note">Cột đậm là kỳ xem, cột cam nhạt là kỳ so sánh. Toàn bộ dữ liệu đã lưu: chi ${fmt(all.cost)}đ · doanh thu ${fmt(all.gmv)}đ · ${all.ord} đơn · ROAS ${all.cost?all.roas.toFixed(2):'—'}.</div>
+      <div class="dtbl"><table><thead><tr><th>Ngày</th><th>Chi phí</th><th>Doanh thu</th><th>ROAS</th><th>Hiển thị</th><th>Click</th><th>CTR</th><th>Thêm giỏ</th><th>CVR</th><th>Đơn</th><th>CPC</th></tr></thead><tbody>
+        ${rows.map((r,i)=>[r,ds[i]]).reverse().map(([r,d])=>`<tr class="${d>=A[0]&&d<=A[1]?'inperiod':(d>=B[0]&&d<=B[1]?'incmp':'')}"><td class="num">${dlong(d)}</td><td class="num">${fmt(r[0])}</td><td class="num">${fmt(r[1])}</td><td class="num">${r[0]?(r[1]/r[0]).toFixed(1):'—'}</td><td class="num">${fmt(r[5])}</td><td class="num">${r[6]}</td><td class="num">${r[5]?(r[6]/r[5]*100).toFixed(1)+'%':'—'}</td><td class="num">${r[6]?(r[7]/r[6]*100).toFixed(1)+'%':'—'}</td><td class="num">${r[6]?(r[3]/r[6]*100).toFixed(1)+'%':'—'}</td><td class="num">${r[2]}</td><td class="num">${r[6]?fmt(r[0]/r[6]):'—'}</td></tr>`).join('')}
+      </tbody></table></div>`;
+    drawChart(document.getElementById('dChart'), rows, ds);
+    dr.querySelectorAll('[data-sib]').forEach(b=>b.onclick=()=>openDetail(sib[+b.dataset.sib]));
+    document.getElementById('dClose').onclick=closeDetail;
+    const du=document.getElementById('dUrl'), dc=document.getElementById('dCopy'), dm=document.getElementById('dCopied');
+    du.onfocus=()=>du.select();
+    dc.onclick=async()=>{ du.focus(); du.select(); let ok=false;
+      try{ await navigator.clipboard.writeText(du.value); ok=true; }catch(e){ try{ ok=document.execCommand('copy'); }catch(e2){} }
+      dm.textContent = ok ? 'Đã sao chép' : 'Link đã được chọn, bấm Cmd+C để sao chép'; };
+    dr.hidden=false; document.getElementById('scrim').hidden=false; document.body.style.overflow='hidden';
+    const dA=document.getElementById('dASel'), dB=document.getElementById('dBSel'); dA.value=ST.a; dB.value=ST.b;
+    const rer=()=>{ save(); render(); };
+    dA.onchange=()=>{ if(dA.value==='c'){ST.af=A[0];ST.at=A[1];} ST.a=dA.value; rer(); };
+    dB.onchange=()=>{ if(dB.value==='c'){ST.bf=B[0];ST.bt=B[1];} ST.b=dB.value; rer(); };
+    const dAf=document.getElementById('dAFrom'), dAt=document.getElementById('dATo'), dBf=document.getElementById('dBFrom'), dBt=document.getElementById('dBTo');
+    [dAf,dAt].forEach(el=>el.onchange=()=>{ if(dAf.value&&dAt.value){ST.af=dAf.value;ST.at=dAt.value;rer();} });
+    [dBf,dBt].forEach(el=>el.onchange=()=>{ if(dBf.value&&dBt.value){ST.bf=dBf.value;ST.bt=dBt.value;rer();} });
+    if(keep){ dr.scrollTop=prevScroll; } else { dr.scrollTop=0; document.getElementById('dClose').focus(); }
+  }
+  function closeDetail(){ openId=null; document.getElementById('drawer').hidden=true; document.getElementById('scrim').hidden=true; document.body.style.overflow=''; if(lastFocus&&lastFocus.focus) lastFocus.focus(); }
+  document.getElementById('scrim').onclick=closeDetail;
+  document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&openId!=null) closeDetail(); });
+
+  // ---------- wiring ----------
+  const aSel=document.getElementById('aSel'), bSel=document.getElementById('bSel'), aFrom=document.getElementById('aFrom'), aTo=document.getElementById('aTo'), bFrom=document.getElementById('bFrom'), bTo=document.getElementById('bTo');
+  aSel.onchange=()=>{ if(aSel.value==='c'){ST.af=A[0];ST.at=A[1];} ST.a=aSel.value; showAllA=showAllT=false; save(); render(); };
+  bSel.onchange=()=>{ if(bSel.value==='c'){ST.bf=B[0];ST.bt=B[1];} ST.b=bSel.value; save(); render(); };
+  [aFrom,aTo].forEach(el=>el.onchange=()=>{ if(aFrom.value&&aTo.value){ST.af=aFrom.value;ST.at=aTo.value;save();render();} });
+  [bFrom,bTo].forEach(el=>el.onchange=()=>{ if(bFrom.value&&bTo.value){ST.bf=bFrom.value;ST.bt=bTo.value;save();render();} });
+  document.getElementById('flt').onchange=()=>renderTable(pick());
+  document.getElementById('q').oninput=()=>renderTable(pick());
+  document.getElementById('upd').textContent = `Số từ tác vụ mỗi sáng · đến hết ${dlong(DL)} · lưu từ ${dlong(D0)} (${ND} ngày) · ${DATA.shops.length} shop`;
+
+  function render(){
+    computeRanges(); renderShops(); renderRange();
+    const cs=pick();
+    renderMods(cs); renderAlerts(cs); renderChart(cs); renderTargets(cs); renderTable(cs);
+    if(openId!=null){ const c=DATA.camps.find(x=>String(x.id)===String(openId)); if(c) openDetail(c, true); }
+  }
+  render();
+}
+napSo();
+</script>
+</body>
+</html>

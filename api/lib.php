@@ -655,6 +655,23 @@ function ingItems(string $kind): array {
   return $out;
 }
 
+/* Kho thô của số liệu quảng cáo. Tạo nếu chưa có, và thêm các cột ra đời sau
+   (conv, atc, budget, start — mục Radar cần) cho kho đã tạo từ bản trước. */
+function adTables(PDO $pdo): void {
+  $pdo->exec('CREATE TABLE IF NOT EXISTS ad_raw (shop TEXT NOT NULL, cid TEXT NOT NULL, date TEXT NOT NULL,
+      cost INTEGER, gmv INTEGER, orders INTEGER, sold INTEGER, impr INTEGER, clicks INTEGER,
+      PRIMARY KEY (shop, cid, date))');
+  $pdo->exec('CREATE TABLE IF NOT EXISTS ad_meta (shop TEXT NOT NULL, cid TEXT NOT NULL, title TEXT,
+      type TEXT, state TEXT, roas REAL, item TEXT, PRIMARY KEY (shop, cid))');
+  $them = ['ad_raw' => ['conv' => 'INTEGER', 'atc' => 'INTEGER'],
+           'ad_meta' => ['budget' => 'INTEGER', 'start' => 'INTEGER']];
+  foreach ($them as $bang => $cot) {
+    $co = array_column($pdo->query("PRAGMA table_info($bang)")->fetchAll(), 'name');
+    foreach ($cot as $ten => $kieu)
+      if (!in_array($ten, $co, true)) $pdo->exec("ALTER TABLE $bang ADD COLUMN $ten $kieu");
+  }
+}
+
 /* Nhận hai file của tác vụ, ghi vào kho thô, rồi dựng lại:
      adcamps — tổng THÁNG, chỉ cho tháng đã kết thúc và có trọn số liệu từ
                ngày 1 tới ngày cuối. Tháng đang chạy mà ghi vào thì báo cáo
@@ -663,11 +680,7 @@ function ingItems(string $kind): array {
                lúc nạp file ngày bằng tay). */
 function adIngest(string $histCsv, string $campCsv): array {
   $pdo = db();
-  $pdo->exec('CREATE TABLE IF NOT EXISTS ad_raw (shop TEXT NOT NULL, cid TEXT NOT NULL, date TEXT NOT NULL,
-      cost INTEGER, gmv INTEGER, orders INTEGER, sold INTEGER, impr INTEGER, clicks INTEGER,
-      PRIMARY KEY (shop, cid, date))');
-  $pdo->exec('CREATE TABLE IF NOT EXISTS ad_meta (shop TEXT NOT NULL, cid TEXT NOT NULL, title TEXT,
-      type TEXT, state TEXT, roas REAL, item TEXT, PRIMARY KEY (shop, cid))');
+  adTables($pdo);
 
   $meta = ingCsv($campCsv);
   $rows = ingCsv($histCsv);
@@ -677,18 +690,20 @@ function adIngest(string $histCsv, string $campCsv): array {
   $giuTu = (new DateTime('now', $tz))->modify('-' . ING_DAY_KEEP . ' days')->format('Y-m-d');
 
   $pdo->beginTransaction();
-  $insM = $pdo->prepare('INSERT INTO ad_meta (shop,cid,title,type,state,roas,item) VALUES (?,?,?,?,?,?,?)
+  $insM = $pdo->prepare('INSERT INTO ad_meta (shop,cid,title,type,state,roas,item,budget,start) VALUES (?,?,?,?,?,?,?,?,?)
       ON CONFLICT(shop,cid) DO UPDATE SET title=excluded.title, type=excluded.type, state=excluded.state,
-      roas=excluded.roas, item=excluded.item');
+      roas=excluded.roas, item=excluded.item, budget=excluded.budget, start=excluded.start');
   foreach ($meta as $m) {
     $shop = trim((string)($m['shop'] ?? '')); $cid = ingId($m['campaign_id'] ?? '');
     if ($shop === '' || $cid === '') continue;
     $insM->execute([$shop, $cid, trim((string)($m['title'] ?? '')), (string)($m['type'] ?? ''),
-                    (string)($m['state'] ?? ''), (float)($m['roas_target'] ?? 0), ingId($m['item_id'] ?? '')]);
+                    (string)($m['state'] ?? ''), (float)($m['roas_target'] ?? 0), ingId($m['item_id'] ?? ''),
+                    (int)round((float)($m['budget'] ?? 0)), (int)round((float)($m['start_time'] ?? 0))]);
   }
-  $insR = $pdo->prepare('INSERT INTO ad_raw (shop,cid,date,cost,gmv,orders,sold,impr,clicks) VALUES (?,?,?,?,?,?,?,?,?)
+  $insR = $pdo->prepare('INSERT INTO ad_raw (shop,cid,date,cost,gmv,orders,sold,impr,clicks,conv,atc)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(shop,cid,date) DO UPDATE SET cost=excluded.cost, gmv=excluded.gmv, orders=excluded.orders,
-      sold=excluded.sold, impr=excluded.impr, clicks=excluded.clicks');
+      sold=excluded.sold, impr=excluded.impr, clicks=excluded.clicks, conv=excluded.conv, atc=excluded.atc');
   $dung = [];          // shop => [date => true]
   $n = 0;
   foreach ($rows as $r) {
@@ -696,7 +711,8 @@ function adIngest(string $histCsv, string $campCsv): array {
     $date = (string)($r['date'] ?? '');
     if ($shop === '' || $cid === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || $date >= $homNay) continue;
     $insR->execute([$shop, $cid, $date, (int)round((float)$r['cost']), (int)round((float)$r['gmv']),
-                    (int)$r['orders'], (int)($r['sold'] ?? 0), (int)$r['impr'], (int)$r['clicks']]);
+                    (int)$r['orders'], (int)($r['sold'] ?? 0), (int)$r['impr'], (int)$r['clicks'],
+                    (int)($r['conv'] ?? 0), (int)($r['atc'] ?? 0)]);
     $dung[$shop][$date] = true;
     $n++;
   }
@@ -836,4 +852,51 @@ function ingExists(string $kind, string $id): bool {
   $st = db()->prepare('SELECT 1 FROM items WHERE kind = ? AND item_id = ?');
   $st->execute([$kind, $id]);
   return (bool)$st->fetch();
+}
+
+/* ============================================================
+   RADAR — số liệu cho mục Báo cáo Ads → Radar (radar.html)
+
+   Đúng hình dạng DATA của trang "Radar Quảng Cáo Shopee" cũ, để trang đó
+   chạy gần như nguyên vẹn: dates là dải ngày liền, mỗi chiến dịch mang d =
+   {chỉ số ngày: [cost, gmv, orders, conv, sold, impr, clicks, atc]}.
+   Đọc thẳng kho thô ad_raw, không qua adcamps/addays: hai kho đó đã gộp theo
+   tháng hoặc chỉ giữ 45 ngày, còn Radar cần từng ngày của cả lịch sử.
+   ============================================================ */
+function adRadarData(int $soNgay = 400): array {
+  $pdo = db();
+  adTables($pdo);
+  $tz = new DateTimeZone(KH_TZ);
+  $tu = (new DateTime('now', $tz))->modify('-' . $soNgay . ' days')->format('Y-m-d');
+  $rows = $pdo->prepare('SELECT shop, cid, date, cost, gmv, orders, conv, sold, impr, clicks, atc
+      FROM ad_raw WHERE date >= ? ORDER BY date');
+  $rows->execute([$tu]);
+  $rows = $rows->fetchAll();
+  $out = ['updated' => (new DateTime('now', $tz))->format('Y-m-d'), 'dates' => [], 'shops' => [], 'camps' => []];
+  if (!$rows) return $out;
+  $d0 = $rows[0]['date']; $dl = end($rows)['date'];
+  for ($d = new DateTime($d0); $d->format('Y-m-d') <= $dl; $d->modify('+1 day')) $out['dates'][] = $d->format('Y-m-d');
+  $t0 = (new DateTime($d0 . ' 00:00:00', new DateTimeZone('UTC')))->getTimestamp();
+  $shopIdx = []; $camp = [];
+  foreach ($rows as $r) {
+    $shop = (string)$r['shop'];
+    if (!isset($shopIdx[$shop])) { $shopIdx[$shop] = count($out['shops']); $out['shops'][] = $shop; }
+    $k = $shop . "\0" . $r['cid'];
+    if (!isset($camp[$k])) $camp[$k] = ['s' => $shopIdx[$shop], 'id' => (string)$r['cid'], 'd' => []];
+    $i = intdiv((new DateTime($r['date'] . ' 00:00:00', new DateTimeZone('UTC')))->getTimestamp() - $t0, 86400);
+    $camp[$k]['d'][(string)$i] = [(int)$r['cost'], (int)$r['gmv'], (int)$r['orders'], (int)$r['conv'],
+                                  (int)$r['sold'], (int)$r['impr'], (int)$r['clicks'], (int)$r['atc']];
+  }
+  $meta = [];
+  foreach ($pdo->query('SELECT * FROM ad_meta')->fetchAll() as $m) $meta[$m['shop'] . "\0" . $m['cid']] = $m;
+  foreach ($camp as $k => $c) {
+    $m = $meta[$k] ?? [];
+    $c['d'] = (object)$c['d'];      // giữ dạng {chỉ số: …}, kể cả khi chỉ số liền 0,1,2…
+    $out['camps'][] = $c + [
+      't' => trim((string)($m['title'] ?? '')) ?: 'Chiến dịch ' . $c['id'],
+      'ty' => (string)($m['type'] ?? ''), 'st' => (string)($m['state'] ?? ''),
+      'b' => (int)($m['budget'] ?? 0), 'tg' => (float)($m['roas'] ?? 0),
+      'item' => (string)($m['item'] ?? ''), 'start' => (int)($m['start'] ?? 0)];
+  }
+  return $out;
 }
