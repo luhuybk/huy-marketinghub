@@ -4482,7 +4482,7 @@ function alerts(){
     const ten = id => nhieuShop ? shopName(id) + ': ' : '';
 
     adcampMissingShops().forEach(x => {
-      out.push({level:'warn', kind:'adload', page:'adreport',
+      out.push({level:'warn', kind:'adload', page:'adreport', tab:'month',
         title: ten(x.shopId) + 'chưa nạp file quảng cáo ' + monthLabel(x.ym),
         sub: 'tháng đã khép sổ mà chưa có số — không nạp thì không biết con nào đang hỏng',
         sort: 190});
@@ -4490,7 +4490,7 @@ function alerts(){
 
     adDayMissingShops().forEach(x => {
       const tre = -dayDiff(x.cuoi) - 1;
-      out.push({level: tre > 2 ? 'warn' : 'info', kind:'adday', page:'adreport',
+      out.push({level: tre > 2 ? 'warn' : 'info', kind:'adday', page:'adreport', tab:'day',
         title: ten(x.shopId) + 'chưa nạp file quảng cáo ngày ' + fmtDate(x.date),
         sub: 'file gần nhất là ngày ' + fmtDate(x.cuoi) +
              (tre > 0 ? ' — hụt ' + tre + ' ngày' : '') +
@@ -4505,7 +4505,7 @@ function alerts(){
     adFixDue().forEach(f => {
       const tre = -dayDiff(f.reviewAt);
       const c = adFixCamp(f);
-      out.push({level: tre > 2 ? 'warn' : 'info', kind:'adfix', page:'adreport',
+      out.push({level: tre > 2 ? 'warn' : 'info', kind:'adfix', page:'adreport', tab:'day',
         campId: c ? c.id : '',
         title: (f.whoName ? f.whoName + ' — ' : '') + 'tới hạn đo lại: ' + f.name,
         sub: AD_FIX_TYPES[f.type].label + ' ngày ' + fmtDate(f.date) +
@@ -4531,7 +4531,7 @@ function alerts(){
       if (!ym) return;
       const rp = adcampReport(ym, id);
       if (!rp.bad.length) return;
-      out.push({level: rp.waste ? 'warn' : 'info', kind:'adcamp', page:'adreport',
+      out.push({level: rp.waste ? 'warn' : 'info', kind:'adcamp', page:'adreport', tab:'month',
         title: ten(id) + rp.bad.length + ' chiến dịch cần xem lại — ' + monthLabel(ym),
         sub: AD_ISSUE_IDS.filter(k => rp.byIssue[k].length)
                .map(k => rp.byIssue[k].length + ' ' + AD_ISSUES[k].label.toLowerCase()).join(' · ')
@@ -4851,4 +4851,4 @@ function launchAutoMarks(){
   return n;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "d4590101"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "9c58f644"]);

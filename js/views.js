@@ -16,7 +16,7 @@ const ui = {
   postQ:'', postState:'', postMonthOnly:false,
   /* Lọc bài theo một kênh đăng. Rỗng = mọi kênh. */
   postCh:'',
-  adYm:'', adQ:'', adIssue:'', adOnlyBad:false, adShop:'', adTab:'day', adDate:'', adGioYm:'',
+  adYm:'', adQ:'', adIssue:'', adOnlyBad:false, adShop:'', adTab:'radar', adDate:'', adGioYm:'',
   adGioQ:'', adGioSp:'', adSoSanh:'', adGon:false,
   resTab:'brands', resQ:'',
   cmpFrom:'', cmpTo:'',
@@ -241,8 +241,8 @@ function viewDash(){
     h += sectionTitle('Cần xử lý', al.length > 6 ? `<span class="dim">còn ${al.length-6} việc nữa</span>` : '');
     h += `<div class="alerts">` + show.map(a => `
       <div class="al al-${a.level}" data-act="${a.bookingId ? 'booking' : a.clipId ? 'clip' :
-             a.campId ? 'adcamp' : a.kwId ? 'kwgo' : a.page ? 'nav' : a.productId ? 'product' : ''}"
-           data-id="${a.bookingId || a.clipId || a.campId || a.kwId || a.page || a.productId || ''}">
+             a.campId ? 'adcamp' : a.kwId ? 'kwgo' : a.tab ? 'adgo' : a.page ? 'nav' : a.productId ? 'product' : ''}"
+           data-id="${a.bookingId || a.clipId || a.campId || a.kwId || a.tab || a.page || a.productId || ''}">
         <span class="al-dot"></span>
         <div class="grow"><div class="al-t">${esc(a.title)}</div><div class="al-s">${esc(a.sub)}</div></div>
         <span class="al-go">›</span>
@@ -941,18 +941,24 @@ function adCompareBlock(rp, o){
 function viewAdReport(){
   const shopIds = adcampShopIds();
   const shopId  = shopIds.includes(ui.adShop) ? ui.adShop : '';
-  const tab = ['month','gio','now'].includes(ui.adTab) ? ui.adTab : 'day';
+  const tab = adReportTab();
 
   let h = `<div class="toolbar">
     <div class="tabs">
+      <button class="tab ${tab === 'radar' ? 'on' : ''}" data-act="adtab" data-id="radar">Radar</button>
       <button class="tab ${tab === 'now' ? 'on' : ''}" data-act="adtab" data-id="now">Hôm nay</button>
       <button class="tab ${tab === 'day' ? 'on' : ''}" data-act="adtab" data-id="day">Hôm qua</button>
       <button class="tab ${tab === 'month' ? 'on' : ''}" data-act="adtab" data-id="month">Theo tháng</button>
       <button class="tab ${tab === 'gio' ? 'on' : ''}" data-act="adtab" data-id="gio">Khung giờ</button>
     </div>
     <div class="grow"></div>
-    <button class="btn pri" data-act="adimport">Nạp file</button>
+    ${tab === 'radar' ? '<a class="btn" href="radar.html" target="_blank" rel="noopener">Mở toàn màn hình ↗</a>'
+                      : '<button class="btn pri" data-act="adimport">Nạp file</button>'}
   </div>`;
+
+  /* Radar là trang riêng (radar.html) nằm trong một khung giữ cố định NGOÀI
+     #view — radarBox() trong app.js lo việc hiện/ẩn. Ở đây chỉ vẽ thanh tab. */
+  if (tab === 'radar') return h;
 
   h += shopBar(shopIds, shopId);
   h += adAutoLine(shopId);
@@ -961,6 +967,10 @@ function viewAdReport(){
             : tab === 'month' ? viewAdMonth()
                               : viewAdDay(shopId));
 }
+
+/* Tab đang mở của Báo cáo Ads. Radar là mặc định — đó là cách đọc số người
+   dùng đã quen từ trang cũ của tác vụ mỗi sáng. */
+const adReportTab = () => ['radar','month','gio','now','day'].includes(ui.adTab) ? ui.adTab : 'radar';
 
 /* Dòng nhỏ đầu trang: số đang về tự động từ tác vụ, lần cuối lúc nào. Hôm nào
    tác vụ hỏng thì dòng này đứng ở ngày cũ — nhìn là biết, không phải đoán vì
@@ -5332,4 +5342,4 @@ function ingestCard(){
   </div>`;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "d4590101"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "9c58f644"]);

@@ -131,12 +131,58 @@ function render(){
     console.error(e);
   }
   view.innerHTML = html;
+  try { radarBox(); } catch(e){ console.error(e); }
   /* Thanh bên và thanh trên nằm NGOÀI try ở trên. Một lỗi ở đây từng làm
      thanh bên trống trơn, nút bánh răng không bị ẩn, và mọi lần vẽ sau đó
      đều chết giữa đường — nhìn y như app treo. Bắt riêng từng cái, và nói
      ra, để lần sau còn biết hỏng ở đâu. */
   try { renderSide(); } catch(e){ shellError('thanh bên', e); }
   try { renderBar(); }  catch(e){ shellError('thanh trên', e); }
+}
+
+/* Khung chứa trang Radar (radar.html) của Báo cáo Ads.
+
+   Vì sao nằm NGOÀI #view: render() thay toàn bộ #view mỗi lần vẽ — sau mỗi
+   lần đồng bộ, mỗi cú bấm. Iframe nằm trong đó thì cứ vẽ lại là tải lại
+   trang, mất kỳ đang chọn, mất ngăn chi tiết đang mở, và lại kéo cả trăm
+   nghìn con số về. Đặt nó cạnh #view và chỉ ẩn/hiện thì nó sống suốt phiên.
+   Ẩn bằng `hidden` (display:none) không làm iframe tải lại; gỡ khỏi trang
+   rồi gắn lại thì có — nên không bao giờ gỡ.
+
+   Chiều cao: lấp đầy phần màn hình còn lại dưới thanh tab, trang Radar tự
+   cuộn bên trong — ngăn chi tiết của nó (position:fixed) mới nằm đúng chỗ. */
+function radarBox(){
+  const show = route.page === 'adreport' && adReportTab() === 'radar' && may('ads');
+  let box = document.getElementById('radarbox');
+  document.getElementById('view').classList.toggle('radaron', show);
+  if (!show){ if (box) box.hidden = true; return; }
+  if (!box){
+    box = document.createElement('div');
+    box.id = 'radarbox';
+    box.className = 'radarbox';
+    const v = (window.__KH_BUILD && window.__KH_BUILD[0] && window.__KH_BUILD[0][1]) || '';
+    box.innerHTML = `<iframe src="radar.html${v ? '?v=' + v : ''}" title="Radar quảng cáo Shopee"></iframe>`;
+    document.getElementById('view').after(box);
+    window.addEventListener('resize', radarFit);
+  } else if (box.hidden){
+    box.hidden = false;
+    /* Quay lại sau lâu: số đã cũ (tác vụ chạy mỗi sáng) — tải lại trang Radar */
+    try { const w = box.firstElementChild.contentWindow;
+          if (w.radarLuc && Date.now() - w.radarLuc > 30 * 60e3) w.location.reload(); } catch(e){}
+  }
+  box.hidden = false;
+  radarTheme();
+  radarFit();
+}
+function radarFit(){
+  const box = document.getElementById('radarbox');
+  if (!box || box.hidden) return;
+  const top = box.getBoundingClientRect().top + window.scrollY;
+  box.style.height = Math.max(420, window.innerHeight - top) + 'px';
+}
+function radarTheme(){
+  const f = document.querySelector('#radarbox iframe');
+  try { if (f && f.contentDocument) f.contentDocument.documentElement.dataset.theme = document.documentElement.dataset.theme; } catch(e){}
 }
 
 /* Upload nhầm thư mục nguồn: app chạy được nhưng lần cập nhật sau sẽ hỏng,
@@ -4631,6 +4677,9 @@ function launchStepCustomForm(id){
 
 const ACTIONS = {
   nav:  id => go(id),
+  /* Cảnh báo "chưa nạp file ngày/tháng" mở thẳng đúng tab của Báo cáo Ads,
+     không rơi vào Radar (tab mặc định) rồi phải tự tìm. */
+  adgo: id => { ui.adTab = id; go('adreport'); },
   kol:  id => go('kol', id),
   product: id => go('product', id),
   booking: id => { const b = bookingOf(id); if (b) bookingForm(b); },
@@ -4740,7 +4789,7 @@ const ACTIONS = {
   admonth:     id => { ui.adYm = id; ui.adIssue = ''; ui.adOnlyBad = false; render(); },
   adissue:     id => { ui.adIssue = id || ''; ui.adOnlyBad = false; render(); },
   adonlybad:  (id) => { ui.adOnlyBad = id ? id === 'on' : !ui.adOnlyBad; ui.adIssue = ''; render(); },
-  adtab:       id => { ui.adTab = ['month','gio','day','now'].includes(id) ? id : 'day'; ui.adQ = '';
+  adtab:       id => { ui.adTab = ['radar','month','gio','day','now'].includes(id) ? id : 'radar'; ui.adQ = '';
                        ui.adIssue = ''; ui.adOnlyBad = false; ui.adSoSanh = ''; render(); },
   adgioym:     id => { ui.adGioYm = id; ui.adGioSp = ''; render(); },
   giosp:       id => { ui.adGioSp = (ui.adGioSp === id) ? '' : (id || ''); render(); window.scrollTo(0,0); },
@@ -5115,6 +5164,7 @@ function applyTheme(){
   const t = db.settings.theme === 'light' ? 'light' : 'dark';
   document.documentElement.dataset.theme = t;
   try { localStorage.setItem('kolhub.theme', t); } catch(e){}
+  radarTheme();
   const tc = document.getElementById('tc');
   if (tc) tc.content = t === 'light' ? '#f4f6fa' : '#0e1014';
 }
@@ -5216,4 +5266,4 @@ function checkBuild(){
   }
 })();
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "d4590101"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "9c58f644"]);

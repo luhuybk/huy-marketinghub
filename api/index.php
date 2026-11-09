@@ -444,6 +444,14 @@ switch ($action) {
     out(['ok' => true]);
   }
 
+  /* Số liệu cho mục Báo cáo Ads → Radar. Ai có quyền Shopee Ads là xem được:
+     chỉ có chi phí quảng cáo, không có giá vốn. */
+  case 'ad_radar': {
+    requireAuth();
+    if (!khMay(currentUser(), 'ads')) fail('Tài khoản này chưa được xem Shopee Ads.', 403);
+    out(['ok' => true] + adRadarData());
+  }
+
   /* Trả về cấu hình để hiện lên màn Cài đặt. KHÔNG trả mã bot —
      chỉ nói là "đã có" hay chưa. */
   case 'tg_get': {

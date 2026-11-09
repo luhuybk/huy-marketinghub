@@ -44,7 +44,7 @@
     Header set Cache-Control "public, max-age=2592000"
   </FilesMatch>
   # hai tệp này phải luôn hỏi lại máy chủ, nếu không sẽ kẹt ở bản cũ
-  <FilesMatch "^(index\.html|manifest\.webmanifest)$">
+  <FilesMatch "^(index\.html|radar\.html|manifest\.webmanifest)$">
     Header set Cache-Control "no-cache, must-revalidate"
   </FilesMatch>
   # app riêng tư — đừng để bị lập chỉ mục
