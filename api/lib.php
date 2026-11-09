@@ -534,3 +534,298 @@ function itemApply(array $ref, array $set, string $todayYmd): array {
   itemPut($kind, $id, $d);
   return [true, 'ok'];
 }
+
+/* ============================================================
+   NHẬN SỐ LIỆU QUẢNG CÁO TỰ ĐỘNG (xem api/ingest.php)
+
+   Thiết bị gửi số = một token do script tự sinh. Lưu trong kv dạng
+   {id: {hash, label, ok, firstAt, lastAt, last}} — chỉ giữ mã băm, nên đọc
+   được bảng kv cũng không gửi số giả mạo được.
+   ============================================================ */
+const ING_MAX_PENDING = 5;
+/* Dòng ngày giữ bao lâu — cùng mặc định với adRules.dayKeep phía app */
+const ING_DAY_KEEP = 45;
+
+function ingestDevs(): array {
+  $d = kvGet('ingest_devs', []);
+  return is_array($d) ? $d : [];
+}
+/* Trả [trạng thái, id]: 'ok' · 'pending' · 'off'. Token lạ thì ghi vào
+   danh sách chờ — chặn ở 5 cái chờ một lúc, để ai gõ bừa vào cổng này
+   cũng không làm phình bảng. */
+function ingestDevice(string $tok, string $label): array {
+  $h = hash('sha256', $tok);
+  $devs = ingestDevs();
+  foreach ($devs as $id => $d) {
+    if (($d['hash'] ?? '') !== $h) continue;
+    if (!empty($d['ok'])) return ['ok', (string)$id];
+    return [!empty($d['off']) ? 'off' : 'pending', (string)$id];
+  }
+  $cho = array_filter($devs, fn($d) => empty($d['ok']) && empty($d['off']));
+  if (count($cho) >= ING_MAX_PENDING) {
+    uasort($cho, fn($a, $b) => strcmp((string)$a['firstAt'], (string)$b['firstAt']));
+    unset($devs[array_key_first($cho)]);
+  }
+  $id = 'dv' . bin2hex(random_bytes(4));
+  $devs[$id] = ['hash' => $h, 'label' => mb_substr(trim($label) ?: 'Không tên', 0, 80),
+                'ok' => false, 'off' => false, 'firstAt' => gmdate('c'), 'lastAt' => gmdate('c'),
+                'ip' => (string)($_SERVER['REMOTE_ADDR'] ?? ''), 'last' => null];
+  kvSet('ingest_devs', $devs);
+  return ['pending', $id];
+}
+function ingestTouch(string $id, array $r): void {
+  $devs = ingestDevs();
+  if (!isset($devs[$id])) return;
+  $devs[$id]['lastAt'] = gmdate('c');
+  $devs[$id]['last'] = ['rows' => $r['rows'], 'shops' => $r['shops'],
+                        'dates' => $r['dates'], 'adcamps' => $r['adcamps'], 'addays' => $r['addays']];
+  kvSet('ingest_devs', $devs);
+}
+
+/* Đọc CSV có tiêu đề thành mảng dòng [tên cột => giá trị]. Tên sản phẩm có
+   dấu phẩy, dấu ngoặc kép — nên phải dùng fgetcsv, không tách tay. */
+function ingCsv(string $text): array {
+  if (trim($text) === '') return [];
+  $f = fopen('php://memory', 'r+');
+  fwrite($f, $text); rewind($f);
+  $head = fgetcsv($f, 0, ',', '"', '');
+  if (!$head) return [];
+  $head = array_map(fn($h) => trim((string)$h, " \t\r\n\xEF\xBB\xBF"), $head);
+  $out = [];
+  while (($row = fgetcsv($f, 0, ',', '"', '')) !== false) {
+    if (count($row) === 1 && trim((string)$row[0]) === '') continue;
+    $out[] = array_combine($head, array_pad(array_slice($row, 0, count($head)), count($head), ''));
+  }
+  fclose($f);
+  return $out;
+}
+/* "26130827297.0" (pandas ghi số thành số thực) → "26130827297" */
+function ingId($v): string {
+  $s = trim((string)$v);
+  if ($s === '' || strtolower($s) === 'nan') return '';
+  if (preg_match('/^(\d+)(\.0+)?$/', $s, $m)) return $m[1];
+  return $s;
+}
+/* Nhãn trạng thái và cách đấu thầu viết GIỐNG HỆT file CSV Shopee xuất ra,
+   vì app đọc chữ này (adcampRunning tìm "đã dừng") và vì cùng một chiến dịch
+   đã nạp tay tháng trước phải trông y như vậy. */
+function ingStatus(string $st): string {
+  $s = strtolower(trim($st));
+  if (in_array($s, ['ongoing', 'running', 'active', 'scheduled', 'normal'], true)) return 'Đang diễn ra';
+  if ($s === 'paused') return 'Tạm dừng';
+  return 'Đã dừng';
+}
+function ingBid(array $m): string {
+  $t = strtolower((string)($m['type'] ?? ''));
+  if ((float)($m['roas_target'] ?? 0) > 0) return 'Tối đa Doanh thu Tùy chỉnh ROAS';
+  if (str_contains($t, 'shop') || str_contains($t, 'gmv') || str_contains($t, 'auto')) return 'GMV Max Auto Bidding (Shop)';
+  return (string)($m['type'] ?? '');
+}
+/* Khoá nhận diện một chiến dịch trong một gian hàng: mã sản phẩm (nếu có)
+   CỘNG tên — đúng như adcampKey() bên app. Phải có cả tên: Shopee cho chạy
+   nhiều quảng cáo trên cùng một sản phẩm và đặt tên "… [2]", "… [3]", chỉ
+   theo mã thì hai con dồn vào một. Cùng khoá thì tháng đã nạp tay từ file
+   CSV được GHI ĐÈ đúng bản ghi cũ, không đẻ thêm một bản thứ hai. */
+function ingKey(string $sku, string $name): string {
+  return ($sku !== '' ? 's:' . $sku . '|' : '') . 'n:' . mb_strtolower(trim($name), 'UTF-8');
+}
+function ingItemSave(string $kind, string $id, array $data, bool $co): void {
+  $at = gmdate('Y-m-d\TH:i:s.v\Z');
+  $data['id'] = $id; $data['updatedAt'] = $at; $data['deleted'] = false; $data['by'] = 'auto';
+  $j = json_encode($data, JSON_UNESCAPED_UNICODE);
+  if ($co) db()->prepare('UPDATE items SET data = ?, updated_at = ?, deleted = 0 WHERE kind = ? AND item_id = ?')
+               ->execute([$j, $at, $kind, $id]);
+  else     db()->prepare('INSERT INTO items (kind, item_id, data, updated_at, deleted) VALUES (?,?,?,?,0)')
+               ->execute([$kind, $id, $j, $at]);
+}
+function ingItems(string $kind): array {
+  $st = db()->prepare('SELECT item_id, data FROM items WHERE kind = ? AND deleted = 0');
+  $st->execute([$kind]);
+  $out = [];
+  foreach ($st->fetchAll() as $r) {
+    $d = json_decode((string)$r['data'], true);
+    if (is_array($d)) { $d['id'] = (string)$r['item_id']; $out[] = $d; }
+  }
+  return $out;
+}
+
+/* Nhận hai file của tác vụ, ghi vào kho thô, rồi dựng lại:
+     adcamps — tổng THÁNG, chỉ cho tháng đã kết thúc và có trọn số liệu từ
+               ngày 1 tới ngày cuối. Tháng đang chạy mà ghi vào thì báo cáo
+               tháng đem nửa tháng so với cả tháng trước, cờ "tụt" kêu ầm ĩ.
+     addays  — từng ngày trong 45 ngày gần nhất, chỉ dòng có tiêu tiền (như
+               lúc nạp file ngày bằng tay). */
+function adIngest(string $histCsv, string $campCsv): array {
+  $pdo = db();
+  $pdo->exec('CREATE TABLE IF NOT EXISTS ad_raw (shop TEXT NOT NULL, cid TEXT NOT NULL, date TEXT NOT NULL,
+      cost INTEGER, gmv INTEGER, orders INTEGER, sold INTEGER, impr INTEGER, clicks INTEGER,
+      PRIMARY KEY (shop, cid, date))');
+  $pdo->exec('CREATE TABLE IF NOT EXISTS ad_meta (shop TEXT NOT NULL, cid TEXT NOT NULL, title TEXT,
+      type TEXT, state TEXT, roas REAL, item TEXT, PRIMARY KEY (shop, cid))');
+
+  $meta = ingCsv($campCsv);
+  $rows = ingCsv($histCsv);
+  $tz = new DateTimeZone(KH_TZ);
+  $homNay = (new DateTime('now', $tz))->format('Y-m-d');
+  $thangNay = substr($homNay, 0, 7);
+  $giuTu = (new DateTime('now', $tz))->modify('-' . ING_DAY_KEEP . ' days')->format('Y-m-d');
+
+  $pdo->beginTransaction();
+  $insM = $pdo->prepare('INSERT INTO ad_meta (shop,cid,title,type,state,roas,item) VALUES (?,?,?,?,?,?,?)
+      ON CONFLICT(shop,cid) DO UPDATE SET title=excluded.title, type=excluded.type, state=excluded.state,
+      roas=excluded.roas, item=excluded.item');
+  foreach ($meta as $m) {
+    $shop = trim((string)($m['shop'] ?? '')); $cid = ingId($m['campaign_id'] ?? '');
+    if ($shop === '' || $cid === '') continue;
+    $insM->execute([$shop, $cid, trim((string)($m['title'] ?? '')), (string)($m['type'] ?? ''),
+                    (string)($m['state'] ?? ''), (float)($m['roas_target'] ?? 0), ingId($m['item_id'] ?? '')]);
+  }
+  $insR = $pdo->prepare('INSERT INTO ad_raw (shop,cid,date,cost,gmv,orders,sold,impr,clicks) VALUES (?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(shop,cid,date) DO UPDATE SET cost=excluded.cost, gmv=excluded.gmv, orders=excluded.orders,
+      sold=excluded.sold, impr=excluded.impr, clicks=excluded.clicks');
+  $dung = [];          // shop => [date => true]
+  $n = 0;
+  foreach ($rows as $r) {
+    $shop = trim((string)($r['shop'] ?? '')); $cid = ingId($r['campaign_id'] ?? '');
+    $date = (string)($r['date'] ?? '');
+    if ($shop === '' || $cid === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || $date >= $homNay) continue;
+    $insR->execute([$shop, $cid, $date, (int)round((float)$r['cost']), (int)round((float)$r['gmv']),
+                    (int)$r['orders'], (int)($r['sold'] ?? 0), (int)$r['impr'], (int)$r['clicks']]);
+    $dung[$shop][$date] = true;
+    $n++;
+  }
+  $pdo->commit();
+
+  /* ---- gian hàng: khớp theo tên, chưa có thì tạo ---- */
+  $shops = ingItems('shops');
+  $shopId = [];
+  foreach (array_keys($dung) as $ten) {
+    $k = mb_strtolower($ten, 'UTF-8');
+    $co = null;
+    foreach ($shops as $s) if (mb_strtolower(trim((string)($s['name'] ?? '')), 'UTF-8') === $k) { $co = $s; break; }
+    if (!$co) {
+      $id = 'sh' . base_convert((string)time(), 10, 36) . bin2hex(random_bytes(3));
+      $co = ['id' => $id, 'name' => $ten, 'code' => '', 'note' => 'tự tạo khi nhận số liệu quảng cáo tự động',
+             'archived' => false];
+      ingItemSave('shops', $id, $co, false);
+      $shops[] = $co;
+    }
+    $shopId[$ten] = (string)$co['id'];
+  }
+
+  $camps = ingItems('adcamps');
+  $days  = ingItems('addays');
+  $metaQ = $pdo->prepare('SELECT * FROM ad_meta WHERE shop = ?');
+  $nCamp = 0; $nDay = 0; $thangs = [];
+
+  foreach ($dung as $ten => $dates) {
+    $sid = $shopId[$ten];
+    $metaQ->execute([$ten]);
+    $M = [];
+    foreach ($metaQ->fetchAll() as $m) $M[(string)$m['cid']] = $m;
+    $nhan = function (string $cid) use ($M): array {
+      $m = $M[$cid] ?? null;
+      $sku = $m ? (string)$m['item'] : '';
+      $name = $m && trim((string)$m['title']) !== '' ? trim((string)$m['title']) : 'Chiến dịch ' . $cid;
+      return [$sku, $name, $m ? ingStatus((string)$m['state']) : '',
+              $m ? ingBid(['type' => $m['type'], 'roas_target' => $m['roas']]) : ''];
+    };
+
+    /* tháng: chỉ tháng đã hết, và kho thô phủ trọn từ ngày 1 tới ngày cuối */
+    $q = $pdo->prepare('SELECT MIN(date) a, MAX(date) b FROM ad_raw WHERE shop = ?');
+    $q->execute([$ten]); $phu = $q->fetch();
+    $yms = array_unique(array_map(fn($d) => substr($d, 0, 7), array_keys($dates)));
+    $theoKhoa = [];
+    foreach ($camps as $i => $c) if (($c['shopId'] ?? '') === $sid)
+      $theoKhoa[($c['ym'] ?? '') . '|' . ingKey((string)($c['sku'] ?? ''), (string)($c['name'] ?? ''))] = $i;
+    foreach ($yms as $ym) {
+      if ($ym >= $thangNay) continue;
+      $dau = $ym . '-01';
+      $cuoi = (new DateTime($dau))->modify('last day of this month')->format('Y-m-d');
+      if (!$phu || $phu['a'] > $dau || $phu['b'] < $cuoi) continue;
+      $s = $pdo->prepare('SELECT cid, SUM(cost) cost, SUM(gmv) gmv, SUM(orders) orders, SUM(sold) sold,
+          SUM(impr) impr, SUM(clicks) clicks FROM ad_raw WHERE shop = ? AND date BETWEEN ? AND ? GROUP BY cid');
+      $s->execute([$ten, $dau, $cuoi]);
+      foreach (ingGom($s->fetchAll(), $nhan) as $k0 => $t) {
+        if (!(int)$t['impr'] && !(int)$t['cost']) continue;
+        [$sku, $name, $st, $bid] = [$t['sku'], $t['name'], $t['st'], $t['bid']];
+        $k = $ym . '|' . $k0;
+        $cu = isset($theoKhoa[$k]) ? $camps[$theoKhoa[$k]] : null;
+        $rec = array_merge($cu ?: [], [
+          'ym' => $ym, 'from' => $dau, 'to' => $cuoi, 'name' => $name, 'sku' => $sku,
+          'status' => $st ?: (string)($cu['status'] ?? ''), 'bid' => $bid ?: (string)($cu['bid'] ?? ''),
+          'impressions' => (int)$t['impr'], 'clicks' => (int)$t['clicks'],
+          /* "Sản phẩm đã bán" — đúng cột app đọc làm số đơn khi nạp CSV */
+          'orders' => (int)$t['sold'] ?: (int)$t['orders'],
+          'cost' => (int)$t['cost'], 'gmv' => (int)$t['gmv'], 'shopId' => $sid,
+          'src' => 'auto', 'cid' => (string)$t['cid']]);
+        $id = $cu ? (string)$cu['id'] : 'aa' . substr(hash('sha1', $sid . '|' . $t['cid'] . '|' . $ym), 0, 14);
+        ingItemSave('adcamps', $id, $rec, (bool)$cu || ingExists('adcamps', $id));
+        $nCamp++;
+      }
+      $thangs[$ym] = true;
+    }
+
+    /* ngày: 45 ngày gần nhất, dòng có tiêu tiền */
+    $theoNgay = [];
+    foreach ($days as $i => $c) if (($c['shopId'] ?? '') === $sid)
+      $theoNgay[($c['date'] ?? '') . '|' . ingKey((string)($c['sku'] ?? ''), (string)($c['name'] ?? ''))] = $i;
+    $s = $pdo->prepare('SELECT * FROM ad_raw WHERE shop = ? AND date = ?');
+    foreach (array_keys($dates) as $date) {
+      if ($date < $giuTu) continue;
+      $s->execute([$ten, $date]);
+      foreach (ingGom($s->fetchAll(), $nhan) as $k0 => $t) {
+        [$sku, $name, $st, $bid] = [$t['sku'], $t['name'], $t['st'], $t['bid']];
+        $k = $date . '|' . $k0;
+        $cu = isset($theoNgay[$k]) ? $days[$theoNgay[$k]] : null;
+        if (!(int)$t['cost'] && !$cu) continue;
+        $rec = array_merge($cu ?: [], [
+          'ym' => substr($date, 0, 7), 'from' => $date, 'to' => $date, 'date' => $date,
+          'name' => $name, 'sku' => $sku, 'status' => $st, 'bid' => $bid,
+          'impressions' => (int)$t['impr'], 'clicks' => (int)$t['clicks'],
+          'orders' => (int)$t['sold'] ?: (int)$t['orders'],
+          'cost' => (int)$t['cost'], 'gmv' => (int)$t['gmv'], 'shopId' => $sid,
+          'partial' => false, 'atHour' => 23, 'src' => 'auto', 'cid' => (string)$t['cid']]);
+        $id = $cu ? (string)$cu['id'] : 'ad' . substr(hash('sha1', $sid . '|' . $t['cid'] . '|' . $date), 0, 14);
+        ingItemSave('addays', $id, $rec, (bool)$cu || ingExists('addays', $id));
+        $nDay++;
+      }
+    }
+  }
+
+  /* Dọn dòng ngày tự động quá 45 ngày — app chỉ dọn lúc có người nạp file
+     tay, mà giờ không ai nạp tay nữa thì kho ngày cứ phình mãi. */
+  $at = gmdate('Y-m-d\TH:i:s.v\Z');
+  $don = $pdo->prepare('UPDATE items SET deleted = 1, updated_at = ? WHERE kind = ? AND item_id = ?');
+  foreach ($days as $c) if (($c['src'] ?? '') === 'auto' && ($c['date'] ?? '') !== '' && $c['date'] < $giuTu)
+    $don->execute([$at, 'addays', (string)$c['id']]);
+
+  $soNgay = 0;
+  foreach ($dung as $ds) $soNgay = max($soNgay, count($ds));
+  if ($soNgay >= 28) kvSet('ingest_full', gmdate('c'));
+  $tatCa = array_merge(...array_map('array_keys', array_values($dung) ?: [[]]));
+  sort($tatCa);
+  return ['rows' => $n, 'shops' => array_keys($dung),
+          'dates' => $tatCa ? [$tatCa[0], end($tatCa)] : [],
+          'months' => array_keys($thangs), 'adcamps' => $nCamp, 'addays' => $nDay,
+          'need_full' => !kvGet('ingest_full', '')];
+}
+/* Hai chiến dịch cùng một sản phẩm (một con tay, một con tự động chẳng hạn)
+   ra cùng một khoá — gộp số lại như lúc nạp CSV, đừng để con sau đè con trước. */
+function ingGom(array $rows, callable $nhan): array {
+  $g = [];
+  foreach ($rows as $t) {
+    [$sku, $name, $st, $bid] = $nhan((string)$t['cid']);
+    $k = ingKey($sku, $name);
+    if (!isset($g[$k])) { $g[$k] = $t + ['sku' => $sku, 'name' => $name, 'st' => $st, 'bid' => $bid]; continue; }
+    foreach (['cost', 'gmv', 'orders', 'sold', 'impr', 'clicks'] as $f) $g[$k][$f] = (int)$g[$k][$f] + (int)$t[$f];
+    /* một con còn chạy là coi như cả cụm đang chạy */
+    if ($st === 'Đang diễn ra') $g[$k]['st'] = $st;
+  }
+  return $g;
+}
+function ingExists(string $kind, string $id): bool {
+  $st = db()->prepare('SELECT 1 FROM items WHERE kind = ? AND item_id = ?');
+  $st->execute([$kind, $id]);
+  return (bool)$st->fetch();
+}

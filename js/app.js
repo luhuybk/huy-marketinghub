@@ -1315,12 +1315,27 @@ function copyText(text){
    Chốt chặn: mở Cài đặt mà chưa ai hỏi thì hỏi ngay tại đây. Cờ asked bật ngay
    khi bắt đầu hỏi nên máy chủ đang lỗi cũng chỉ hỏi đúng một lần, không quay
    vòng render → hỏi → render. */
-const cfgAsked = {tg:false, users:false, stats:false};
+const cfgAsked = {tg:false, users:false, stats:false, ing:false};
 function ensureSettingsCfg(){
   if (!Server.authed() || !isOwner()) return;
   if (!cfgAsked.tg)    loadTg(true);
   if (!cfgAsked.users) loadUsers(true);
   if (!cfgAsked.stats) loadStats(true);
+  if (!cfgAsked.ing)   loadIng();
+}
+
+/* Thiết bị gửi số liệu quảng cáo tự động — xem thẻ ingestCard() */
+async function loadIng(){
+  if (!Server.authed() || !isOwner()) return;
+  cfgAsked.ing = true;
+  try { ingCfg = await Server.ingestList(); cfgErr.ing = ''; }
+  catch(e){ cfgErr.ing = e.message || 'lỗi không rõ'; }
+  if (route.page === 'settings') render();
+}
+async function ingAct(id, act, xong){
+  try { await Server.ingestSet(id, act); toast(xong); }
+  catch(e){ toast('Không làm được: ' + (e.message || e)); }
+  loadIng();
 }
 
 /* Máy chủ đang để file dữ liệu ở đâu. Xem js/views.js → thẻ "Máy chủ & dữ liệu". */
@@ -4769,6 +4784,12 @@ const ACTIONS = {
   /* sản phẩm mới */
   newidea:  () => ideaForm(null),
 
+  /* nhận số liệu quảng cáo tự động */
+  ingreload: () => loadIng(),
+  ingok:  id => ingAct(id, 'ok', 'Đã cho phép — từ lần gửi tới số sẽ tự vào'),
+  ingoff: id => { if (confirm('Thu hồi? Thiết bị này sẽ không gửi số vào được nữa.')) ingAct(id, 'off', 'Đã thu hồi'); },
+  ingrm:  id => { if (confirm('Xoá thiết bị này khỏi danh sách? Nếu nó gửi lại sẽ hiện ra ở trạng thái chờ.')) ingAct(id, 'del', 'Đã xoá'); },
+
   /* hàng mới về */
   newlaunch:  async () => { await loadNames(); launchForm(null); },
   editlaunch: async id => { const L = launchOf(id); if (!L) return; await loadNames(); launchForm(L); },
@@ -5195,4 +5216,4 @@ function checkBuild(){
   }
 })();
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "63075ac5"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "d4590101"]);

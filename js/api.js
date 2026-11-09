@@ -223,6 +223,10 @@ const Server = (() => {
   const tgHook  = off   => call('tg_hook', {off: !!off});
   const remind  = (list, dir) => call('remind_set', {tasks:list, products:dir || []});
 
+  /* Nhận số liệu quảng cáo tự động — chỉ chủ */
+  const ingestList = ()        => call('ingest_list');
+  const ingestSet  = (id, act) => call('ingest_set', {id, do: act});
+
   const users     = ()  => call('users_list');
   /* Chỉ tên, ai đăng nhập cũng gọi được — cần để giao việc cho một người. */
   const userNames = ()  => call('user_names');
@@ -230,7 +234,7 @@ const Server = (() => {
   const userDel   = id  => call('user_del', {id});
 
   return {probe, login, logout, logoutAll, pull, push, pushBeacon, stats,
-          tgGet, tgSave, tgTest, tgReport, tgHook, remind,
+          tgGet, tgSave, tgTest, tgReport, tgHook, remind, ingestList, ingestSet,
           users, userNames, userSave, userDel, takeWhoChanged, notePerms,
           available, authed, state, role, isOwner, name, perms, may, call};
 })();
@@ -332,4 +336,4 @@ const Gate = (() => {
 })();
 window.Gate = Gate;
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/api.js", "63075ac5"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/api.js", "d4590101"]);
