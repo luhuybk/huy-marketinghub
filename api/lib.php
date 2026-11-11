@@ -917,9 +917,11 @@ function adRadarData(int $soNgay = 400): array {
      rv_scan  một bản chụp = (từ khoá, ngày quét, nguồn). data = JSON mảng
               sản phẩm đã rút gọn, xếp theo doanh số trong kỳ giảm dần.
      rv_mine  gian hàng của mình (theo mã shop Shopee) — để tô nổi trong bảng
+     rv_sp    bản chụp trang sản phẩm trên Shopee (giá chi tiết, voucher, phân loại)
    ============================================================ */
 const RV_TOP = 20;            // Metric trả 20 sản phẩm đầu cho mỗi lần phân tích
 const RV_TICKET_GIO = 6;      // vé quét sống bao lâu
+const RV_SP_TOP = 10;          // mỗi từ khoá đọc trang Shopee của mấy sản phẩm đứng đầu
 
 function rvTables(PDO $pdo): void {
   $pdo->exec('CREATE TABLE IF NOT EXISTS rv_kw (id TEXT PRIMARY KEY, kw TEXT NOT NULL, kind TEXT,
@@ -934,6 +936,12 @@ function rvTables(PDO $pdo): void {
   /* extra (thêm sau): tổng quan thị trường + khoảng giá + top thương hiệu/gian hàng của bản chụp */
   if (!in_array('extra', array_column($pdo->query('PRAGMA table_info(rv_scan)')->fetchAll(), 'name'), true))
     $pdo->exec('ALTER TABLE rv_scan ADD COLUMN extra TEXT');
+  /* rv_sp: bản chụp TRANG SẢN PHẨM trên Shopee — thứ Metric không có: bảng
+     "Chi tiết giá" (giá gốc → giảm giá → voucher → giá cuối), từng phân loại
+     kèm giá, voucher của shop, cả bộ ảnh. Theo SẢN PHẨM chứ không theo từ
+     khoá: một sản phẩm đứng top ở ba từ khoá vẫn chỉ đọc một lần. */
+  $pdo->exec('CREATE TABLE IF NOT EXISTS rv_sp (item_id TEXT NOT NULL, date TEXT NOT NULL, at TEXT, data TEXT,
+      PRIMARY KEY (item_id, date))');
 }
 function rvNorm(string $s): string {
   return (string)preg_replace('/\s+/u', ' ', mb_strtolower(trim($s), 'UTF-8'));
@@ -1135,6 +1143,128 @@ function rvScans(string $kwId, int $max = 60): array {
               'extra' => json_decode((string)($r['extra'] ?? ''), true) ?: null];
   }
   return $out;
+}
+/* ---------- Trang sản phẩm Shopee (rv_sp) ----------
+   Trang Shopee (tools/shopee-quet.js) tự rút gọn rồi gửi lên; ở đây chỉ còn
+   việc ÉP KIỂU và CHẶN ĐỘ DÀI — không tin một con số hay một chuỗi nào tới
+   từ trang web bên ngoài. Tiền đã là đồng (trang đã chia 100000).
+
+     id, sid · n (tên) · shop · img, imgs (mã ảnh Shopee) · video
+     sold ("300k+") · ra, rc (điểm, số đánh giá) · liked
+     def    phân loại Shopee chọn sẵn: {n, pb (giá gốc), f (giá cuối Shopee hiện)}
+     lines  các dòng của bảng "Chi tiết giá" cho phân loại đó:
+            {k: sp|shop|platform|ads|other, lab, amt, min, pct, val, cap, code}
+     models từng phân loại: {n, p (giá bán), pb (giá gốc), ok (còn hàng)}
+     tiers  nhóm phân loại: {n, o:[…]}
+     vouchers  voucher shop đang phát: {code, min, val, pct, cap, coin, end, used, lab}
+     tags   nhãn khuyến mãi ("Mua để nhận quà", "Flash Sale"…) */
+function rvSpClean(array $x): ?array {
+  $id = preg_replace('/\D/', '', (string)($x['id'] ?? ''));
+  if ($id === '' || strlen($id) > 20) return null;
+  $chu = fn($v, int $n) => mb_substr(trim((string)preg_replace('/\s+/u', ' ', is_scalar($v) ? (string)$v : '')), 0, $n, 'UTF-8');
+  $tien = fn($v) => max(0, min(2000000000, (int)round(is_numeric($v) ? (float)$v : 0)));
+  $anh = fn($v) => preg_match('/^[A-Za-z0-9._-]{8,80}$/', is_scalar($v) ? (string)$v : '') ? (string)$v : '';
+  $mang = fn($v) => is_array($v) ? array_values($v) : [];
+  $lines = [];
+  foreach (array_slice($mang($x['lines'] ?? null), 0, 8) as $l) if (is_array($l))
+    $lines[] = ['k' => in_array($l['k'] ?? '', ['sp', 'shop', 'platform', 'ads'], true) ? $l['k'] : 'other',
+                'lab' => $chu($l['lab'] ?? '', 60), 'amt' => $tien($l['amt'] ?? 0), 'min' => $tien($l['min'] ?? 0),
+                'pct' => max(0, min(100, round((float)(is_numeric($l['pct'] ?? null) ? $l['pct'] : 0), 1))),
+                'val' => $tien($l['val'] ?? 0), 'cap' => $tien($l['cap'] ?? 0), 'code' => $chu($l['code'] ?? '', 40)];
+  $models = [];
+  foreach (array_slice($mang($x['models'] ?? null), 0, 80) as $m) if (is_array($m) && $chu($m['n'] ?? '', 120) !== '')
+    $models[] = ['n' => $chu($m['n'], 120), 'p' => $tien($m['p'] ?? 0), 'pb' => $tien($m['pb'] ?? 0), 'ok' => !empty($m['ok'])];
+  $tiers = [];
+  foreach (array_slice($mang($x['tiers'] ?? null), 0, 3) as $t) if (is_array($t))
+    $tiers[] = ['n' => $chu($t['n'] ?? '', 60),
+                'o' => array_map(fn($o) => $chu($o, 80), array_slice($mang($t['o'] ?? null), 0, 60))];
+  $vs = [];
+  foreach (array_slice($mang($x['vouchers'] ?? null), 0, 12) as $v) if (is_array($v))
+    $vs[] = ['code' => $chu($v['code'] ?? '', 40), 'min' => $tien($v['min'] ?? 0), 'val' => $tien($v['val'] ?? 0),
+             'pct' => max(0, min(100, round((float)(is_numeric($v['pct'] ?? null) ? $v['pct'] : 0), 1))),
+             'cap' => $tien($v['cap'] ?? 0), 'coin' => !empty($v['coin']),
+             'end' => max(0, (int)($v['end'] ?? 0)), 'used' => max(0, min(100, (int)($v['used'] ?? 0))),
+             'lab' => $chu($v['lab'] ?? '', 60)];
+  $def = is_array($x['def'] ?? null) ? $x['def'] : [];
+  return [
+    'id' => $id, 'sid' => preg_replace('/\D/', '', (string)($x['sid'] ?? '')),
+    'n' => $chu($x['n'] ?? '', 300), 'shop' => $chu($x['shop'] ?? '', 120),
+    'img' => $anh($x['img'] ?? ''),
+    'imgs' => array_values(array_filter(array_map($anh, array_slice($mang($x['imgs'] ?? null), 0, 12)))),
+    'video' => !empty($x['video']), 'sold' => $chu($x['sold'] ?? '', 20),
+    'ra' => round(max(0, min(5, (float)(is_numeric($x['ra'] ?? null) ? $x['ra'] : 0))), 2),
+    'rc' => $tien($x['rc'] ?? 0), 'liked' => $tien($x['liked'] ?? 0),
+    'def' => ['n' => $chu($def['n'] ?? '', 120), 'pb' => $tien($def['pb'] ?? 0), 'f' => $tien($def['f'] ?? 0)],
+    'lines' => $lines, 'models' => $models, 'tiers' => $tiers, 'vouchers' => $vs,
+    'tags' => array_values(array_filter(array_map(fn($t) => $chu($t, 40), array_slice($mang($x['tags'] ?? null), 0, 6)))),
+  ];
+}
+function rvSpSave(array $in): array {
+  $pdo = db(); rvTables($pdo);
+  $x = is_array($in['item'] ?? null) ? rvSpClean($in['item']) : null;
+  if (!$x) return ['error' => 'Gói gửi lên không có sản phẩm.'];
+  if (!$x['models'] && !$x['def']['f']) return ['error' => 'Sản phẩm ' . $x['id'] . ' không có giá lẫn phân loại — trang chưa tải xong?'];
+  $date = rvNgayQuet($in);
+  $pdo->prepare('INSERT INTO rv_sp (item_id, date, at, data) VALUES (?,?,?,?)
+      ON CONFLICT(item_id, date) DO UPDATE SET at=excluded.at, data=excluded.data')
+      ->execute([$x['id'], $date, gmdate('c'), json_encode($x, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]);
+  return ['ok' => true, 'id' => $x['id'], 'date' => $date, 'models' => count($x['models']),
+          'lines' => count($x['lines']), 'f' => $x['def']['f']];
+}
+/* Những sản phẩm tác vụ cần mở trên Shopee: RV_SP_TOP sản phẩm đứng đầu ở lần
+   quét gần nhất của từng từ khoá đang bật, cộng sản phẩm của shop mình trong
+   top. `done` = hôm nay đã đọc rồi (chạy lại giữa chừng thì bỏ qua). */
+function rvSpList(): array {
+  $pdo = db(); rvTables($pdo);
+  $mine = array_column($pdo->query('SELECT shop_id FROM rv_mine')->fetchAll(), 'shop_id');
+  $nay = (new DateTime('now', new DateTimeZone(KH_TZ)))->format('Y-m-d');
+  $out = [];
+  foreach (rvKwList(false) as $k) {
+    $st = $pdo->prepare('SELECT data FROM rv_scan WHERE kw_id = ? ORDER BY date DESC LIMIT 1');
+    $st->execute([$k['id']]);
+    $items = json_decode((string)$st->fetchColumn(), true);
+    foreach ((is_array($items) ? $items : []) as $i => $x) {
+      if ($i >= RV_SP_TOP && !in_array((string)($x['sid'] ?? ''), $mine, true)) continue;
+      $id = (string)($x['id'] ?? '');
+      if ($id === '' || empty($x['url'])) continue;
+      if (!isset($out[$id])) $out[$id] = ['id' => $id, 'sid' => (string)($x['sid'] ?? ''), 'url' => (string)$x['url'],
+                                          'shop' => (string)($x['shop'] ?? ''), 'kws' => []];
+      $out[$id]['kws'][] = $k['kw'];
+    }
+  }
+  if ($out) {
+    $st = $pdo->prepare('SELECT item_id FROM rv_sp WHERE date = ?');
+    $st->execute([$nay]);
+    $xong = array_flip(array_column($st->fetchAll(), 'item_id'));
+    foreach ($out as $id => &$o) $o['done'] = isset($xong[$id]);
+    unset($o);
+  }
+  return array_values($out);
+}
+/* Bản chụp trang Shopee của một loạt sản phẩm, mới nhất trước:
+   {mã sản phẩm: [{date, …}, …]} */
+function rvSps(array $ids, int $max = 8): array {
+  $pdo = db(); rvTables($pdo);
+  $ids = array_values(array_unique(array_filter(array_map(fn($i) => preg_replace('/\D/', '', (string)$i), $ids))));
+  $out = [];
+  foreach (array_chunk($ids, 200) as $lo) {
+    $st = $pdo->prepare('SELECT item_id, date, data FROM rv_sp WHERE item_id IN (' . implode(',', array_fill(0, count($lo), '?')) .
+                        ') ORDER BY date DESC');
+    $st->execute($lo);
+    foreach ($st->fetchAll() as $r) {
+      $id = (string)$r['item_id'];
+      if (count($out[$id] ?? []) >= $max) continue;
+      $d = json_decode((string)$r['data'], true);
+      if (is_array($d)) $out[$id][] = ['date' => (string)$r['date']] + $d;
+    }
+  }
+  return $out;
+}
+/* Mã sản phẩm xuất hiện trong các bản chụp Metric của một từ khoá */
+function rvScanIds(array $scans, int $lan = 8): array {
+  $ids = [];
+  foreach (array_slice($scans, 0, $lan) as $s) foreach ($s['items'] as $x) $ids[(string)($x['id'] ?? '')] = 1;
+  return array_keys($ids);
 }
 /* Vé quét: tác vụ đổi token thiết bị lấy một vé ngắn hạn, rồi trang Metric
    dùng vé đó để gửi kết quả. Token thật vì thế không bao giờ phải đi qua

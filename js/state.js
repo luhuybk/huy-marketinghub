@@ -4866,7 +4866,7 @@ function launchAutoMarks(){
      r, o (doanh số, lượt bán trong kỳ) · rp, op (kỳ liền trước, do Metric tính)
      rev, sold (tổng từ trước tới giờ) · rc, ra (số đánh giá, điểm)
    ============================================================ */
-const rv = {state:null, scans:{}, vols:{}, err:'', asked:false, busy:false};
+const rv = {state:null, scans:{}, vols:{}, sp:{}, err:'', asked:false, busy:false};
 const RV_KINDS = {main:'Từ khoá chính', sp:'Từ khoá sản phẩm'};
 const RV_SHOW = 10;                       // bảng mặc định hiện top mấy
 
@@ -4874,6 +4874,13 @@ const rvKws   = () => (rv.state && rv.state.kws) || [];
 const rvKwOf  = id => rvKws().find(k => k.id === id) || null;
 /* Ảnh nhỏ của Shopee: thêm _tn vào cuối địa chỉ ảnh gốc */
 const rvThumb = u => u ? u + '_tn' : '';
+/* Ảnh Shopee theo cỡ. `u` là địa chỉ đầy đủ (Metric trả) hoặc chỉ là mã ảnh
+   (trang Shopee trả). 'tn' ≈ 320px · 'md' ≈ 450px · mặc định là ảnh gốc. */
+function rvImg(u, co){
+  if (!u) return '';
+  const goc = /^https?:\/\//.test(u) ? u : 'https://down-vn.img.susercontent.com/file/' + u;
+  return goc + (co === 'tn' ? '_tn' : co === 'md' ? '@resize_w450_nl.webp' : '');
+}
 const rvPct   = (a, b) => b > 0 ? (a - b) / b * 100 : null;
 
 /* Gian hàng của mình: chủ đã đánh dấu (theo mã shop), hoặc trùng tên với một
@@ -4886,15 +4893,122 @@ function rvIsMine(x){
   return !!ten && shops().some(s => norm(s.name) === ten);
 }
 
+/* ---------- Trang sản phẩm Shopee: giá cuối sau voucher ----------
+   Một bản chụp trang Shopee (`sp`, xem rvSpClean bên máy chủ) có bảng "Chi
+   tiết giá" của ĐÚNG MỘT phân loại — cái Shopee chọn sẵn. Các phân loại khác
+   Hub tự tính, theo đúng luật của voucher:
+     · chỉ áp khi giá bán ≥ đơn tối thiểu
+     · voucher theo % thì không vượt mức giảm tối đa
+     · mỗi đơn một voucher shop → lấy cái giảm nhiều nhất trong các voucher
+       shop đang phát; cộng thêm voucher Shopee / voucher quảng cáo nếu có
+   Phân loại Shopee chọn sẵn thì dùng thẳng con số Shopee hiện (def.f). */
+function rvVoucherGiam(v, p){
+  if (!v || p < (v.min || 0)) return 0;
+  if (v.val) return Math.min(v.val, p);
+  if (!v.pct) return 0;
+  const d = Math.round(p * v.pct / 100);
+  return v.cap ? Math.min(d, v.cap) : d;
+}
+function rvSpFinal(sp, m){
+  const p = m.p || 0, parts = [];
+  /* voucher shop: gom dòng "Voucher của Shop" trong bảng giá với danh sách voucher shop đang phát */
+  const shopLine = (sp.lines || []).find(l => l.k === 'shop');
+  const ung = (sp.vouchers || []).filter(v => !v.coin).slice();
+  if (shopLine && !ung.some(v => v.code && v.code === shopLine.code)) ung.push(shopLine);
+  let tot = null, giam = 0;
+  ung.forEach(v => { const d = rvVoucherGiam(v, p); if (d > giam){ giam = d; tot = v; } });
+  if (giam) parts.push({k:'shop', lab:'Voucher của Shop', code: tot.code || '', amt: giam, moi: /mới/i.test(tot.lab || '')});
+  (sp.lines || []).filter(l => l.k === 'platform' || l.k === 'ads').forEach(l => {
+    const d = rvVoucherGiam(l, p);
+    if (d) parts.push({k:l.k, lab:l.lab || 'Voucher Shopee', code:l.code || '', amt:d});
+  });
+  const v = parts.reduce((a, x) => a + x.amt, 0);
+  return {f: Math.max(0, p - v), v, parts};
+}
+/* Tóm tắt một bản chụp trang Shopee: từng phân loại kèm giá cuối, phân loại
+   rẻ nhất còn hàng (`re`), và phân loại Shopee chọn sẵn (`def`). */
+function rvSpSum(sp){
+  if (!sp) return null;
+  const pct = (a, b) => b > 0 ? (b - a) / b * 100 : 0;
+  let ms = (sp.models || []).map(m => Object.assign({}, m, {pb: m.pb || m.p}));
+  if (!ms.length && sp.def && sp.def.f){          // sản phẩm không có phân loại
+    const giamSp = (sp.lines || []).filter(l => l.k === 'sp' || l.k === 'other').reduce((a, l) => a + l.amt, 0);
+    ms = [{n:'', p: Math.max(0, sp.def.pb - giamSp), pb: sp.def.pb, ok:true, mot:true}];
+  }
+  const rows = ms.map(m => {
+    const laDef = !!m.mot || (!!sp.def && sp.def.n !== '' && m.n === sp.def.n);
+    const t = rvSpFinal(sp, m);
+    /* phân loại Shopee chọn sẵn: tin con số Shopee hiện hơn con số tự tính */
+    if (laDef && sp.def.f && sp.def.f !== t.f){
+      const dong = (sp.lines || []).filter(l => l.k !== 'sp' && l.k !== 'other' && l.amt);
+      t.parts = dong.map(l => ({k:l.k, lab:l.lab, code:l.code, amt:l.amt}));
+      t.v = t.parts.reduce((a, x) => a + x.amt, 0); t.f = sp.def.f;
+    }
+    return Object.assign(m, t, {def: laDef, giam: pct(t.f, m.pb), vPct: m.p ? t.v / m.p * 100 : 0});
+  });
+  const con = rows.filter(r => r.ok);
+  const re = (con.length ? con : rows).slice().sort((a, b) => a.f - b.f)[0] || null;
+  return {rows, re, def: rows.find(r => r.def) || null, n: rows.length, nOk: con.length,
+          nhieuGia: new Set((con.length ? con : rows).map(r => r.f)).size > 1};
+}
+/* Bản chụp trang Shopee ứng với một lần quét Metric: bản mới nhất chưa tới
+   lần quét kế sau (`next`), và bản ngay trước nó để so. */
+function rvSpAt(id, next){
+  const ds = rv.sp[id] || [];
+  const i = ds.findIndex(s => !next || s.date < next.date);
+  return i < 0 ? [null, null] : [ds[i], ds[i + 1] || null];
+}
+const rvVoucherTen = v => (v.val ? 'giảm ' + moneyShort(v.val) : 'giảm ' + (+v.pct) + '%' + (v.cap ? ' tối đa ' + moneyShort(v.cap) : '')) +
+                          (v.min ? ' cho đơn từ ' + moneyShort(v.min) : '');
+/* Trang Shopee của một sản phẩm đổi gì giữa hai lần đọc.
+   Mỗi dòng: {w, icon, cls, t} — `t` chưa kèm tên shop. */
+function rvSpDiff(cur, prev){
+  const out = [];
+  if (!cur || !prev) return out;
+  const a = rvSpSum(cur), b = rvSpSum(prev);
+  if (a.re && b.re && a.re.f !== b.re.f){
+    const pc = rvPct(a.re.f, b.re.f);
+    out.push({w: 75 + Math.min(20, Math.abs(pc)), icon:'🎟', cls: a.re.f < b.re.f ? 'bad' : 'ok',
+      t: 'giá cuối sau voucher ' + (a.re.f < b.re.f ? 'giảm ' : 'tăng ') + money(b.re.f) + ' → ' + money(a.re.f) +
+         ' (' + (pc > 0 ? '+' : '') + pc.toFixed(0) + '%)'});
+  }
+  const va = new Map((cur.vouchers || []).filter(v => !v.coin).map(v => [v.code, v]));
+  const vb = new Map((prev.vouchers || []).filter(v => !v.coin).map(v => [v.code, v]));
+  const them = [...va.values()].filter(v => !vb.has(v.code)), bo = [...vb.values()].filter(v => !va.has(v.code));
+  if (them.length) out.push({w: 68, icon:'🎟', cls:'bad', t: 'thêm voucher shop: ' + them.slice(0, 3).map(rvVoucherTen).join('; ') +
+                             (them.length > 3 ? ' và ' + (them.length - 3) + ' voucher nữa' : '')});
+  if (bo.length && !them.length) out.push({w: 40, icon:'🎟', cls:'ok', t: 'bỏ ' + bo.length + ' voucher shop'});
+  const sp = l => (l.lines || []).some(x => x.k === 'platform');
+  if (sp(cur) !== sp(prev)) out.push({w: 50, icon:'🎟', cls: sp(cur) ? 'bad' : 'ok',
+      t: sp(cur) ? 'được Shopee trợ giá thêm voucher' : 'hết được Shopee trợ giá voucher'});
+  const ma = new Map(a.rows.map(r => [r.n, r])), mb = new Map(b.rows.map(r => [r.n, r]));
+  const moi = a.rows.filter(r => !mb.has(r.n)), mat = b.rows.filter(r => !ma.has(r.n));
+  if (moi.length) out.push({w: 62, icon:'🧩', cls:'acc', t: 'thêm ' + moi.length + ' phân loại: ' + moi.slice(0, 3).map(r => r.n + ' ' + moneyShort(r.p)).join(', ') +
+                            (moi.length > 3 ? '…' : '')});
+  if (mat.length) out.push({w: 45, icon:'🧩', cls:'', t: 'bỏ ' + mat.length + ' phân loại: ' + mat.slice(0, 3).map(r => r.n).join(', ') + (mat.length > 3 ? '…' : '')});
+  const doiGia = a.rows.filter(r => mb.has(r.n) && mb.get(r.n).p !== r.p);
+  if (doiGia.length) out.push({w: 58, icon:'🏷', cls:'', t: doiGia.length + ' phân loại đổi giá bán: ' +
+      doiGia.slice(0, 2).map(r => r.n + ' ' + moneyShort(mb.get(r.n).p) + ' → ' + moneyShort(r.p)).join(', ') + (doiGia.length > 2 ? '…' : '')});
+  const het = a.rows.filter(r => !r.ok && mb.has(r.n) && mb.get(r.n).ok);
+  if (het.length) out.push({w: 48, icon:'📦', cls:'ok', t: het.length + ' phân loại vừa hết hàng: ' + het.slice(0, 3).map(r => r.n).join(', ')});
+  const ia = (cur.imgs || []).slice(1).join(','), ib = (prev.imgs || []).slice(1).join(',');
+  if (ia !== ib && ib) out.push({w: 42, icon:'🖼', cls:'', t: 'đổi bộ ảnh sản phẩm'});
+  const ta = (cur.tags || []).filter(t => !(prev.tags || []).includes(t));
+  if (ta.length) out.push({w: 55, icon:'⚡', cls:'bad', t: 'chạy thêm khuyến mãi: ' + ta.join(', ')});
+  return out;
+}
+
 /* So bản chụp `cur` với bản trước `prev` (có thể không có).
    Số "từ lần quét trước" lấy bằng hiệu của TỔNG lượt bán / TỔNG doanh số —
    hai con số cộng dồn, nên hiệu của chúng đúng là phần bán thêm giữa hai lần
    quét, không phụ thuộc kỳ 30 ngày trượt của Metric. */
-function rvCompare(cur, prev){
+function rvCompare(cur, prev, next){
   const cu = new Map(((prev && prev.items) || []).map((x, i) => [x.id, Object.assign({rank:i + 1}, x)]));
   const rows = (cur.items || []).map((x, i) => {
     const o = cu.get(x.id) || null;
+    const [sp, spPrev] = rvSpAt(x.id, next || null);
     return Object.assign({}, x, {
+      sp, spPrev, spSum: rvSpSum(sp), spCh: rvSpDiff(sp, spPrev),
       rank: i + 1, prev: o, isNew: !!prev && !o, mine: rvIsMine(x),
       move: o ? o.rank - (i + 1) : 0,
       dSold: o && x.sold >= o.sold ? x.sold - o.sold : null,
@@ -4914,7 +5028,12 @@ function rvCompare(cur, prev){
    Mỗi dòng: {icon, cls, id (sản phẩm), text}. */
 function rvChanges(cmp){
   const out = [], ten = r => (r.shop || 'shop ?') + ' — ' + cut(r.n, 46);
-  if (!cmp.prev) return out;
+  /* Trang Shopee đọc dày hơn Metric (cả ngày sale), nên thay đổi ở đó vẫn
+     báo dù chưa có lần quét Metric trước để so. */
+  if (!cmp.prev){
+    cmp.rows.forEach(r => (r.spCh || []).forEach(c => out.push({w:c.w, icon:c.icon, cls:c.cls, id:r.id, text: ten(r) + ': ' + c.t})));
+    return out.sort((a, b) => b.w - a.w);
+  }
   cmp.rows.forEach(r => {
     if (r.isNew) out.push({w: r.rank <= 10 ? 90 : 40, icon:'🆕', cls:'acc', id:r.id,
       text: ten(r) + ' mới vào top ' + RV_TOP_N + ', đứng hạng ' + r.rank});
@@ -4933,6 +5052,7 @@ function rvChanges(cmp){
     if (r.prev && r.prev.pmax && r.pmax !== r.prev.pmax)
       out.push({w: 30, icon:'🏷', cls:'', id:r.id,
         text: ten(r) + ': phân loại đắt nhất ' + money(r.prev.pmax) + ' → ' + money(r.pmax)});
+    (r.spCh || []).forEach(c => out.push({w:c.w, icon:c.icon, cls:c.cls, id:r.id, text: ten(r) + ': ' + c.t}));
     if (r.imgNew)  out.push({w: 65, icon:'🖼', cls:'acc', id:r.id, text: ten(r) + ' đổi ảnh bìa'});
     if (r.nameNew) out.push({w: 45, icon:'✏️', cls:'', id:r.id, text: ten(r) + ' đổi tên sản phẩm'});
   });
@@ -4981,6 +5101,9 @@ function rvReportText(kw, cur, cmp, vol){
   L.push('');
   cmp.rows.slice(0, RV_SHOW).forEach(r => {
     L.push(r.rank + '. ' + (r.mine ? '⭐ ' : '') + (r.shop || '?') + ' — ' + cut(r.n, 50));
+    const g = r.spSum && r.spSum.re;
+    if (g) L.push('   Giá cuối ' + (r.spSum.nhieuGia ? 'từ ' : '') + money(g.f) + ' (giảm ' + g.giam.toFixed(0) + '% so với giá gốc ' + money(g.pb) +
+                  (g.v ? ', trong đó voucher ' + moneyShort(g.v) : '') + ') · ' + r.spSum.n + ' phân loại');
     L.push('   ' + money(r.p) + (r.pmin && r.pmin !== r.pmax ? ' (' + moneyShort(r.pmin) + '–' + moneyShort(r.pmax) + ')' : '') +
            ' · DS ' + moneyShort(r.r) + (r.gR != null ? ' (' + (r.gR >= 0 ? '▲' : '▼') + Math.abs(r.gR).toFixed(0) + '%)' : '') +
            ' · ' + r.o.toLocaleString('vi-VN') + ' lượt bán' +
@@ -4991,4 +5114,4 @@ function rvReportText(kw, cur, cmp, vol){
   return L.join('\n');
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "252b697e"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "9998179b"]);

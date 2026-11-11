@@ -453,7 +453,11 @@ switch ($action) {
   }
   case 'rival_scans': {
     requireOwner();
-    out(['ok' => true, 'scans' => rvScans((string)($in['kw_id'] ?? '')), 'vols' => rvVols((string)($in['kw_id'] ?? ''))]);
+    $scans = rvScans((string)($in['kw_id'] ?? ''));
+    /* sp: bản chụp trang Shopee của các sản phẩm có mặt trong những lần quét đó.
+       (object) để PHP không biến một bảng rỗng thành [] */
+    out(['ok' => true, 'scans' => $scans, 'vols' => rvVols((string)($in['kw_id'] ?? '')),
+         'sp' => (object)rvSps(rvScanIds($scans))]);
   }
   case 'rival_kw_save': {
     requireOwner();
