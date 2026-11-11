@@ -24,43 +24,72 @@ curl -s -H 'Content-Type: application/json' \
 Trả về `ticket` (vé, sống 6 giờ), `url`, `today` và `kws: [{id, kw, last}]`.
 Từ khoá có `last == today` là hôm nay đã quét — **bỏ qua**, khỏi tốn lượt.
 
-## 2. Với từng từ khoá
+## 2. Với từng từ khoá — phân tích thị trường (1 lượt)
 
 Mở `https://metric.vn/analytics`. Chạy **một lần cho mỗi lần tải trang** đoạn
-gài bắt kết quả (Metric tự gọi máy chủ của nó, đoạn này chỉ giữ lại bản trả về):
+gài bắt kết quả. Metric tự gọi máy chủ của nó; đoạn này chỉ giữ lại các bản trả
+về của lần phân tích gần nhất (dùng chung cho cả bước 2 và bước 3):
 
 ```js
-if(!window.__rvHook){window.__rvHook=1;const o=XMLHttpRequest.prototype.open,s=XMLHttpRequest.prototype.send;
+if(!window.__rvHook){window.__rvHook=1;window.__rv={};
+const o=XMLHttpRequest.prototype.open,s=XMLHttpRequest.prototype.send;
 XMLHttpRequest.prototype.open=function(m,u){this.__u=u;return o.apply(this,arguments)};
-XMLHttpRequest.prototype.send=function(b){this.addEventListener('load',()=>{if(/analytics\/products/.test(this.__u||''))window.__rv={body:b,res:this.responseText}});return s.apply(this,arguments)}}
+XMLHttpRequest.prototype.send=function(b){this.addEventListener('load',()=>{
+  const k=(String(this.__u||'').match(/analytics\/(search-basic|products|groups|shops|keywords)\//)||[])[1];
+  if(k)window.__rv[k]={body:b,res:this.responseText}});return s.apply(this,arguments)}}
 ```
 
-Rồi: xoá từ khoá cũ trong ô **Từ khóa**, gõ từ khoá mới, nhấn Enter (thành
-thẻ), để nguyên **Shopee** và **Trong 30 ngày**, bấm **Phân tích**. Chờ bảng
-*Sản phẩm bán chạy* hiện ra. Nếu có hộp gợi ý "Tìm kiếm thông minh" thì đóng.
+Rồi: đặt `window.__rv={}`, xoá từ khoá cũ trong ô **Từ khóa**, gõ từ khoá mới,
+nhấn Enter (thành thẻ), để nguyên **Shopee** và **Trong 30 ngày**, bấm **Phân
+tích**. Chờ bảng *Sản phẩm bán chạy* hiện ra (đủ 4 khoá `search-basic`,
+`products`, `groups`, `shops` trong `window.__rv`). Có hộp gợi ý "Tìm kiếm
+thông minh" thì đóng.
 
-Gửi kết quả sang Hub (thay `VE`, `KW_ID`):
+Gửi sang Hub (thay `VE`, `KW_ID`):
 
 ```js
-const q=JSON.parse(window.__rv.body), d=JSON.parse(window.__rv.res);
+const R=window.__rv, J=k=>R[k]?JSON.parse(R[k].res).data:null, q=JSON.parse(R.products.body);
 const r=await fetch('https://darkblue-bat-395619.hostingersite.com/api/rival.php',{method:'POST',
   headers:{'Content-Type':'text/plain'},
   body:JSON.stringify({ticket:'VE',do:'scan',kw_id:'KW_ID',query:q.include_query.queries,
-    from:q.start_date,to:q.end_date,products:d.data.products})});
+    from:q.start_date,to:q.end_date,products:J('products').products,
+    basic:(J('search-basic')||{search_basic:{}}).search_basic.aggregations||[],
+    groups:(J('groups')||{}).groups||[],shops:(J('shops')||{}).shops||[]})});
 await r.json()
 ```
 
-Hub trả `{ok:true, kw, date, n, top}`. Hub **từ chối** nếu kết quả trên trang
-không phải của từ khoá `KW_ID` (lệch nhịp) — khi đó kiểm lại ô từ khoá rồi làm
-lại, đừng đổi `KW_ID` cho khớp.
+Hub trả `{ok:true, kw, date, n, top, market, price}` — `market` là doanh số cả
+thị trường, `price` là số khoảng giá nhận được (0 là thiếu `basic`). Hub **từ
+chối** nếu kết quả trên trang không phải của từ khoá `KW_ID` (lệch nhịp) — khi
+đó kiểm lại ô từ khoá rồi làm lại, đừng đổi `KW_ID` cho khớp.
 
-`window.__rv` là của lần phân tích gần nhất. Trước khi bấm *Phân tích* cho từ
-khoá kế, đặt `window.__rv=null` để không gửi nhầm bản cũ khi trang chưa tải xong.
+## 3. Với từng từ khoá — lượt tìm kiếm (50 điểm, không tốn lượt)
 
-## 3. Báo lại
+Mở `https://metric.vn/analytics/keywords` (gài lại đoạn bắt kết quả nếu trang
+vừa tải lại). Đặt `window.__rv={}`, gõ từ khoá vào ô **Từ khoá tìm kiếm**, Enter,
+để nguyên **Trong 14 ngày**, bấm **Phân tích**. Chờ bảng *Từ khoá được quan tâm*.
 
-Tóm tắt: quét được mấy từ khoá, từ khoá nào lỗi và vì sao, còn bao nhiêu lượt
-Metric (trang `https://metric.vn/profile`, dòng *Số lượt phân tích còn lại*).
+```js
+const K=window.__rv.keywords, q=JSON.parse(K.body);
+const r=await fetch('https://darkblue-bat-395619.hostingersite.com/api/rival.php',{method:'POST',
+  headers:{'Content-Type':'text/plain'},
+  body:JSON.stringify({ticket:'VE',do:'vol',kw_id:'KW_ID',query:q.include_query.queries,
+    from:q.start_date,to:q.end_date,keywords:JSON.parse(K.res).data.keywords})});
+await r.json()
+```
+
+Hub trả `{ok:true, kw, vol, rel}` — `vol` là lượt tìm của đúng từ khoá (null
+nếu Metric không có dòng trùng), `rel` là số từ khoá liên quan đã giữ.
+
+Làm xong bước 2 cho mọi từ khoá rồi mới sang bước 3 cho mọi từ khoá, đỡ phải
+chuyển trang qua lại. **Đừng mở trang khác trong cùng tab giữa lúc bấm Phân tích
+và lúc gửi** — tải lại trang là mất `window.__rv`, phải phân tích lại (tốn lượt).
+
+## 4. Báo lại
+
+Tóm tắt: quét được mấy từ khoá, từ khoá nào lỗi và vì sao, còn bao nhiêu lượt và
+điểm Metric (mở `https://metric.vn/profile` ở **tab khác**: *Số lượt phân tích
+còn lại*, *Điểm phân tích còn lại*).
 
 ## Lưu ý
 

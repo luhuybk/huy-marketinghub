@@ -548,7 +548,7 @@ function api(req, res, body){
     }
     case 'rival_scans': {
       if (!owner()) return;
-      return send({ok:true, scans:rvScans(String(inp.kw_id || ''))});
+      return send({ok:true, scans:rvScans(String(inp.kw_id || '')), vols:rvVols(String(inp.kw_id || ''))});
     }
     case 'rival_kw_save': {
       if (!owner()) return;
@@ -571,6 +571,7 @@ function api(req, res, body){
       if (!owner()) return;
       const D = db(); rvTables(D);
       D.prepare('DELETE FROM rv_scan WHERE kw_id = ?').run(String(inp.id || ''));
+      D.prepare('DELETE FROM rv_vol WHERE kw_id = ?').run(String(inp.id || ''));
       D.prepare('DELETE FROM rv_kw WHERE id = ?').run(String(inp.id || ''));
       return send({ok:true});
     }
@@ -579,6 +580,7 @@ function api(req, res, body){
       const D = db(); rvTables(D);
       D.prepare('DELETE FROM rv_scan WHERE kw_id = ? AND date = ? AND src = ?')
         .run(String(inp.kw_id || ''), String(inp.date || ''), String(inp.src || 'metric'));
+      D.prepare('DELETE FROM rv_vol WHERE kw_id = ? AND date = ?').run(String(inp.kw_id || ''), String(inp.date || ''));
       return send({ok:true});
     }
     case 'rival_mine': {
@@ -1240,7 +1242,10 @@ function rvTables(D){
       note TEXT, off INTEGER DEFAULT 0, created TEXT);
     CREATE TABLE IF NOT EXISTS rv_scan (kw_id TEXT NOT NULL, date TEXT NOT NULL, src TEXT NOT NULL,
       d_from TEXT, d_to TEXT, at TEXT, data TEXT, PRIMARY KEY (kw_id, date, src));
-    CREATE TABLE IF NOT EXISTS rv_mine (shop_id TEXT PRIMARY KEY, name TEXT)`);
+    CREATE TABLE IF NOT EXISTS rv_mine (shop_id TEXT PRIMARY KEY, name TEXT);
+    CREATE TABLE IF NOT EXISTS rv_vol (kw_id TEXT NOT NULL, date TEXT NOT NULL, d_from TEXT, d_to TEXT,
+      vol INTEGER, at TEXT, rel TEXT, PRIMARY KEY (kw_id, date))`);
+  if (!D.prepare('PRAGMA table_info(rv_scan)').all().some(r => r.name === 'extra')) D.exec('ALTER TABLE rv_scan ADD COLUMN extra TEXT');
 }
 const rvNorm = s => String(s || '').trim().toLowerCase().replace(/\s+/gu, ' ');
 const rvNgay = s => { s = String(s || '').replace(/\D/g, ''); return s.length === 8 ? `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}` : ''; };
@@ -1269,10 +1274,9 @@ function rvKwList(caTat = true){
     .map(r => ({id:String(r.id), kw:String(r.kw), kind:r.kind === 'sp' ? 'sp' : 'main', note:String(r.note || ''),
                 off:r.off === 1, last:String(r.last || ''), n:r.n}));
 }
-function rvScanSave(inp){
-  const D = db(); rvTables(D);
+function rvKwCheck(D, inp){
   let kw = D.prepare('SELECT * FROM rv_kw WHERE id = ?').get(String(inp.kw_id || ''));
-  /* create — xem chú thích ở rvScanSave() bên PHP */
+  /* create — xem chú thích ở rvKwCheck() bên PHP */
   if (!kw && inp.create && Array.isArray(inp.query) && inp.query.length === 1){
     const ten = String(inp.query[0] || '').replace(/\s+/gu, ' ').trim();
     const co = rvKwList(true).find(k => rvNorm(k.kw) === rvNorm(ten));
@@ -1282,28 +1286,89 @@ function rvScanSave(inp){
       D.prepare('INSERT INTO rv_kw (id, kw, kind, note, off, created) VALUES (?,?,?,?,0,?)').run(kw.id, ten, 'main', '', iso());
     }
   }
-  if (!kw) return {error:'Không thấy từ khoá này trong danh sách theo dõi.'};
+  if (!kw) return [null, 'Không thấy từ khoá này trong danh sách theo dõi.'];
   const qs = (Array.isArray(inp.query) ? inp.query : []).map(rvNorm);
-  if (!qs.length || !qs.includes(rvNorm(kw.kw)))
-    return {error:`Kết quả gửi lên là của "${qs.join(', ')}", không phải "${kw.kw}".`};
+  if (qs.length !== 1 || qs[0] !== rvNorm(kw.kw))
+    return [null, `Kết quả gửi lên là của "${qs.join(', ')}", không phải "${kw.kw}".`];
+  return [kw, ''];
+}
+const rvNgayQuet = inp => { const nay = vnNow().date, d = rvNgay(inp.date); return (!d || d > nay) ? nay : d; };
+function rvExtra(inp){
+  const aggs = Array.isArray(inp.basic) ? inp.basic : [];
+  if (!aggs.length) return null;
+  const tong = e => Math.round(((e && e.platforms) || []).reduce((t, p) => t + (+p.value || 0), 0));
+  const A = {}; aggs.forEach(a => { if (a && a.aggregation) A[a.aggregation] = a; });
+  const mot = k => A[k] ? tong(A[k].entity) : 0;
+  const gia = new Map();
+  [['REVENUE__BY__PRICE_RANGE_CUSTOM', 'r'], ['ORDER_COUNT__BY__PRICE_RANGE_CUSTOM', 'o']].forEach(([k, f]) =>
+    ((A[k] && A[k].entities) || []).forEach(e => {
+      const tu = Math.trunc(+e.from || 0), den = e.to != null ? Math.trunc(+e.to || 0) : 0, kk = tu + '-' + den;
+      if (!gia.has(kk)) gia.set(kk, {f:tu, t:den, r:0, o:0});
+      gia.get(kk)[f] = tong(e);
+    }));
+  const so = (x, k) => Math.round(+x[k] || 0);
+  return {
+    market:{r:mot('REVENUE_TOTAL_CUSTOM'), rp:mot('PREVIOUS_REVENUE_TOTAL_CUSTOM'), o:mot('ORDER_TOTAL_CUSTOM'),
+            op:mot('PREVIOUS_ORDER_TOTAL_CUSTOM'), np:mot('PRODUCT_TOTAL'), npp:mot('PREVIOUS_PRODUCT_TOTAL'),
+            ns:mot('SHOP_TOTAL'), nsp:mot('PREVIOUS_SHOP_TOTAL')},
+    price:[...gia.values()].sort((a, b) => a.f - b.f),
+    brands:(Array.isArray(inp.groups) ? inp.groups : []).slice(0, 10).filter(g => g && typeof g === 'object').map(g => (
+      {b:String(g.brand || '').trim(), r:so(g, 'revenue_custom_sum'), rp:so(g, 'previous_revenue_custom_sum'),
+       o:so(g, 'order_custom_sum'), np:so(g, 'product_total'), ns:so(g, 'shop_total'), ap:so(g, 'avg_price')})),
+    shops:(Array.isArray(inp.shops) ? inp.shops : []).slice(0, 10).filter(g => g && typeof g === 'object').map(g => (
+      {sid:String(g.shop_platform_id || '').replace(/\D/g, ''), n:String(g.shop_name || '').trim(),
+       mall:Math.trunc(+g.official_type || 0) === 1, r:so(g, 'revenue_custom_sum'), rp:so(g, 'previous_revenue_custom_sum'),
+       o:so(g, 'order_custom_sum'), np:so(g, 'product_total'), ap:so(g, 'avg_price'), tb:String(g.top_brand || '').trim()}))
+  };
+}
+function rvScanSave(inp){
+  const D = db(); rvTables(D);
+  const [kw, loi] = rvKwCheck(D, inp);
+  if (!kw) return {error:loi};
   const m = new Map();
   (Array.isArray(inp.products) ? inp.products : []).forEach(p => { const x = p && typeof p === 'object' ? rvItem(p) : null; if (x) m.set(x.id, x); });
   if (!m.size) return {error:'Không có sản phẩm nào trong kết quả.'};
   const items = [...m.values()].sort((a, b) => b.r - a.r).slice(0, RV_TOP);
-  const nay = vnNow().date;
-  let date = rvNgay(inp.date); if (!date || date > nay) date = nay;
-  const tu = rvNgay(inp.from), den = rvNgay(inp.to);
-  D.prepare(`INSERT INTO rv_scan (kw_id, date, src, d_from, d_to, at, data) VALUES (?,?,?,?,?,?,?)
-      ON CONFLICT(kw_id, date, src) DO UPDATE SET d_from=excluded.d_from, d_to=excluded.d_to,
-      at=excluded.at, data=excluded.data`).run(String(kw.id), date, 'metric', tu, den, iso(), JSON.stringify(items));
-  return {ok:true, kw:String(kw.kw), date, from:tu, to:den, n:items.length,
-          top:items[0].shop + ' — ' + [...items[0].n].slice(0, 50).join('')};
+  const date = rvNgayQuet(inp), tu = rvNgay(inp.from), den = rvNgay(inp.to), extra = rvExtra(inp);
+  D.prepare(`INSERT INTO rv_scan (kw_id, date, src, d_from, d_to, at, data, extra) VALUES (?,?,?,?,?,?,?,?)
+      ON CONFLICT(kw_id, date, src) DO UPDATE SET d_from=COALESCE(NULLIF(excluded.d_from, ''), rv_scan.d_from),
+      d_to=COALESCE(NULLIF(excluded.d_to, ''), rv_scan.d_to),
+      at=excluded.at, data=excluded.data, extra=COALESCE(excluded.extra, rv_scan.extra)`)
+    .run(String(kw.id), date, 'metric', tu, den, iso(), JSON.stringify(items), extra ? JSON.stringify(extra) : null);
+  return {ok:true, kw:String(kw.kw), kw_id:String(kw.id), date, from:tu, to:den, n:items.length,
+          top:items[0].shop + ' — ' + [...items[0].n].slice(0, 50).join(''),
+          market:extra ? extra.market.r : null, price:extra ? extra.price.length : 0};
+}
+function rvVolSave(inp){
+  const D = db(); rvTables(D);
+  const [kw, loi] = rvKwCheck(D, inp);
+  if (!kw) return {error:loi};
+  let vol = null, rel = [];
+  (Array.isArray(inp.keywords) ? inp.keywords : []).forEach(k => {
+    if (!k || typeof k !== 'object') return;
+    const ten = String(k.keyword || '').trim(), v = Math.round(+k.search_volume || 0);
+    if (!ten) return;
+    if (rvNorm(ten) === rvNorm(kw.kw)) vol = v; else rel.push({k:ten, v});
+  });
+  if (vol === null && !rel.length) return {error:'Không có từ khoá nào trong kết quả.'};
+  rel = rel.sort((a, b) => b.v - a.v).slice(0, 15);
+  const date = rvNgayQuet(inp);
+  D.prepare(`INSERT INTO rv_vol (kw_id, date, d_from, d_to, vol, at, rel) VALUES (?,?,?,?,?,?,?)
+      ON CONFLICT(kw_id, date) DO UPDATE SET d_from=excluded.d_from, d_to=excluded.d_to, vol=excluded.vol,
+      at=excluded.at, rel=excluded.rel`).run(String(kw.id), date, rvNgay(inp.from), rvNgay(inp.to), vol, iso(), JSON.stringify(rel));
+  return {ok:true, kw:String(kw.kw), kw_id:String(kw.id), date, vol, rel:rel.length};
+}
+function rvVols(kwId, max = 60){
+  const D = db(); rvTables(D);
+  return D.prepare('SELECT date, d_from, d_to, vol, rel FROM rv_vol WHERE kw_id = ? ORDER BY date DESC LIMIT ' + max).all(kwId)
+    .map(r => { let d = []; try { d = JSON.parse(r.rel); } catch(e){}
+      return {date:r.date, from:r.d_from || '', to:r.d_to || '', vol:r.vol == null ? null : r.vol, rel:Array.isArray(d) ? d : []}; });
 }
 function rvScans(kwId, max = 60){
   const D = db(); rvTables(D);
-  return D.prepare('SELECT date, src, d_from, d_to, at, data FROM rv_scan WHERE kw_id = ? ORDER BY date DESC LIMIT ' + max).all(kwId)
-    .map(r => { let d = []; try { d = JSON.parse(r.data); } catch(e){}
-      return {date:r.date, src:r.src, from:r.d_from || '', to:r.d_to || '', at:r.at || '', items:Array.isArray(d) ? d : []}; });
+  return D.prepare('SELECT date, src, d_from, d_to, at, data, extra FROM rv_scan WHERE kw_id = ? ORDER BY date DESC LIMIT ' + max).all(kwId)
+    .map(r => { let d = [], x = null; try { d = JSON.parse(r.data); } catch(e){} try { x = JSON.parse(r.extra || 'null'); } catch(e){}
+      return {date:r.date, src:r.src, from:r.d_from || '', to:r.d_to || '', at:r.at || '', items:Array.isArray(d) ? d : [], extra:x || null}; });
 }
 function rvTicketNew(){
   const t = crypto.randomBytes(20).toString('hex');
@@ -1335,6 +1400,11 @@ function rivalRoute(req, res, body){
   if (inp.do === 'scan'){
     if (!rvTicketOk(inp.ticket)) return out({ok:false, error:'Vé quét không đúng hoặc đã hết hạn — xin vé mới bằng do:"kws".'}, 403);
     const r = rvScanSave(inp);
+    return r.error ? out({ok:false, error:r.error}, 400) : out(r);
+  }
+  if (inp.do === 'vol'){
+    if (!rvTicketOk(inp.ticket)) return out({ok:false, error:'Vé quét không đúng hoặc đã hết hạn — xin vé mới bằng do:"kws".'}, 403);
+    const r = rvVolSave(inp);
     return r.error ? out({ok:false, error:r.error}, 400) : out(r);
   }
   return out({ok:false, error:'Không hiểu yêu cầu.'}, 400);

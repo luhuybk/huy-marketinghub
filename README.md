@@ -883,7 +883,12 @@ mới vào hay rớt top, ai đổi giá, đổi ảnh bìa, đổi tên.
 - Dữ liệu **ở máy chủ, không đồng bộ** về máy: bảng `rv_kw` (từ khoá), `rv_scan`
   (bản chụp), `rv_mine` (gian hàng của mình). App hỏi bằng các action
   `rival_*` (chỉ chủ) và giữ tạm trong `rv` (`js/state.js`).
-- Tên trường của Metric chỉ xuất hiện ở `rvItem()` (`api/lib.php`, bản Node ở
+- Mỗi bản chụp còn mang `extra`: tổng quan **cả thị trường** của từ khoá (doanh
+  số, lượt bán, số sản phẩm / gian hàng có lượt bán), **doanh số và lượt bán theo
+  khoảng giá**, 10 thương hiệu và 10 gian hàng đầu. **Lượt tìm kiếm** của từ khoá
+  và các từ khoá liên quan lấy từ trang *Phân tích từ khoá* của Metric, lưu ở
+  `rv_vol` (tốn 50 điểm Metric mỗi từ khoá, không tốn lượt).
+- Tên trường của Metric chỉ xuất hiện ở `rvItem()`, `rvExtra()`, `rvVolSave()` (`api/lib.php`, bản Node ở
   `serve.js`). Metric đổi tên trường thì sửa đúng hàm đó.
 - "Từ lần quét trước" = hiệu của **tổng** lượt bán / doanh số giữa hai bản chụp
   (số cộng dồn), không phải hiệu của hai kỳ 30 ngày trượt.

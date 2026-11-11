@@ -1400,7 +1400,7 @@ async function loadRival(){
 }
 async function loadRivalScans(kwId, im){
   rv.busy = true;
-  try { rv.scans[kwId] = (await Server.rivalScans(kwId)).scans || []; rv.err = ''; }
+  try { const r = await Server.rivalScans(kwId); rv.scans[kwId] = r.scans || []; rv.vols[kwId] = r.vols || []; rv.err = ''; }
   catch(e){ rv.err = e.message || 'lỗi không rõ'; rv.scans[kwId] = rv.scans[kwId] || []; }
   rv.busy = false;
   if (!im && route.page === 'rival') render();
@@ -1411,13 +1411,18 @@ function rvView(){
   const ds = kw ? (rv.scans[kw.id] || []) : [];
   const i = Math.max(0, ds.findIndex(s => s.date === ui.rvDate));
   const cur = ds[i] || null;
-  return {kw, ds, cur, prev: ds[i + 1] || null, cmp: cur ? rvCompare(cur, ds[i + 1] || null) : null};
+  /* Lượt tìm kiếm: lấy dòng gần nhất không muộn hơn bản chụp đang xem, và
+     dòng ngay trước nó để so. Hai trang Metric quét riêng nên ngày có thể lệch. */
+  const vs = kw ? (rv.vols[kw.id] || []) : [];
+  const j = cur ? vs.findIndex(v => v.date <= cur.date) : -1;
+  return {kw, ds, cur, prev: ds[i + 1] || null, cmp: cur ? rvCompare(cur, ds[i + 1] || null) : null,
+          vol: j >= 0 ? vs[j] : null, volPrev: j >= 0 ? vs[j + 1] || null : null, vols: vs};
 }
-function rvKwForm(id){
+function rvKwForm(id, goiY){
   const cu = id ? rvKwOf(id) : null;
   formModal({
     title: cu ? 'Sửa từ khoá theo dõi' : 'Thêm từ khoá theo dõi',
-    values: cu || {kw:'', kind:'main', note:'', off:false},
+    values: cu || {kw: goiY || '', kind:'main', note:'', off:false},
     fields: [
       {k:'kw', l:'Từ khoá', t:'text', req:true, ph:'vd gôm xịt tóc · sáp vuốt tóc nam Roug'},
       {k:'kind', l:'Loại', t:'select', half:true, opts: Object.entries(RV_KINDS)},
@@ -4798,8 +4803,10 @@ const ACTIONS = {
   rvnew:    () => rvKwForm(null),
   rvedit:   id => rvKwForm(id),
   rvprod:   id => rvProdOpen(id),
-  rvreload: () => { rv.asked = false; rv.scans = {}; rv.state = null; render(); },
-  rvcopy:   () => { const v = rvView(); if (v.cur) copyText(rvReportText(v.kw, v.cur, v.cmp)); },
+  rvreload: () => { rv.asked = false; rv.scans = {}; rv.vols = {}; rv.state = null; render(); },
+  rvcopy:   () => { const v = rvView(); if (v.cur) copyText(rvReportText(v.kw, v.cur, v.cmp, v.vol)); },
+  /* thêm một từ khoá liên quan vào danh sách theo dõi — mở biểu mẫu điền sẵn */
+  rvnewfrom: id => rvKwForm(null, id),
   rvmine:   async (id, el) => {
     try { await Server.rivalMine(id, el.dataset.name || '', !!el.dataset.on); }
     catch(e){ return toast('Không lưu được: ' + (e.message || e)); }

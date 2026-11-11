@@ -5368,7 +5368,7 @@ function viewRival(){
       'Thêm các từ khoá chính ("gôm xịt tóc") và từ khoá sản phẩm ("sáp vuốt tóc nam Roug"). Mỗi tuần tác vụ quét sẽ lấy top sản phẩm của từng từ khoá trên Metric.',
       'rvnew', 'Thêm từ khoá');
 
-  const {kw, ds, cur, cmp} = rvView();
+  const {kw, ds, cur, cmp, vol, volPrev} = rvView();
 
   /* ---- 1. hàng từ khoá ---- */
   const nut = k => `<button class="btn sm ${k.id === kw.id ? 'pri' : ''} ${k.off ? 'rv-off' : ''}" data-act="rvkw" data-id="${esc(k.id)}"
@@ -5409,9 +5409,61 @@ function viewRival(){
   h += `<div class="dim rv-ky">Quét ngày <b>${esc(fmtDate(cur.date))}</b>${cur.from ? ` · số Metric tính cho kỳ <b>${esc(fmtDate(cur.from))} – ${esc(fmtDate(cur.to))}</b>` : ''}${
       cmp.prev ? ` · so với lần quét <b>${esc(fmtDate(cmp.prev.date))}</b>` : ' · chưa có lần quét trước để so'}</div>`;
 
-  /* ---- 3. bốn ô số ---- */
+  /* ---- 3a. thị trường của từ khoá: lượt tìm kiếm + cả thị trường, không chỉ top ---- */
+  const m = cur.extra && cur.extra.market;
+  const so = v => (v || 0).toLocaleString('vi-VN');
+  if (m || vol){
+    h += sectionTitle('Thị trường của từ khoá', '<span class="dim">mọi sản phẩm khớp từ khoá, không chỉ top</span>');
+    h += `<div class="rv-kpis">
+      <div class="rv-kpi"><span class="l">Lượt tìm kiếm</span><b>${vol && vol.vol != null ? so(vol.vol) : '—'}</b><span class="s">${
+        vol && vol.vol != null
+          ? (volPrev && volPrev.vol ? pct(rvPct(vol.vol, volPrev.vol)) + ' so với lần quét ' + esc(fmtDate(volPrev.date).slice(0, 5)) + ' · ' : '') +
+            '14 ngày ' + esc(fmtDate(vol.from).slice(0, 5)) + '–' + esc(fmtDate(vol.to).slice(0, 5))
+          : vol ? 'Metric không có số cho đúng từ khoá này' : 'chưa quét lượt tìm kiếm'}</span></div>
+      ${m ? `<div class="rv-kpi"><span class="l">Doanh số thị trường</span><b>${moneyShort(m.r)}</b><span class="s">${pct(rvPct(m.r, m.rp))} so với kỳ liền trước</span></div>
+      <div class="rv-kpi"><span class="l">Lượt bán</span><b>${so(m.o)}</b><span class="s">${pct(rvPct(m.o, m.op))} so với kỳ liền trước</span></div>
+      <div class="rv-kpi"><span class="l">Đang bán được</span><b>${so(m.np)} sản phẩm</b><span class="s">${pct(rvPct(m.np, m.npp))} · ${so(m.ns)} gian hàng ${pct(rvPct(m.ns, m.nsp))}</span></div>` : ''}
+    </div>`;
+
+    /* Qua các lần quét — chỉ hiện khi đã có từ hai lần trở lên */
+    const lich = ds.filter(s => s.extra && s.extra.market).slice(0, 8);
+    if (lich.length > 1){
+      const volCua = s => (rv.vols[kw.id] || []).find(v => v.date <= s.date) || null;
+      h += `<div class="tblwrap" style="margin-top:10px"><table class="tbl sm rv-lich"><thead><tr><th>Lần quét</th><th class="r">Lượt tìm kiếm</th>
+        <th class="r">Doanh số thị trường</th><th class="r">Lượt bán</th><th class="r">Sản phẩm</th><th class="r">Gian hàng</th></tr></thead><tbody>${
+        lich.map((s, i) => { const x = s.extra.market, cu = lich[i + 1] ? lich[i + 1].extra.market : null, v = volCua(s), vc = lich[i + 1] ? volCua(lich[i + 1]) : null;
+          const d = (a, b) => cu ? ' ' + pct(rvPct(a, b)) : '';
+          return `<tr data-act="rvdate" data-id="${esc(s.date)}" class="${s.date === cur.date ? 'rv-dang' : ''}"><td>${esc(fmtDate(s.date))}</td>
+            <td class="r">${v && v.vol != null ? so(v.vol) + (vc && vc.vol && vc.date !== v.date ? ' ' + pct(rvPct(v.vol, vc.vol)) : '') : '—'}</td>
+            <td class="r">${moneyShort(x.r)}${d(x.r, cu && cu.r)}</td><td class="r">${so(x.o)}${d(x.o, cu && cu.o)}</td>
+            <td class="r">${so(x.np)}</td><td class="r">${so(x.ns)}</td></tr>`; }).join('')}</tbody></table></div>
+        <div class="dim" style="margin-top:6px">▲▼ ở bảng này là so với lần quét ngay trước đó. Doanh số và lượt bán tính cho kỳ 30 ngày của từng lần quét.</div>`;
+    }
+  }
+
+  /* ---- 3b. khoảng giá nào bán chạy ---- */
+  const gia = rvPrice(cur, rows);
+  if (gia){
+    h += sectionTitle('Khoảng giá nào bán chạy', '<span class="dim">cả thị trường của từ khoá</span>');
+    h += `<div class="rv-tom">Doanh số cao nhất ở khoảng <b>${esc(gia.topR.ten)}</b> (${gia.topR.sR.toFixed(0)}% doanh số) ·
+        nhiều lượt bán nhất ở khoảng <b>${esc(gia.topO.ten)}</b> (${gia.topO.sO.toFixed(0)}% lượt bán)</div>
+      <div class="tblwrap"><table class="tbl sm rv-gia"><thead><tr><th>Khoảng giá</th><th>Doanh số</th><th>Lượt bán</th>
+        <th>Trong top ${rows.length}</th></tr></thead><tbody>${gia.rows.map(g => `<tr>
+        <td class="nw"><b>${esc(g.ten)}</b></td>
+        <td><div class="rv-bar"><i class="${g.topR ? 'top' : ''}" style="width:${Math.max(1, g.wR).toFixed(1)}%"></i></div>
+          <span class="nw">${moneyShort(g.r)} · ${g.sR.toFixed(0)}%${g.topR ? ' 🏆' : ''}</span></td>
+        <td><div class="rv-bar o"><i class="${g.topO ? 'top' : ''}" style="width:${Math.max(1, g.wO).toFixed(1)}%"></i></div>
+          <span class="nw">${so(g.o)} · ${g.sO.toFixed(0)}%${g.topO ? ' 🏆' : ''}</span></td>
+        <td class="nw">${g.n ? g.n + ' sản phẩm' : '<span class="dim">—</span>'}${
+          g.mine.length ? ` <span class="chip ok">⭐ ${g.mine.length} của mình</span>` : ''}</td></tr>`).join('')}</tbody></table></div>
+      <div class="dim" style="margin-top:6px">Xếp theo giá bán từng sản phẩm. Cột cuối đếm sản phẩm trong top ${rows.length} có giá bán rơi vào khoảng đó.</div>`;
+  }
+
+  /* ---- 3c. top đối thủ: bốn ô số ---- */
+  h += sectionTitle('Top ' + rows.length + ' đối thủ', '');
   h += `<div class="rv-kpis">
-    <div class="rv-kpi"><span class="l">Doanh số top ${rows.length} trong kỳ</span><b>${moneyShort(tong)}</b><span class="s">${pct(gT)} so với kỳ liền trước</span></div>
+    <div class="rv-kpi"><span class="l">Doanh số top ${rows.length} trong kỳ</span><b>${moneyShort(tong)}</b><span class="s">${pct(gT)} so với kỳ liền trước${
+      m && m.r ? ' · chiếm ' + (tong / m.r * 100).toFixed(0) + '% thị trường' : ''}</span></div>
     <div class="rv-kpi"><span class="l">Đối thủ số 1</span><b class="rv-1l">${esc(dau.shop || '—')}</b><span class="s">hạng ${dau.rank} · ${moneyShort(dau.r)} ${pct(dau.gR)}</span></div>
     <div class="rv-kpi ${minh.length ? 'me' : ''}"><span class="l">Shop của mình</span><b>${minh.length ? moneyShort(dsMinh) : '—'}</b><span class="s">${
       minh.length ? `chiếm ${(tong ? dsMinh / tong * 100 : 0).toFixed(0)}% top ${rows.length} · hạng ${minh.map(r => r.rank).join(', ')}`
@@ -5462,6 +5514,15 @@ function viewRival(){
     <div class="dim" style="margin-top:8px">Hạng xếp theo doanh số trong kỳ của Metric (thường là 30 ngày, số trễ khoảng 9 ngày).
       ▲▼ % là so với kỳ liền trước cùng độ dài. ${cmp.prev ? '"Từ lần quét trước" là phần bán thêm giữa hai lần quét.' : ''}
       Bấm một dòng để xem lịch sử của đối thủ đó.</div>`;
+
+  /* ---- 6. từ khoá liên quan ---- */
+  if (vol && vol.rel && vol.rel.length){
+    const co = new Set(ks.map(k => norm(k.kw)));
+    h += sectionTitle('Từ khoá liên quan được tìm nhiều', `<span class="dim">lượt tìm trong 14 ngày · bấm để theo dõi thêm</span>`);
+    h += `<div class="chips">${vol.rel.map(x => co.has(norm(x.k))
+        ? `<span class="chip ok">✓ ${esc(x.k)} · ${so(x.v)}</span>`
+        : `<button class="btn sm" data-act="rvnewfrom" data-id="${esc(x.k)}">${esc(x.k)} <span class="dim">· ${so(x.v)}</span></button>`).join('')}</div>`;
+  }
 
   if (cmp.out.length)
     h += sectionTitle('Rớt khỏi top ' + RV_TOP_N, '', true) + `<div class="rv-chs">${cmp.out.map(x =>
