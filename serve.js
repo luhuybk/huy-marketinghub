@@ -548,7 +548,8 @@ function api(req, res, body){
     }
     case 'rival_scans': {
       if (!owner()) return;
-      return send({ok:true, scans:rvScans(String(inp.kw_id || '')), vols:rvVols(String(inp.kw_id || ''))});
+      const scans = rvScans(String(inp.kw_id || ''));
+      return send({ok:true, scans, vols:rvVols(String(inp.kw_id || '')), sp:rvSps(rvScanIds(scans))});
     }
     case 'rival_kw_save': {
       if (!owner()) return;
@@ -1236,7 +1237,7 @@ function ingestRoute(req, res, body){
 }
 
 /* ---------------- Theo dõi đối thủ: bản Node của các hàm rv… trong api/lib.php ---------------- */
-const RV_TOP = 20, RV_TICKET_GIO = 6;
+const RV_TOP = 20, RV_TICKET_GIO = 6, RV_SP_TOP = 10;
 function rvTables(D){
   D.exec(`CREATE TABLE IF NOT EXISTS rv_kw (id TEXT PRIMARY KEY, kw TEXT NOT NULL, kind TEXT,
       note TEXT, off INTEGER DEFAULT 0, created TEXT);
@@ -1244,7 +1245,9 @@ function rvTables(D){
       d_from TEXT, d_to TEXT, at TEXT, data TEXT, PRIMARY KEY (kw_id, date, src));
     CREATE TABLE IF NOT EXISTS rv_mine (shop_id TEXT PRIMARY KEY, name TEXT);
     CREATE TABLE IF NOT EXISTS rv_vol (kw_id TEXT NOT NULL, date TEXT NOT NULL, d_from TEXT, d_to TEXT,
-      vol INTEGER, at TEXT, rel TEXT, PRIMARY KEY (kw_id, date))`);
+      vol INTEGER, at TEXT, rel TEXT, PRIMARY KEY (kw_id, date));
+    CREATE TABLE IF NOT EXISTS rv_sp (item_id TEXT NOT NULL, date TEXT NOT NULL, at TEXT, data TEXT,
+      PRIMARY KEY (item_id, date))`);
   if (!D.prepare('PRAGMA table_info(rv_scan)').all().some(r => r.name === 'extra')) D.exec('ALTER TABLE rv_scan ADD COLUMN extra TEXT');
 }
 const rvNorm = s => String(s || '').trim().toLowerCase().replace(/\s+/gu, ' ');
@@ -1370,6 +1373,86 @@ function rvScans(kwId, max = 60){
     .map(r => { let d = [], x = null; try { d = JSON.parse(r.data); } catch(e){} try { x = JSON.parse(r.extra || 'null'); } catch(e){}
       return {date:r.date, src:r.src, from:r.d_from || '', to:r.d_to || '', at:r.at || '', items:Array.isArray(d) ? d : [], extra:x || null}; });
 }
+/* Trang sản phẩm Shopee — xem chú thích ở rvSpClean() … rvScanIds() bên PHP */
+function rvSpClean(x){
+  const id = String((x && x.id) ?? '').replace(/\D/g, '');
+  if (!id || id.length > 20) return null;
+  const vh = v => (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') ? String(v) : '';
+  const chu = (v, n) => [...vh(v).replace(/\s+/gu, ' ').trim()].slice(0, n).join('');
+  const so = v => { const n = typeof v === 'number' ? v : (typeof v === 'string' && v.trim() !== '' && isFinite(+v) ? +v : 0); return isFinite(n) ? n : 0; };
+  const tien = v => Math.max(0, Math.min(2000000000, Math.round(so(v))));
+  const anh = v => /^[A-Za-z0-9._-]{8,80}$/.test(vh(v)) ? vh(v) : '';
+  const mang = v => Array.isArray(v) ? v : (v && typeof v === 'object' ? Object.values(v) : []);
+  const obj = v => v && typeof v === 'object';
+  const pct = v => Math.max(0, Math.min(100, Math.round(so(v) * 10) / 10));
+  const lines = mang(x.lines).slice(0, 8).filter(obj).map(l => ({
+    k: ['sp', 'shop', 'platform', 'ads'].includes(l.k) ? l.k : 'other', lab: chu(l.lab, 60), amt: tien(l.amt), min: tien(l.min),
+    pct: pct(l.pct), val: tien(l.val), cap: tien(l.cap), code: chu(l.code, 40)}));
+  const models = mang(x.models).slice(0, 80).filter(m => obj(m) && chu(m.n, 120) !== '')
+    .map(m => ({n: chu(m.n, 120), p: tien(m.p), pb: tien(m.pb), ok: !!m.ok}));
+  const tiers = mang(x.tiers).slice(0, 3).filter(obj).map(t => ({n: chu(t.n, 60), o: mang(t.o).slice(0, 60).map(o => chu(o, 80))}));
+  const vouchers = mang(x.vouchers).slice(0, 12).filter(obj).map(v => ({
+    code: chu(v.code, 40), min: tien(v.min), val: tien(v.val), pct: pct(v.pct), cap: tien(v.cap), coin: !!v.coin,
+    end: Math.max(0, Math.trunc(so(v.end))), used: Math.max(0, Math.min(100, Math.trunc(so(v.used)))), lab: chu(v.lab, 60)}));
+  const def = obj(x.def) ? x.def : {};
+  return {
+    id, sid: String(x.sid ?? '').replace(/\D/g, ''), n: chu(x.n, 300), shop: chu(x.shop, 120),
+    img: anh(x.img), imgs: mang(x.imgs).slice(0, 12).map(anh).filter(Boolean),
+    video: !!x.video, sold: chu(x.sold, 20),
+    ra: Math.round(Math.max(0, Math.min(5, so(x.ra))) * 100) / 100, rc: tien(x.rc), liked: tien(x.liked),
+    def: {n: chu(def.n, 120), pb: tien(def.pb), f: tien(def.f)},
+    lines, models, tiers, vouchers,
+    tags: mang(x.tags).slice(0, 6).map(t => chu(t, 40)).filter(Boolean)
+  };
+}
+function rvSpSave(inp){
+  const D = db(); rvTables(D);
+  const x = inp.item && typeof inp.item === 'object' ? rvSpClean(inp.item) : null;
+  if (!x) return {error:'Gói gửi lên không có sản phẩm.'};
+  if (!x.models.length && !x.def.f) return {error:'Sản phẩm ' + x.id + ' không có giá lẫn phân loại — trang chưa tải xong?'};
+  const date = rvNgayQuet(inp);
+  D.prepare(`INSERT INTO rv_sp (item_id, date, at, data) VALUES (?,?,?,?)
+      ON CONFLICT(item_id, date) DO UPDATE SET at=excluded.at, data=excluded.data`).run(x.id, date, iso(), JSON.stringify(x));
+  return {ok:true, id:x.id, date, models:x.models.length, lines:x.lines.length, f:x.def.f};
+}
+function rvSpList(){
+  const D = db(); rvTables(D);
+  const mine = D.prepare('SELECT shop_id FROM rv_mine').all().map(r => String(r.shop_id));
+  const out = new Map();
+  rvKwList(false).forEach(k => {
+    const r = D.prepare('SELECT data FROM rv_scan WHERE kw_id = ? ORDER BY date DESC LIMIT 1').get(k.id);
+    let items = []; try { items = JSON.parse((r && r.data) || '[]'); } catch(e){}
+    (Array.isArray(items) ? items : []).forEach((x, i) => {
+      if (i >= RV_SP_TOP && !mine.includes(String(x.sid || ''))) return;
+      const id = String(x.id || '');
+      if (!id || !x.url) return;
+      if (!out.has(id)) out.set(id, {id, sid:String(x.sid || ''), url:String(x.url), shop:String(x.shop || ''), kws:[]});
+      out.get(id).kws.push(k.kw);
+    });
+  });
+  if (out.size){
+    const xong = new Set(D.prepare('SELECT item_id FROM rv_sp WHERE date = ?').all(vnNow().date).map(r => String(r.item_id)));
+    out.forEach(o => { o.done = xong.has(o.id); });
+  }
+  return [...out.values()];
+}
+function rvSps(ids, max = 8){
+  const D = db(); rvTables(D);
+  ids = [...new Set(ids.map(i => String(i).replace(/\D/g, '')).filter(Boolean))];
+  const out = {};
+  for (let i = 0; i < ids.length; i += 200){
+    const lo = ids.slice(i, i + 200);
+    D.prepare('SELECT item_id, date, data FROM rv_sp WHERE item_id IN (' + lo.map(() => '?').join(',') + ') ORDER BY date DESC').all(...lo)
+      .forEach(r => {
+        const id = String(r.item_id);
+        if ((out[id] || []).length >= max) return;
+        let d = null; try { d = JSON.parse(r.data); } catch(e){}
+        if (d && typeof d === 'object') (out[id] = out[id] || []).push(Object.assign({date:r.date}, d));
+      });
+  }
+  return out;
+}
+const rvScanIds = (scans, lan = 8) => [...new Set(scans.slice(0, lan).flatMap(s => s.items.map(x => String(x.id || ''))))];
 function rvTicketNew(){
   const t = crypto.randomBytes(20).toString('hex');
   kvSet('rv_ticket', {hash:sha(t), exp:Math.floor(Date.now() / 1000) + RV_TICKET_GIO * 3600});
@@ -1381,8 +1464,8 @@ function rvTicketOk(t){
 }
 function rivalRoute(req, res, body){
   const h = {'Content-Type':'application/json; charset=utf-8', 'Cache-Control':'no-store'};
-  if (req.headers.origin === 'https://metric.vn')
-    Object.assign(h, {'Access-Control-Allow-Origin':'https://metric.vn', 'Access-Control-Allow-Methods':'POST, OPTIONS',
+  if (req.headers.origin === 'https://metric.vn' || req.headers.origin === 'https://shopee.vn')
+    Object.assign(h, {'Access-Control-Allow-Origin':req.headers.origin, 'Access-Control-Allow-Methods':'POST, OPTIONS',
                       'Access-Control-Allow-Headers':'Content-Type', 'Vary':'Origin'});
   const out = (o, code = 200) => { res.writeHead(code, h); res.end(JSON.stringify(o)); };
   if (req.method === 'OPTIONS'){ res.writeHead(204, h); return res.end(); }
@@ -1405,6 +1488,12 @@ function rivalRoute(req, res, body){
   if (inp.do === 'vol'){
     if (!rvTicketOk(inp.ticket)) return out({ok:false, error:'Vé quét không đúng hoặc đã hết hạn — xin vé mới bằng do:"kws".'}, 403);
     const r = rvVolSave(inp);
+    return r.error ? out({ok:false, error:r.error}, 400) : out(r);
+  }
+  if (inp.do === 'splist' || inp.do === 'sp'){
+    if (!rvTicketOk(inp.ticket)) return out({ok:false, error:'Vé quét không đúng hoặc đã hết hạn — xin vé mới bằng do:"kws".'}, 403);
+    if (inp.do === 'splist') return out({ok:true, today:vnNow().date, items:rvSpList()});
+    const r = rvSpSave(inp);
     return r.error ? out({ok:false, error:r.error}, 400) : out(r);
   }
   return out({ok:false, error:'Không hiểu yêu cầu.'}, 400);

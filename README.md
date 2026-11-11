@@ -893,9 +893,35 @@ mới vào hay rớt top, ai đổi giá, đổi ảnh bìa, đổi tên.
 - "Từ lần quét trước" = hiệu của **tổng** lượt bán / doanh số giữa hai bản chụp
   (số cộng dồn), không phải hiệu của hai kỳ 30 ngày trượt.
 - Giới hạn cần nhớ: mỗi từ khoá tốn 1 lượt phân tích Metric cho mỗi lần quét;
-  số Metric trễ ~9 ngày; Metric không có voucher và tên phân loại (phần này lấy
-  từ Shopee, chưa làm — khi làm thì voucher quy ra % và **giá cuối**, có tính
-  đơn tối thiểu và mức giảm tối đa).
+  số Metric trễ ~9 ngày; Metric không có voucher và tên phân loại — hai thứ đó
+  đọc từ trang Shopee (dưới đây).
+
+**Trang sản phẩm Shopee (`rv_sp`).** Sau khi quét Metric, tác vụ mở trang Shopee
+của 10 sản phẩm đứng đầu mỗi từ khoá (cộng sản phẩm của shop mình trong top),
+bằng tài khoản mua hàng phụ đã đăng nhập sẵn. `tools/shopee-quet.js` chạy ngay
+trong trang: nghe câu trả lời `get_pc` mà trang Shopee tự gọi, rút gọn rồi gửi
+thẳng về `api/rival.php` (`do:"splist"` lấy danh sách, `do:"sp"` gửi từng sản
+phẩm; CORS mở thêm cho `https://shopee.vn`). Lưu theo **sản phẩm + ngày**, không
+theo từ khoá. Ngày sale (ngày đôi, 15, 25) chỉ cần chạy riêng bước này — không
+tốn lượt Metric.
+
+- Mỗi bản chụp có: bảng **Chi tiết giá** của phân loại Shopee chọn sẵn (giá gốc
+  → giảm giá sản phẩm → voucher shop / voucher Shopee → giá cuối), **từng phân
+  loại kèm giá và còn hàng hay không**, các **voucher shop đang phát**, cả bộ
+  ảnh, nhãn khuyến mãi.
+- **Giá cuối** của các phân loại khác do Hub tự tính (`rvSpFinal` trong
+  `js/state.js`): voucher chỉ áp khi giá bán ≥ đơn tối thiểu, voucher theo %
+  không vượt mức giảm tối đa, mỗi đơn một voucher shop (lấy cái giảm nhiều nhất)
+  cộng voucher Shopee nếu có. Phân loại Shopee chọn sẵn thì dùng đúng số Shopee
+  hiện. Bảng top hiện giá cuối của **phân loại rẻ nhất còn hàng**.
+- Voucher Shopee không cho biết mức giảm tối đa; `shopee-quet.js` suy ra khi số
+  tiền giảm thật nhỏ hơn % × giá. Giá là giá tài khoản phụ nhìn thấy — voucher
+  "khách hàng mới" của shop có tính vào và được ghi chú.
+- Tên trường của Shopee chỉ xuất hiện trong hàm `rut()` của `shopee-quet.js`;
+  máy chủ (`rvSpClean`, PHP và Node) chỉ ép kiểu và chặn độ dài.
+- Bảng top có hai kiểu xem: **▤ Bảng** và **▦ Ảnh bìa** (ảnh 450px, để so cách
+  đối thủ thiết kế ảnh bìa). Bấm một sản phẩm: ảnh lớn + cả bộ ảnh, chi tiết
+  giá, bảng phân loại, voucher, giá qua các lần đọc, các ảnh bìa đã từng dùng.
 
 ---
 

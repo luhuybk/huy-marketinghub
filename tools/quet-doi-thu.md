@@ -1,4 +1,4 @@
-# Quét đối thủ trên Metric → Marketing Hub
+# Quét đối thủ trên Metric và Shopee → Marketing Hub
 
 Quy trình cho tác vụ (AI) quét mỗi tuần. Người không cần làm tay bước nào,
 trừ một lần đầu bấm **Cho phép** thiết bị trong Hub → Cài đặt.
@@ -85,14 +85,52 @@ Làm xong bước 2 cho mọi từ khoá rồi mới sang bước 3 cho mọi t�
 chuyển trang qua lại. **Đừng mở trang khác trong cùng tab giữa lúc bấm Phân tích
 và lúc gửi** — tải lại trang là mất `window.__rv`, phải phân tích lại (tốn lượt).
 
-## 4. Báo lại
+## 4. Đọc trang sản phẩm trên Shopee (không tốn lượt Metric)
+
+Lấy thứ Metric không có: bảng **Chi tiết giá** (giá gốc → giảm giá → voucher →
+giá cuối), **từng phân loại kèm giá**, voucher shop, cả bộ ảnh. Hub tự chọn
+sản phẩm cần đọc: 10 sản phẩm đứng đầu ở lần quét Metric gần nhất của mỗi từ
+khoá, cộng sản phẩm của shop mình trong top. Làm **sau** bước 2 để danh sách
+là top mới nhất.
+
+1. Mở một tab `https://shopee.vn` — phải đang đăng nhập **tài khoản mua hàng
+   phụ** (không đăng nhập thì Shopee không cho xem trang sản phẩm). Chưa đăng
+   nhập: dừng, báo chủ đăng nhập trong khung trình duyệt. Không tự gõ mật khẩu.
+2. Đọc nguyên file `tools/shopee-quet.js` và chạy nó bằng javascript_tool trong
+   tab đó. Trả `đã gắn (bản N)`. Tải lại trang thì phải gắn lại.
+3. Chạy (thay `VE` bằng vé của bước 1):
+
+   ```js
+   __sp.chay({url:'https://darkblue-bat-395619.hostingersite.com/api/rival.php', ticket:'VE'})
+   ```
+
+   Lệnh trả về ngay; việc đọc chạy ngầm trong trang, mỗi sản phẩm 5–9 giây
+   (cố ý chậm). Sản phẩm hôm nay đã đọc thì tự bỏ qua — chạy lại giữa chừng
+   không đọc lặp. Muốn đọc lại cả những cái đã đọc: thêm `caDaQuet:true`.
+4. Hỏi tiến độ mỗi 1–2 phút bằng `__sp.tt()` →
+   `{dangChay, xong, tong, da, ok, boQua, dung, loi, soLoi}`. Xong khi
+   `xong:true`. **Đừng điều hướng tab này** trong lúc đang chạy.
+5. Nếu `dung` có chữ: đoạn mã đã tự dừng — Shopee đòi xác minh / đăng nhập lại,
+   hoặc ba sản phẩm liên tiếp không đọc được. **Không giải captcha, không thử
+   lách.** Báo chủ đúng câu trong `dung`, kèm đã đọc được mấy sản phẩm; lần
+   chạy sau sẽ đọc tiếp phần còn lại.
+
+**Ngày sale lớn (ngày đôi, 15, 25):** chỉ chạy bước 1 (lấy vé) và bước 4 này —
+không đụng Metric, không tốn lượt. Hub lưu thêm một bản chụp giá của ngày đó,
+so được với ngày thường.
+
+## 5. Báo lại
 
 Tóm tắt: quét được mấy từ khoá, từ khoá nào lỗi và vì sao, còn bao nhiêu lượt và
 điểm Metric (mở `https://metric.vn/profile` ở **tab khác**: *Số lượt phân tích
-còn lại*, *Điểm phân tích còn lại*).
+còn lại*, *Điểm phân tích còn lại*); Shopee đọc được mấy / mấy sản phẩm, có bị
+dừng giữa chừng không.
 
 ## Lưu ý
 
 - Số Metric trễ khoảng 9 ngày. Quét đúng ngày sale không thấy số của ngày đó.
 - Không gọi thẳng máy chủ Metric để né lượt phân tích — chỉ dùng giao diện.
-- Voucher và phân loại không có trên Metric (sẽ lấy từ Shopee, làm sau).
+- Voucher và phân loại không có trên Metric — lấy ở bước 4 (Shopee).
+- `shopee-quet.js` chỉ NGHE câu trả lời mà trang Shopee tự gọi khi mở sản phẩm;
+  không tự gọi API của Shopee. Giá cuối là giá tài khoản phụ nhìn thấy (voucher
+  Shopee mỗi tài khoản có thể khác nhau đôi chút).

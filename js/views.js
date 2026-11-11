@@ -16,7 +16,7 @@ const ui = {
   postQ:'', postState:'', postMonthOnly:false,
   /* Lọc bài theo một kênh đăng. Rỗng = mọi kênh. */
   postCh:'',
-  adYm:'', adQ:'', adIssue:'', adOnlyBad:false, adShop:'', adTab:'radar', rvKw:'', rvDate:'', rvAll:false, adDate:'', adGioYm:'',
+  adYm:'', adQ:'', adIssue:'', adOnlyBad:false, adShop:'', adTab:'radar', rvKw:'', rvDate:'', rvAll:false, rvMode:'tbl', adDate:'', adGioYm:'',
   adGioQ:'', adGioSp:'', adSoSanh:'', adGon:false,
   resTab:'brands', resQ:'',
   cmpFrom:'', cmpTo:'',
@@ -5484,11 +5484,40 @@ function viewRival(){
       : `<div class="dim">Không có gì đổi đáng kể: không ai vào hay rớt top, không ai đổi giá hay ảnh bìa.</div>`;
   }
 
-  /* ---- 5. bảng top ---- */
+  /* ---- 5. bảng top: xem dạng bảng số, hoặc dạng ảnh bìa lớn ---- */
+  const coSp = rows.some(r => r.sp);
+  const ngaySp = rows.map(r => r.sp && r.sp.date).filter(Boolean).sort().pop() || '';
   h += sectionTitle('Top ' + top.length + ' theo doanh số',
-    rows.length > RV_SHOW ? `<button data-act="rvall">${ui.rvAll ? 'Chỉ xem top ' + RV_SHOW : 'Xem cả ' + rows.length}</button>` : '');
+    `<button class="${ui.rvMode !== 'img' ? 'on' : ''}" data-act="rvmode" data-id="tbl">▤ Bảng</button>` +
+    `<button class="${ui.rvMode === 'img' ? 'on' : ''}" data-act="rvmode" data-id="img">▦ Ảnh bìa</button>` +
+    (rows.length > RV_SHOW ? `<button data-act="rvall">${ui.rvAll ? 'Chỉ xem top ' + RV_SHOW : 'Xem cả ' + rows.length}</button>` : ''));
+  /* ô "Giá cuối": phân loại rẻ nhất còn hàng, sau mọi voucher */
+  const giaCuoi = r => {
+    const g = r.spSum && r.spSum.re;
+    if (!g) return '<span class="dim">chưa đọc</span>';
+    const cu = r.spPrev ? rvSpSum(r.spPrev).re : null;
+    return `<b>${r.spSum.nhieuGia ? '<span class="dim rv-tu">từ</span> ' : ''}${money(g.f)}</b>${
+      cu && cu.f !== g.f ? `<div class="${g.f < cu.f ? 'rv-dn' : 'rv-up'}">${g.f < cu.f ? '▼' : '▲'} từ ${moneyShort(cu.f)}</div>` : ''}
+      <div class="dim">−${g.giam.toFixed(0)}% so với gốc ${moneyShort(g.pb)}</div>${
+      g.v ? `<div class="rv-vc">🎟 voucher −${moneyShort(g.v)}</div>` : ''}`;
+  };
+  if (ui.rvMode === 'img'){
+    h += `<div class="rv-gal">${top.map(r => {
+      const g = r.spSum && r.spSum.re;
+      return `<div class="rv-card ${r.mine ? 'me' : ''}" data-act="rvprod" data-id="${esc(r.id)}">
+        <div class="rv-cv">${r.img ? `<img src="${esc(rvImg(r.img, 'md'))}" alt="" referrerpolicy="no-referrer" loading="lazy">` : ''}
+          <span class="rv-rkb">${r.rank}</span>${r.imgNew ? '<span class="rv-cvn">🖼 ảnh bìa mới</span>' : r.isNew ? '<span class="rv-cvn">MỚI</span>' : ''}</div>
+        <div class="rv-cb">
+          <div class="rv-n">${esc(r.n)}</div>
+          <div class="rv-sh">${r.mine ? '<span class="chip ok">⭐ của mình</span> ' : ''}${esc(r.shop)}${r.mall ? ' <span class="chip bad">Mall</span>' : ''}</div>
+          <div class="rv-cp">${g ? `<b>${money(g.f)}</b> <s>${moneyShort(g.pb)}</s> <span class="rv-cg">−${g.giam.toFixed(0)}%</span>` : `<b>${money(r.p)}</b>`}</div>
+          <div class="rv-cs">DS kỳ <b>${moneyShort(r.r)}</b> ${pct(r.gR)} · ${r.o.toLocaleString('vi-VN')} lượt</div>
+        </div></div>`; }).join('')}</div>
+      <div class="dim" style="margin-top:8px">Bấm một ảnh để xem cả bộ ảnh, bảng giá chi tiết và các phân loại của đối thủ đó.${
+        coSp ? ' Giá đậm là giá cuối sau voucher của phân loại rẻ nhất còn hàng.' : ''}</div>`;
+  } else {
   h += `<div class="tblwrap"><table class="tbl rv-tbl"><thead><tr>
-      <th class="c">Hạng</th><th>Sản phẩm</th><th class="r">Giá bán</th><th class="r">Doanh số kỳ</th>
+      <th class="c">Hạng</th><th>Sản phẩm</th><th class="r">Giá bán</th><th class="r">Giá cuối<div class="rv-thn">sau voucher</div></th><th class="r">Doanh số kỳ</th>
       <th class="r">Lượt bán kỳ</th><th class="r">${cmp.prev ? 'Từ lần quét trước' : 'Tổng đã bán'}</th><th class="r">Đánh giá</th></tr></thead><tbody>`;
   top.forEach(r => {
     const mv = r.isNew ? '<span class="chip acc">MỚI</span>'
@@ -5500,9 +5529,12 @@ function viewRival(){
       <td><div class="rv-sp">${r.img ? `<img src="${esc(rvThumb(r.img))}" alt="" referrerpolicy="no-referrer" loading="lazy">` : '<span class="rv-noimg"></span>'}
         <div class="grow"><div class="rv-n">${esc(r.n)}</div>
           <div class="rv-sh">${r.mine ? '<span class="chip ok">⭐ của mình</span> ' : ''}${esc(r.shop)}${r.mall ? ' <span class="chip bad">Mall</span>' : ''}${
-            r.imgNew ? ' <span class="chip acc">🖼 ảnh bìa mới</span>' : ''}${r.nameNew ? ' <span class="chip">✏️ đổi tên</span>' : ''}</div></div></div></td>
+            r.spSum ? ` <span class="chip">${r.spSum.n} phân loại</span>` : ''}${
+            r.imgNew ? ' <span class="chip acc">🖼 ảnh bìa mới</span>' : ''}${r.nameNew ? ' <span class="chip">✏️ đổi tên</span>' : ''}${
+            ((r.sp && r.sp.tags) || []).slice(0, 2).map(t => ` <span class="chip warn">${esc(t)}</span>`).join('')}</div></div></div></td>
       <td class="r nw"><b>${money(r.p)}</b>${giaDoi ? `<div class="${r.p < r.prev.p ? 'rv-dn' : 'rv-up'}">${r.p < r.prev.p ? '▼' : '▲'} từ ${moneyShort(r.prev.p)}</div>` : ''}
         ${r.pmin && r.pmin !== r.pmax ? `<div class="dim">${moneyShort(r.pmin)} – ${moneyShort(r.pmax)}</div>` : ''}</td>
+      <td class="r nw rv-gc">${giaCuoi(r)}</td>
       <td class="r nw"><b>${moneyShort(r.r)}</b><div>${pct(r.gR)}</div></td>
       <td class="r nw">${r.o.toLocaleString('vi-VN')}<div>${pct(r.gO)}</div></td>
       <td class="r nw">${cmp.prev
@@ -5513,7 +5545,10 @@ function viewRival(){
   h += `</tbody></table></div>
     <div class="dim" style="margin-top:8px">Hạng xếp theo doanh số trong kỳ của Metric (thường là 30 ngày, số trễ khoảng 9 ngày).
       ▲▼ % là so với kỳ liền trước cùng độ dài. ${cmp.prev ? '"Từ lần quét trước" là phần bán thêm giữa hai lần quét.' : ''}
-      Bấm một dòng để xem lịch sử của đối thủ đó.</div>`;
+      ${coSp ? `<b>Giá cuối</b> là giá khách thật sự trả cho phân loại rẻ nhất còn hàng, sau voucher shop và voucher Shopee — đọc trên trang Shopee ngày ${esc(fmtDate(ngaySp))}.`
+             : '<b>Giá cuối</b> chưa có: tác vụ quét chưa đọc trang Shopee của các sản phẩm này.'}
+      Bấm một dòng để xem ảnh bìa lớn, bảng giá chi tiết, phân loại và lịch sử của đối thủ đó.</div>`;
+  }
 
   /* ---- 6. từ khoá liên quan ---- */
   if (vol && vol.rel && vol.rel.length){

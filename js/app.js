@@ -1400,7 +1400,8 @@ async function loadRival(){
 }
 async function loadRivalScans(kwId, im){
   rv.busy = true;
-  try { const r = await Server.rivalScans(kwId); rv.scans[kwId] = r.scans || []; rv.vols[kwId] = r.vols || []; rv.err = ''; }
+  try { const r = await Server.rivalScans(kwId); rv.scans[kwId] = r.scans || []; rv.vols[kwId] = r.vols || [];
+        Object.assign(rv.sp, r.sp || {}); rv.err = ''; }
   catch(e){ rv.err = e.message || 'lỗi không rõ'; rv.scans[kwId] = rv.scans[kwId] || []; }
   rv.busy = false;
   if (!im && route.page === 'rival') render();
@@ -1415,7 +1416,7 @@ function rvView(){
      dòng ngay trước nó để so. Hai trang Metric quét riêng nên ngày có thể lệch. */
   const vs = kw ? (rv.vols[kw.id] || []) : [];
   const j = cur ? vs.findIndex(v => v.date <= cur.date) : -1;
-  return {kw, ds, cur, prev: ds[i + 1] || null, cmp: cur ? rvCompare(cur, ds[i + 1] || null) : null,
+  return {kw, ds, cur, prev: ds[i + 1] || null, cmp: cur ? rvCompare(cur, ds[i + 1] || null, i > 0 ? ds[i - 1] : null) : null,
           vol: j >= 0 ? vs[j] : null, volPrev: j >= 0 ? vs[j + 1] || null : null, vols: vs};
 }
 function rvKwForm(id, goiY){
@@ -1455,22 +1456,102 @@ function rvProdOpen(id){
   const x = his[0];
   if (!x) return;
   const mine = rvIsMine(x), danhDau = ((rv.state && rv.state.mine) || []).some(m => String(m.id) === String(x.sid));
+  const sps = rv.sp[id] || [], sp = sps[0] || null, sum = rvSpSum(sp);
+  const anh = sp && sp.imgs && sp.imgs.length ? sp.imgs : (x.img ? [x.img] : []);
+  const bia = sp && sp.img ? sp.img : x.img;
+  const g = sum && sum.re;
+  const pc = v => v.toFixed(v < 10 && v % 1 ? 1 : 0).replace('.', ',') + '%';
+
   let h = `<div class="rv-ph">
-      ${x.img ? `<img src="${esc(x.img)}" alt="" referrerpolicy="no-referrer" loading="lazy">` : ''}
+      <div class="rv-big">${bia ? `<a href="${esc(rvImg(bia))}" target="_blank" rel="noopener noreferrer" title="Mở ảnh gốc">
+          <img id="rvBig" src="${esc(rvImg(bia, 'md'))}" alt="" referrerpolicy="no-referrer"></a>` : ''}
+        ${anh.length > 1 ? `<div class="rv-strip">${anh.map((a, i) =>
+          `<img class="${i === 0 ? 'on' : ''}" data-act="rvimg" data-id="${esc(a)}" src="${esc(rvImg(a, 'tn'))}" alt="" referrerpolicy="no-referrer" loading="lazy">`).join('')}</div>` : ''}
+        <div class="dim rv-bign">${anh.length > 1 ? anh.length + ' ảnh' + (sp && sp.video ? ' + video' : '') + ' · bấm ảnh nhỏ để xem, bấm ảnh lớn để mở ảnh gốc' : 'bấm ảnh để mở ảnh gốc'}</div>
+      </div>
       <div class="grow">
         <div><b>${esc(x.n)}</b></div>
         <div class="dim" style="margin:4px 0">${esc(x.shop)}${x.mall ? ' · Mall' : ''}${x.brand ? ' · ' + esc(x.brand) : ''}${
           x.created ? ' · lên kệ ' + esc(fmtDate(x.created)) : ''}</div>
-        <div>${money(x.p)}${x.pmin && x.pmin !== x.pmax ? ` <span class="dim">phân loại ${money(x.pmin)} – ${money(x.pmax)}</span>` : ''}</div>
-        <div class="dim" style="margin-top:4px">Tổng đã bán ${x.sold.toLocaleString('vi-VN')} · tổng doanh số ${moneyShort(x.rev)}
-          · ${x.ra ? x.ra.toFixed(1) + '★ ' : ''}${x.rc.toLocaleString('vi-VN')} đánh giá</div>
+        ${g ? `<div class="rv-gcbox"><span class="l">Giá cuối sau voucher${sum.nhieuGia ? ' — phân loại rẻ nhất' : ''}</span>
+            <b>${money(g.f)}</b><span class="s">giá gốc ${money(g.pb)} · giảm tổng ${pc(g.giam)}${g.n ? ' · ' + esc(g.n) : ''}</span></div>`
+            : `<div>${money(x.p)}${x.pmin && x.pmin !== x.pmax ? ` <span class="dim">phân loại ${money(x.pmin)} – ${money(x.pmax)}</span>` : ''}</div>`}
+        <div class="dim" style="margin-top:6px">Tổng đã bán ${x.sold.toLocaleString('vi-VN')} · tổng doanh số ${moneyShort(x.rev)}
+          · ${x.ra ? x.ra.toFixed(1) + '★ ' : ''}${x.rc.toLocaleString('vi-VN')} đánh giá${sp && sp.liked ? ' · ' + sp.liked.toLocaleString('vi-VN') + ' lượt thích' : ''}</div>
+        ${sp && sp.tags && sp.tags.length ? `<div class="chips" style="margin-top:8px">${sp.tags.map(t => `<span class="chip warn">${esc(t)}</span>`).join('')}</div>` : ''}
         <div class="btns" style="margin-top:10px">
           ${x.url ? `<a class="btn sm" href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">Mở trên Shopee ↗</a>` : ''}
           ${x.sid ? `<button class="btn sm" data-act="rvmine" data-id="${esc(x.sid)}" data-name="${esc(x.shop)}" data-on="${danhDau ? '' : '1'}">${
             danhDau ? 'Bỏ đánh dấu shop của mình' : mine ? '⭐ Shop của mình (trùng tên gian hàng)' : '⭐ Đây là shop của mình'}</button>` : ''}
         </div>
-      </div></div>
-    <div class="sec sm">Qua các lần quét — "${esc(kw.kw)}"<span class="ln"></span></div>
+      </div></div>`;
+
+  if (!sp) h += `<div class="dim" style="margin-top:14px">Chưa có bảng giá chi tiết, voucher và phân loại: tác vụ quét chưa đọc trang Shopee của sản phẩm này
+      (mỗi lần quét đọc ${RV_SHOW} sản phẩm đứng đầu của từng từ khoá).</div>`;
+  else {
+    /* ---- bảng "Chi tiết giá" của phân loại rẻ nhất — xếp y như hộp của Shopee ---- */
+    const giamSp = g.pb - g.p;
+    h += `<div class="sec sm">Chi tiết giá${g.n ? ' — ' + esc(g.n) : ''}<span class="ln"></span><span class="dim">đọc trên Shopee ngày ${esc(fmtDate(sp.date))}</span></div>
+      <div class="rv-ctg">
+        <div><span>Giá gốc</span><b>${money(g.pb)}</b></div>
+        ${giamSp > 0 ? `<div><span>Giảm giá sản phẩm <i>${pc(giamSp / g.pb * 100)}</i></span><b class="am">−${money(giamSp)}</b></div>` : ''}
+        ${g.parts.map(v => `<div><span>${esc(v.lab)}${v.code ? ' <code>' + esc(v.code) + '</code>' : ''} <i>${pc(g.p ? v.amt / g.p * 100 : 0)} giá bán</i>${
+            v.moi ? ' <i>chỉ khách mới của shop</i>' : ''}</span><b class="am">−${money(v.amt)}</b></div>`).join('')}
+        <div class="tot"><span>Giá cuối khách trả <i>giảm tổng ${pc(g.giam)}</i></span><b>${money(g.f)}</b></div>
+      </div>`;
+
+    /* ---- từng phân loại ---- */
+    if (sum.n > 1 || (sum.rows[0] && sum.rows[0].n)){
+      h += `<div class="sec sm">${sum.n} phân loại${sum.nOk < sum.n ? ' · ' + (sum.n - sum.nOk) + ' hết hàng' : ''}<span class="ln"></span>${
+          (sp.tiers || []).length > 1 ? `<span class="dim">${sp.tiers.map(t => esc(t.n)).join(' × ')}</span>` : ''}</div>
+        <div class="tblwrap"><table class="tbl sm rv-pl"><thead><tr><th>Phân loại</th><th class="r">Giá gốc</th><th class="r">Giá bán</th>
+          <th class="r">Voucher</th><th class="r">Giá cuối</th><th class="r">Giảm tổng</th></tr></thead><tbody>${sum.rows.map(r => `<tr class="${r.ok ? '' : 'rv-het'} ${r === g ? 'rv-re' : ''}">
+          <td>${esc(r.n || '(không phân loại)')}${r === g ? ' <span class="chip ok">rẻ nhất</span>' : ''}${r.def ? ' <span class="chip">Shopee hiện sẵn</span>' : ''}${
+            r.ok ? '' : ' <span class="chip">hết hàng</span>'}</td>
+          <td class="r">${r.pb !== r.p ? `<s>${money(r.pb)}</s>` : '<span class="dim">—</span>'}</td>
+          <td class="r">${money(r.p)}</td>
+          <td class="r">${r.v ? '−' + moneyShort(r.v) + ` <span class="dim">${pc(r.vPct)}</span>` : '<span class="dim">không đủ điều kiện</span>'}</td>
+          <td class="r"><b>${money(r.f)}</b></td><td class="r">${pc(r.giam)}</td></tr>`).join('')}</tbody></table></div>
+        <div class="dim" style="margin-top:6px">Giá cuối của phân loại "Shopee hiện sẵn" là đúng con số Shopee hiện. Các phân loại khác Hub tự tính theo điều kiện của
+          từng voucher (đơn tối thiểu, mức giảm tối đa), mỗi đơn chỉ lấy một voucher shop — cái giảm nhiều nhất.</div>`;
+    }
+
+    /* ---- voucher shop đang phát ---- */
+    const vs = sp.vouchers || [];
+    if (vs.length)
+      h += `<div class="sec sm">${vs.length} voucher shop đang phát<span class="ln"></span></div>
+        <div class="rv-vs">${vs.map(v => `<div class="rv-v"><b>${v.coin ? 'Hoàn ' + (+v.pct) + '% xu' + (v.cap ? ' tối đa ' + moneyShort(v.cap) : '')
+              : v.val ? 'Giảm ' + money(v.val) : 'Giảm ' + (+v.pct) + '%' + (v.cap ? ' tối đa ' + moneyShort(v.cap) : '')}</b>
+            <span>${v.min ? 'đơn từ ' + money(v.min) : 'không cần đơn tối thiểu'}${
+              !v.coin && v.val && v.min ? ' · bằng ' + pc(v.val / v.min * 100) + ' đơn tối thiểu' : ''}</span>
+            <span class="dim">${v.code ? '<code>' + esc(v.code) + '</code> · ' : ''}${v.lab ? esc(v.lab) + ' · ' : ''}đã dùng ${v.used}%${
+              v.end ? ' · hết hạn ' + esc(fmtDate(new Date(v.end * 1000 + 7 * 36e5).toISOString().slice(0, 10))) : ''}</span></div>`).join('')}</div>`;
+
+    /* ---- giá trên Shopee qua các lần đọc ---- */
+    if (sps.length > 1){
+      h += `<div class="sec sm">Giá trên Shopee qua các lần đọc<span class="ln"></span></div>
+        <div class="tblwrap"><table class="tbl sm rv-his"><thead><tr><th>Ngày đọc</th><th class="r">Giá gốc</th><th class="r">Giá bán</th><th class="r">Voucher</th>
+          <th class="r">Giá cuối</th><th class="r">Giảm tổng</th><th class="r">Phân loại</th><th class="r">Voucher shop</th></tr></thead><tbody>${sps.map((s, i) => {
+          const a = rvSpSum(s).re, cu = sps[i + 1] ? rvSpSum(sps[i + 1]).re : null;
+          if (!a) return '';
+          const doi = (u, v) => cu && u !== v ? ' class="r rv-doi"' : ' class="r"';
+          return `<tr><td>${esc(fmtDate(s.date))}</td><td${doi(a.pb, cu && cu.pb)}>${money(a.pb)}</td><td${doi(a.p, cu && cu.p)}>${money(a.p)}</td>
+            <td${doi(a.v, cu && cu.v)}>${a.v ? '−' + moneyShort(a.v) : '—'}</td><td${doi(a.f, cu && cu.f)}><b>${money(a.f)}</b></td>
+            <td class="r">${pc(a.giam)}</td><td${doi((s.models || []).length, sps[i + 1] && (sps[i + 1].models || []).length)}>${(s.models || []).length}</td>
+            <td${doi((s.vouchers || []).length, sps[i + 1] && (sps[i + 1].vouchers || []).length)}>${(s.vouchers || []).length}</td></tr>`; }).join('')}</tbody></table></div>
+        <div class="dim" style="margin-top:6px">Mỗi dòng là phân loại rẻ nhất còn hàng của ngày đó. Ô tô vàng là chỗ vừa đổi so với lần đọc trước.</div>`;
+    }
+  }
+
+  /* ---- ảnh bìa qua các lần quét: chỉ hiện khi đã từng đổi ---- */
+  const biaCu = [];
+  his.slice().reverse().forEach(r => { if (r.img && (!biaCu.length || biaCu[biaCu.length - 1].img !== r.img)) biaCu.push({img:r.img, date:r.date}); });
+  if (biaCu.length > 1)
+    h += `<div class="sec sm">Ảnh bìa đã đổi ${biaCu.length - 1} lần<span class="ln"></span></div>
+      <div class="rv-bias">${biaCu.reverse().map((b, i) => `<a href="${esc(rvImg(b.img))}" target="_blank" rel="noopener noreferrer">
+        <img src="${esc(rvImg(b.img, 'md'))}" alt="" referrerpolicy="no-referrer" loading="lazy"><span>${i === 0 ? 'đang dùng · ' : ''}từ ${esc(fmtDate(b.date))}</span></a>`).join('')}</div>`;
+
+  h += `<div class="sec sm">Qua các lần quét Metric — "${esc(kw.kw)}"<span class="ln"></span></div>
     <div class="tblwrap"><table class="tbl sm rv-his"><thead><tr><th>Ngày quét</th><th class="c">Hạng</th><th class="r">Giá bán</th>
       <th class="r">Phân loại</th><th class="r">Doanh số kỳ</th><th class="r">Lượt bán kỳ</th><th class="r">Tổng đã bán</th><th>Ảnh bìa</th></tr></thead><tbody>`;
   his.forEach((r, i) => {
@@ -4803,7 +4884,15 @@ const ACTIONS = {
   rvnew:    () => rvKwForm(null),
   rvedit:   id => rvKwForm(id),
   rvprod:   id => rvProdOpen(id),
-  rvreload: () => { rv.asked = false; rv.scans = {}; rv.vols = {}; rv.state = null; render(); },
+  rvreload: () => { rv.asked = false; rv.scans = {}; rv.vols = {}; rv.sp = {}; rv.state = null; render(); },
+  rvmode:   id => { ui.rvMode = id === 'img' ? 'img' : 'tbl'; render(); },
+  /* đổi ảnh lớn trong hộp chi tiết đối thủ */
+  rvimg:    (id, el) => {
+    const big = document.getElementById('rvBig');
+    if (!big) return;
+    big.src = rvImg(id, 'md'); big.parentNode.href = rvImg(id);
+    el.parentNode.querySelectorAll('.on').forEach(x => x.classList.remove('on')); el.classList.add('on');
+  },
   rvcopy:   () => { const v = rvView(); if (v.cur) copyText(rvReportText(v.kw, v.cur, v.cmp, v.vol)); },
   /* thêm một từ khoá liên quan vào danh sách theo dõi — mở biểu mẫu điền sẵn */
   rvnewfrom: id => rvKwForm(null, id),

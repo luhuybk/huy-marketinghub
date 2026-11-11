@@ -15,8 +15,14 @@
       Metric. Không qua tay tác vụ: 20 sản phẩm × 25 từ khoá mà bắt AI chép
       lại từng con số thì chậm và thế nào cũng sai một con.
 
-   Vì bên (2) là một trang web khác tên miền nên cổng này mở CORS cho đúng
-   https://metric.vn — và chỉ nhận vé, không nhận phiên đăng nhập (cookie).
+   3. Trang sản phẩm Shopee (tools/shopee-quet.js), cũng bằng vé đó:
+        POST {ticket, do:"splist"}      → các sản phẩm cần mở trên Shopee
+        POST {ticket, do:"sp", item}    → bảng giá chi tiết, voucher, phân loại
+                                          của một sản phẩm
+
+   Vì bên (2) và (3) là trang web khác tên miền nên cổng này mở CORS cho đúng
+   https://metric.vn và https://shopee.vn — và chỉ nhận vé, không nhận phiên
+   đăng nhập (cookie).
    ============================================================ */
 declare(strict_types=1);
 
@@ -24,8 +30,9 @@ require __DIR__ . '/lib.php';
 
 header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
-if (($_SERVER['HTTP_ORIGIN'] ?? '') === 'https://metric.vn') {
-  header('Access-Control-Allow-Origin: https://metric.vn');
+$goc = (string)($_SERVER['HTTP_ORIGIN'] ?? '');
+if ($goc === 'https://metric.vn' || $goc === 'https://shopee.vn') {
+  header('Access-Control-Allow-Origin: ' . $goc);
   header('Access-Control-Allow-Methods: POST, OPTIONS');
   header('Access-Control-Allow-Headers: Content-Type');
   header('Vary: Origin');
@@ -72,6 +79,16 @@ if ($do === 'vol') {
   if (!rvTicketOk((string)($in['ticket'] ?? '')))
     rvOut(['ok' => false, 'error' => 'Vé quét không đúng hoặc đã hết hạn — xin vé mới bằng do:"kws".'], 403);
   $r = rvVolSave($in);
+  rvOut(isset($r['error']) ? ['ok' => false, 'error' => $r['error']] : $r, isset($r['error']) ? 400 : 200);
+}
+
+/* Trang sản phẩm Shopee: danh sách cần mở, rồi từng sản phẩm gửi về */
+if ($do === 'splist' || $do === 'sp') {
+  if (!rvTicketOk((string)($in['ticket'] ?? '')))
+    rvOut(['ok' => false, 'error' => 'Vé quét không đúng hoặc đã hết hạn — xin vé mới bằng do:"kws".'], 403);
+  if ($do === 'splist')
+    rvOut(['ok' => true, 'today' => (new DateTime('now', new DateTimeZone(KH_TZ)))->format('Y-m-d'), 'items' => rvSpList()]);
+  $r = rvSpSave($in);
   rvOut(isset($r['error']) ? ['ok' => false, 'error' => $r['error']] : $r, isset($r['error']) ? 400 : 200);
 }
 
