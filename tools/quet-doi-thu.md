@@ -119,6 +119,28 @@ là top mới nhất.
 không đụng Metric, không tốn lượt. Hub lưu thêm một bản chụp giá của ngày đó,
 so được với ngày thường.
 
+## Quét bù một kỳ cũ (khi chủ muốn có "đợt trước" để so)
+
+Ô **Thời gian** có hai ô ngày bên dưới — gõ `dd-mm-yyyy` rồi Enter ở từng ô là
+chọn được kỳ tuỳ ý (ô Thời gian đổi thành *Tuỳ chọn*). Chọn kỳ 30 ngày lùi lại
+7 ngày so với kỳ của lần quét đang có, phân tích, rồi gửi như bước 2 nhưng thêm
+`date:'YYYY-MM-DD'` (ngày lần quét đó "lẽ ra" diễn ra, lùi 7 ngày). Tốn 1 lượt
+mỗi từ khoá.
+
+- **Quét bù và lần quét để so với nó phải làm trong cùng một buổi.** Metric cập
+  nhật dữ liệu trong ngày: 11/11/2026 cùng một từ khoá, cùng một kỳ mà sáng ra
+  thị trường 12,9 tỷ, chiều ra 17,1 tỷ và thêm bốn sản phẩm vào top. Nếu lần
+  quét kia làm từ trước thì phân tích lại đúng kỳ của nó (cùng từ khoá + cùng kỳ
+  trong ngày không trừ lượt) và gửi đè lên, rồi mới quét bù.
+- Kỳ cũ chỉ đúng ở **thứ hạng và doanh số / lượt bán trong kỳ**. Giá, ảnh bìa,
+  tổng đã bán Metric trả về vẫn là số hôm nay. Hub tự nhận ra lần quét bù (gửi
+  lên sau ngày nó mang tên), gắn nhãn "bù" và không tính "bán thêm từ lần quét
+  trước" với nó. Shopee thì không quét bù được.
+- Trước khi bấm *Phân tích* luôn kiểm lại bằng mã: đúng một thẻ từ khoá, đúng
+  hai ô ngày. Nút *Phân tích* đổi chỗ khi trang cuộn hay khi hộp gợi ý từ khoá
+  đang mở — lấy toạ độ ngay trước lúc bấm, và sau khi bấm kiểm `window.__rv` đã
+  có đủ 4 khoá với đúng `queries`, `start_date`, `end_date` rồi mới gửi.
+
 ## 5. Báo lại
 
 Tóm tắt: quét được mấy từ khoá, từ khoá nào lỗi và vì sao, còn bao nhiêu lượt và
