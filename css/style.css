@@ -896,3 +896,13 @@ tr.rv-me{background:color-mix(in srgb,var(--ok) 8%,transparent)}
 .rv-his td{vertical-align:middle}
 .rv-tn{width:40px;height:40px;border-radius:7px;object-fit:cover;vertical-align:middle;border:1px solid var(--line)}
 td.rv-doi{background:color-mix(in srgb,var(--warn) 16%,transparent)}
+.rv-tom{font-size:13.5px;margin:0 0 10px;line-height:1.6}
+.rv-gia{min-width:560px}
+.rv-gia td{vertical-align:middle}
+.rv-gia .nw,.rv-lich .nw{white-space:nowrap}
+.rv-bar{height:8px;border-radius:5px;background:var(--bg3);overflow:hidden;margin-bottom:4px;min-width:120px}
+.rv-bar i{display:block;height:100%;border-radius:5px;background:color-mix(in srgb,var(--acc) 55%,var(--bg4))}
+.rv-bar i.top{background:var(--acc)}
+.rv-bar.o i{background:color-mix(in srgb,var(--ok) 50%,var(--bg4))}
+.rv-bar.o i.top{background:var(--ok)}
+tr.rv-dang{background:var(--bg3)}

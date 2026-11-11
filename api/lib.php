@@ -927,6 +927,13 @@ function rvTables(PDO $pdo): void {
   $pdo->exec('CREATE TABLE IF NOT EXISTS rv_scan (kw_id TEXT NOT NULL, date TEXT NOT NULL, src TEXT NOT NULL,
       d_from TEXT, d_to TEXT, at TEXT, data TEXT, PRIMARY KEY (kw_id, date, src))');
   $pdo->exec('CREATE TABLE IF NOT EXISTS rv_mine (shop_id TEXT PRIMARY KEY, name TEXT)');
+  /* rv_vol: lượt tìm kiếm của từ khoá (trang "Phân tích từ khoá" của Metric),
+     mỗi lần quét một dòng. rel = JSON các từ khoá liên quan kèm lượt tìm. */
+  $pdo->exec('CREATE TABLE IF NOT EXISTS rv_vol (kw_id TEXT NOT NULL, date TEXT NOT NULL, d_from TEXT, d_to TEXT,
+      vol INTEGER, at TEXT, rel TEXT, PRIMARY KEY (kw_id, date))');
+  /* extra (thêm sau): tổng quan thị trường + khoảng giá + top thương hiệu/gian hàng của bản chụp */
+  if (!in_array('extra', array_column($pdo->query('PRAGMA table_info(rv_scan)')->fetchAll(), 'name'), true))
+    $pdo->exec('ALTER TABLE rv_scan ADD COLUMN extra TEXT');
 }
 function rvNorm(string $s): string {
   return (string)preg_replace('/\s+/u', ' ', mb_strtolower(trim($s), 'UTF-8'));
@@ -973,9 +980,9 @@ function rvKwList(bool $caTat = true): array {
   }
   return $out;
 }
-/* Ghi một bản chụp. Trả ['ok'=>true,…] hoặc ['error'=>…]. */
-function rvScanSave(array $in): array {
-  $pdo = db(); rvTables($pdo);
+/* Tìm từ khoá mà gói gửi lên nói tới, và chắc rằng kết quả đúng là của nó.
+   Trả [từ khoá, ''] hoặc [null, lỗi]. Dùng chung cho bản chụp và lượt tìm. */
+function rvKwCheck(PDO $pdo, array $in): array {
   $st = $pdo->prepare('SELECT * FROM rv_kw WHERE id = ?');
   $st->execute([(string)($in['kw_id'] ?? '')]);
   $kw = $st->fetch();
@@ -991,13 +998,70 @@ function rvScanSave(array $in): array {
           ->execute([$kw['id'], $ten, 'main', '', gmdate('c')]);
     }
   }
-  if (!$kw) return ['error' => 'Không thấy từ khoá này trong danh sách theo dõi.'];
+  if (!$kw) return [null, 'Không thấy từ khoá này trong danh sách theo dõi.'];
   /* Chốt chặn gửi nhầm: kết quả đang hiện trên Metric phải đúng là của từ
      khoá này. Tác vụ quét hàng chục từ khoá liên tiếp — lệch một nhịp là số
      của "sáp vuốt tóc" chui vào "gôm xịt tóc" mà nhìn bảng không ai biết. */
   $qs = array_map(fn($q) => rvNorm((string)$q), (array)($in['query'] ?? []));
-  if (!$qs || !in_array(rvNorm((string)$kw['kw']), $qs, true))
-    return ['error' => 'Kết quả gửi lên là của "' . implode(', ', $qs) . '", không phải "' . $kw['kw'] . '".'];
+  if (count($qs) !== 1 || $qs[0] !== rvNorm((string)$kw['kw']))
+    return [null, 'Kết quả gửi lên là của "' . implode(', ', $qs) . '", không phải "' . $kw['kw'] . '".'];
+  return [$kw, ''];
+}
+function rvNgayQuet(array $in): string {
+  $nay = (new DateTime('now', new DateTimeZone(KH_TZ)))->format('Y-m-d');
+  $date = rvNgay((string)($in['date'] ?? ''));
+  return ($date === '' || $date > $nay) ? $nay : $date;
+}
+/* Phần "ngoài bảng sản phẩm" của một lần phân tích thị trường trên Metric:
+     market — cả thị trường của từ khoá: doanh số, lượt bán, số sản phẩm và số
+              gian hàng có lượt bán, kèm số kỳ liền trước (…P)
+     price  — doanh số và lượt bán theo từng khoảng giá
+     brands, shops — 10 thương hiệu / gian hàng đứng đầu
+   Trả null nếu gói gửi lên không kèm phần này. */
+function rvExtra(array $in): ?array {
+  $aggs = (array)($in['basic'] ?? []);
+  if (!$aggs) return null;
+  $tong = function (?array $e): int {
+    $t = 0; foreach ((array)($e['platforms'] ?? []) as $p) $t += (float)($p['value'] ?? 0);
+    return (int)round($t);
+  };
+  $A = [];
+  foreach ($aggs as $a) if (is_array($a) && isset($a['aggregation'])) $A[(string)$a['aggregation']] = $a;
+  $mot = fn(string $k) => isset($A[$k]) ? $tong($A[$k]['entity'] ?? null) : 0;
+  $gia = [];
+  foreach (['REVENUE__BY__PRICE_RANGE_CUSTOM' => 'r', 'ORDER_COUNT__BY__PRICE_RANGE_CUSTOM' => 'o'] as $k => $f)
+    foreach ((array)($A[$k]['entities'] ?? []) as $e) {
+      $tu = (int)($e['from'] ?? 0); $den = isset($e['to']) ? (int)$e['to'] : 0;
+      $kk = $tu . '-' . $den;
+      $gia[$kk] = ($gia[$kk] ?? ['f' => $tu, 't' => $den, 'r' => 0, 'o' => 0]);
+      $gia[$kk][$f] = $tong($e);
+    }
+  $gia = array_values($gia);
+  usort($gia, fn($a, $b) => $a['f'] <=> $b['f']);
+  $so = fn($x, $k) => (int)round((float)($x[$k] ?? 0));
+  $brands = [];
+  foreach (array_slice((array)($in['groups'] ?? []), 0, 10) as $g) if (is_array($g))
+    $brands[] = ['b' => trim((string)($g['brand'] ?? '')), 'r' => $so($g, 'revenue_custom_sum'),
+                 'rp' => $so($g, 'previous_revenue_custom_sum'), 'o' => $so($g, 'order_custom_sum'),
+                 'np' => $so($g, 'product_total'), 'ns' => $so($g, 'shop_total'), 'ap' => $so($g, 'avg_price')];
+  $shops = [];
+  foreach (array_slice((array)($in['shops'] ?? []), 0, 10) as $g) if (is_array($g))
+    $shops[] = ['sid' => preg_replace('/\D/', '', (string)($g['shop_platform_id'] ?? '')),
+                'n' => trim((string)($g['shop_name'] ?? '')), 'mall' => (int)($g['official_type'] ?? 0) === 1,
+                'r' => $so($g, 'revenue_custom_sum'), 'rp' => $so($g, 'previous_revenue_custom_sum'),
+                'o' => $so($g, 'order_custom_sum'), 'np' => $so($g, 'product_total'), 'ap' => $so($g, 'avg_price'),
+                'tb' => trim((string)($g['top_brand'] ?? ''))];
+  return ['market' => ['r' => $mot('REVENUE_TOTAL_CUSTOM'), 'rp' => $mot('PREVIOUS_REVENUE_TOTAL_CUSTOM'),
+                       'o' => $mot('ORDER_TOTAL_CUSTOM'), 'op' => $mot('PREVIOUS_ORDER_TOTAL_CUSTOM'),
+                       'np' => $mot('PRODUCT_TOTAL'), 'npp' => $mot('PREVIOUS_PRODUCT_TOTAL'),
+                       'ns' => $mot('SHOP_TOTAL'), 'nsp' => $mot('PREVIOUS_SHOP_TOTAL')],
+          'price' => $gia, 'brands' => $brands, 'shops' => $shops];
+}
+/* Ghi một bản chụp. Trả ['ok'=>true,…] hoặc ['error'=>…]. */
+function rvScanSave(array $in): array {
+  $pdo = db(); rvTables($pdo);
+  [$kw, $loi] = rvKwCheck($pdo, $in);
+  if (!$kw) return ['error' => $loi];
   $items = [];
   foreach ((array)($in['products'] ?? []) as $p) {
     $x = is_array($p) ? rvItem($p) : null;
@@ -1007,27 +1071,68 @@ function rvScanSave(array $in): array {
   $items = array_values($items);
   usort($items, fn($a, $b) => $b['r'] <=> $a['r']);
   $items = array_slice($items, 0, RV_TOP);
-  $nay = (new DateTime('now', new DateTimeZone(KH_TZ)))->format('Y-m-d');
-  $date = rvNgay((string)($in['date'] ?? ''));
-  if ($date === '' || $date > $nay) $date = $nay;
+  $date = rvNgayQuet($in);
   $tu = rvNgay((string)($in['from'] ?? '')); $den = rvNgay((string)($in['to'] ?? ''));
-  $pdo->prepare('INSERT INTO rv_scan (kw_id, date, src, d_from, d_to, at, data) VALUES (?,?,?,?,?,?,?)
-      ON CONFLICT(kw_id, date, src) DO UPDATE SET d_from=excluded.d_from, d_to=excluded.d_to,
-      at=excluded.at, data=excluded.data')
+  $extra = rvExtra($in);
+  /* Gửi lại cùng ngày mà không kèm phần thị trường thì giữ phần đã có */
+  $pdo->prepare('INSERT INTO rv_scan (kw_id, date, src, d_from, d_to, at, data, extra) VALUES (?,?,?,?,?,?,?,?)
+      ON CONFLICT(kw_id, date, src) DO UPDATE SET d_from=COALESCE(NULLIF(excluded.d_from, \'\'), rv_scan.d_from),
+      d_to=COALESCE(NULLIF(excluded.d_to, \'\'), rv_scan.d_to),
+      at=excluded.at, data=excluded.data, extra=COALESCE(excluded.extra, rv_scan.extra)')
       ->execute([(string)$kw['id'], $date, 'metric', $tu, $den, gmdate('c'),
-                 json_encode($items, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]);
-  return ['ok' => true, 'kw' => (string)$kw['kw'], 'date' => $date, 'from' => $tu, 'to' => $den,
-          'n' => count($items), 'top' => $items[0]['shop'] . ' — ' . mb_substr($items[0]['n'], 0, 50, 'UTF-8')];
+                 json_encode($items, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                 $extra ? json_encode($extra, JSON_UNESCAPED_UNICODE) : null]);
+  return ['ok' => true, 'kw' => (string)$kw['kw'], 'kw_id' => (string)$kw['id'], 'date' => $date, 'from' => $tu, 'to' => $den,
+          'n' => count($items), 'top' => $items[0]['shop'] . ' — ' . mb_substr($items[0]['n'], 0, 50, 'UTF-8'),
+          'market' => $extra ? $extra['market']['r'] : null, 'price' => $extra ? count($extra['price']) : 0];
+}
+/* Ghi lượt tìm kiếm của từ khoá (trang "Phân tích từ khoá" của Metric).
+   Metric trả cả chùm từ khoá liên quan; dòng trùng đúng từ khoá là `vol`,
+   15 dòng còn lại nhiều lượt tìm nhất giữ làm gợi ý. */
+function rvVolSave(array $in): array {
+  $pdo = db(); rvTables($pdo);
+  [$kw, $loi] = rvKwCheck($pdo, $in);
+  if (!$kw) return ['error' => $loi];
+  $vol = null; $rel = [];
+  foreach ((array)($in['keywords'] ?? []) as $k) {
+    if (!is_array($k)) continue;
+    $ten = trim((string)($k['keyword'] ?? '')); $v = (int)round((float)($k['search_volume'] ?? 0));
+    if ($ten === '') continue;
+    if (rvNorm($ten) === rvNorm((string)$kw['kw'])) $vol = $v; else $rel[] = ['k' => $ten, 'v' => $v];
+  }
+  if ($vol === null && !$rel) return ['error' => 'Không có từ khoá nào trong kết quả.'];
+  usort($rel, fn($a, $b) => $b['v'] <=> $a['v']);
+  $rel = array_slice($rel, 0, 15);
+  $date = rvNgayQuet($in);
+  $tu = rvNgay((string)($in['from'] ?? '')); $den = rvNgay((string)($in['to'] ?? ''));
+  $pdo->prepare('INSERT INTO rv_vol (kw_id, date, d_from, d_to, vol, at, rel) VALUES (?,?,?,?,?,?,?)
+      ON CONFLICT(kw_id, date) DO UPDATE SET d_from=excluded.d_from, d_to=excluded.d_to, vol=excluded.vol,
+      at=excluded.at, rel=excluded.rel')
+      ->execute([(string)$kw['id'], $date, $tu, $den, $vol, gmdate('c'), json_encode($rel, JSON_UNESCAPED_UNICODE)]);
+  return ['ok' => true, 'kw' => (string)$kw['kw'], 'kw_id' => (string)$kw['id'], 'date' => $date, 'vol' => $vol, 'rel' => count($rel)];
+}
+function rvVols(string $kwId, int $max = 60): array {
+  $pdo = db(); rvTables($pdo);
+  $st = $pdo->prepare('SELECT date, d_from, d_to, vol, rel FROM rv_vol WHERE kw_id = ? ORDER BY date DESC LIMIT ' . $max);
+  $st->execute([$kwId]);
+  $out = [];
+  foreach ($st->fetchAll() as $r) {
+    $d = json_decode((string)$r['rel'], true);
+    $out[] = ['date' => (string)$r['date'], 'from' => (string)$r['d_from'], 'to' => (string)$r['d_to'],
+              'vol' => $r['vol'] === null ? null : (int)$r['vol'], 'rel' => is_array($d) ? $d : []];
+  }
+  return $out;
 }
 function rvScans(string $kwId, int $max = 60): array {
   $pdo = db(); rvTables($pdo);
-  $st = $pdo->prepare('SELECT date, src, d_from, d_to, at, data FROM rv_scan WHERE kw_id = ? ORDER BY date DESC LIMIT ' . $max);
+  $st = $pdo->prepare('SELECT date, src, d_from, d_to, at, data, extra FROM rv_scan WHERE kw_id = ? ORDER BY date DESC LIMIT ' . $max);
   $st->execute([$kwId]);
   $out = [];
   foreach ($st->fetchAll() as $r) {
     $d = json_decode((string)$r['data'], true);
     $out[] = ['date' => (string)$r['date'], 'src' => (string)$r['src'], 'from' => (string)$r['d_from'],
-              'to' => (string)$r['d_to'], 'at' => (string)$r['at'], 'items' => is_array($d) ? $d : []];
+              'to' => (string)$r['d_to'], 'at' => (string)$r['at'], 'items' => is_array($d) ? $d : [],
+              'extra' => json_decode((string)($r['extra'] ?? ''), true) ?: null];
   }
   return $out;
 }

@@ -4866,7 +4866,7 @@ function launchAutoMarks(){
      r, o (doanh số, lượt bán trong kỳ) · rp, op (kỳ liền trước, do Metric tính)
      rev, sold (tổng từ trước tới giờ) · rc, ra (số đánh giá, điểm)
    ============================================================ */
-const rv = {state:null, scans:{}, err:'', asked:false, busy:false};
+const rv = {state:null, scans:{}, vols:{}, err:'', asked:false, busy:false};
 const RV_KINDS = {main:'Từ khoá chính', sp:'Từ khoá sản phẩm'};
 const RV_SHOW = 10;                       // bảng mặc định hiện top mấy
 
@@ -4943,10 +4943,42 @@ function rvChanges(cmp){
 const RV_TOP_N = 20;
 const cut = (s, n) => { s = String(s || ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
 
+/* Tên một khoảng giá: "50k – 75k", "dưới 10k", "từ 5tr". Metric trả from/to;
+   khoảng cuối không có `to` (máy chủ ghi 0). */
+function rvGiaTen(g){
+  if (!g.f) return 'dưới ' + moneyShort(g.t);
+  if (!g.t) return 'từ ' + moneyShort(g.f);
+  return moneyShort(g.f) + ' – ' + moneyShort(g.t);
+}
+/* Bảng khoảng giá của một bản chụp: tỉ trọng doanh số và lượt bán của từng
+   khoảng trong CẢ thị trường của từ khoá, khoảng nào đứng đầu, và trong top
+   đang xem có mấy sản phẩm (và sản phẩm nào của mình) rơi vào khoảng đó. */
+function rvPrice(cur, rows){
+  const ds = ((cur.extra && cur.extra.price) || []).filter(g => g.r || g.o);
+  if (!ds.length) return null;
+  const tR = ds.reduce((a, g) => a + g.r, 0), tO = ds.reduce((a, g) => a + g.o, 0);
+  const mR = Math.max(...ds.map(g => g.r)), mO = Math.max(...ds.map(g => g.o));
+  const trong = (g, p) => p >= g.f && (!g.t || p < g.t);
+  const out = ds.map(g => Object.assign({}, g, {
+    ten: rvGiaTen(g), sR: tR ? g.r / tR * 100 : 0, sO: tO ? g.o / tO * 100 : 0,
+    wR: mR ? g.r / mR * 100 : 0, wO: mO ? g.o / mO * 100 : 0, topR: g.r === mR, topO: g.o === mO,
+    n: rows.filter(r => trong(g, r.p)).length, mine: rows.filter(r => r.mine && trong(g, r.p))
+  }));
+  return {rows: out, topR: out.find(g => g.topR), topO: out.find(g => g.topO)};
+}
+
 /* Báo cáo chữ của một từ khoá — để dán vào Zalo/Telegram */
-function rvReportText(kw, cur, cmp){
+function rvReportText(kw, cur, cmp, vol){
   const L = ['🎯 ĐỐI THỦ — "' + kw.kw + '"',
-             'Quét ngày ' + fmtDate(cur.date) + (cur.from ? ' · số Metric ' + fmtDate(cur.from).slice(0,5) + '–' + fmtDate(cur.to).slice(0,5) : ''), ''];
+             'Quét ngày ' + fmtDate(cur.date) + (cur.from ? ' · số Metric ' + fmtDate(cur.from).slice(0,5) + '–' + fmtDate(cur.to).slice(0,5) : '')];
+  const tg = (a, b) => { const v = rvPct(a, b); return v == null ? '' : ' (' + (v >= 0 ? '▲' : '▼') + Math.abs(v).toFixed(0) + '%)'; };
+  const m = cur.extra && cur.extra.market, gia = rvPrice(cur, cmp.rows);
+  if (vol && vol.vol != null) L.push('Lượt tìm kiếm: ' + vol.vol.toLocaleString('vi-VN') + ' / 14 ngày');
+  if (m) L.push('Thị trường: doanh số ' + moneyShort(m.r) + tg(m.r, m.rp) + ' · ' + m.o.toLocaleString('vi-VN') + ' lượt bán' + tg(m.o, m.op) +
+                ' · ' + m.np + ' sản phẩm, ' + m.ns + ' gian hàng');
+  if (gia) L.push('Khoảng giá: doanh số cao nhất ' + gia.topR.ten + ' (' + gia.topR.sR.toFixed(0) + '%) · nhiều lượt bán nhất ' +
+                  gia.topO.ten + ' (' + gia.topO.sO.toFixed(0) + '%)');
+  L.push('');
   cmp.rows.slice(0, RV_SHOW).forEach(r => {
     L.push(r.rank + '. ' + (r.mine ? '⭐ ' : '') + (r.shop || '?') + ' — ' + cut(r.n, 50));
     L.push('   ' + money(r.p) + (r.pmin && r.pmin !== r.pmax ? ' (' + moneyShort(r.pmin) + '–' + moneyShort(r.pmax) + ')' : '') +
@@ -4959,4 +4991,4 @@ function rvReportText(kw, cur, cmp){
   return L.join('\n');
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "a8bba810"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "252b697e"]);

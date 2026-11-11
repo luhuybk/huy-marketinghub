@@ -453,7 +453,7 @@ switch ($action) {
   }
   case 'rival_scans': {
     requireOwner();
-    out(['ok' => true, 'scans' => rvScans((string)($in['kw_id'] ?? ''))]);
+    out(['ok' => true, 'scans' => rvScans((string)($in['kw_id'] ?? '')), 'vols' => rvVols((string)($in['kw_id'] ?? ''))]);
   }
   case 'rival_kw_save': {
     requireOwner();
@@ -482,6 +482,7 @@ switch ($action) {
     $pdo = db(); rvTables($pdo);
     $id = (string)($in['id'] ?? '');
     $pdo->prepare('DELETE FROM rv_scan WHERE kw_id = ?')->execute([$id]);
+    $pdo->prepare('DELETE FROM rv_vol WHERE kw_id = ?')->execute([$id]);
     $pdo->prepare('DELETE FROM rv_kw WHERE id = ?')->execute([$id]);
     out(['ok' => true]);
   }
@@ -490,6 +491,8 @@ switch ($action) {
     $pdo = db(); rvTables($pdo);
     $pdo->prepare('DELETE FROM rv_scan WHERE kw_id = ? AND date = ? AND src = ?')
         ->execute([(string)($in['kw_id'] ?? ''), (string)($in['date'] ?? ''), (string)($in['src'] ?? 'metric')]);
+    $pdo->prepare('DELETE FROM rv_vol WHERE kw_id = ? AND date = ?')
+        ->execute([(string)($in['kw_id'] ?? ''), (string)($in['date'] ?? '')]);
     out(['ok' => true]);
   }
   case 'rival_mine': {

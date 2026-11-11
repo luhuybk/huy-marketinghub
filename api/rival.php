@@ -9,7 +9,8 @@
         POST {token, do:"kws"}  → danh sách từ khoá cần quét + một VÉ ngắn hạn
 
    2. Trang Metric đang mở trong trình duyệt của tác vụ, bằng vé đó:
-        POST {ticket, do:"scan", kw_id, query, from, to, products}
+        POST {ticket, do:"scan", kw_id, query, from, to, products, basic, groups, shops}
+        POST {ticket, do:"vol",  kw_id, query, from, to, keywords}
       Trang Metric gửi thẳng nguyên mảng sản phẩm nó vừa nhận từ máy chủ
       Metric. Không qua tay tác vụ: 20 sản phẩm × 25 từ khoá mà bắt AI chép
       lại từng con số thì chậm và thế nào cũng sai một con.
@@ -63,6 +64,14 @@ if ($do === 'scan') {
   if (!rvTicketOk((string)($in['ticket'] ?? '')))
     rvOut(['ok' => false, 'error' => 'Vé quét không đúng hoặc đã hết hạn — xin vé mới bằng do:"kws".'], 403);
   $r = rvScanSave($in);
+  rvOut(isset($r['error']) ? ['ok' => false, 'error' => $r['error']] : $r, isset($r['error']) ? 400 : 200);
+}
+
+/* Lượt tìm kiếm của từ khoá — gửi từ trang "Phân tích từ khoá" của Metric */
+if ($do === 'vol') {
+  if (!rvTicketOk((string)($in['ticket'] ?? '')))
+    rvOut(['ok' => false, 'error' => 'Vé quét không đúng hoặc đã hết hạn — xin vé mới bằng do:"kws".'], 403);
+  $r = rvVolSave($in);
   rvOut(isset($r['error']) ? ['ok' => false, 'error' => $r['error']] : $r, isset($r['error']) ? 400 : 200);
 }
 
