@@ -444,6 +444,66 @@ switch ($action) {
     out(['ok' => true]);
   }
 
+  /* ---- Theo dõi đối thủ — chỉ chủ. Luật nằm ở lib.php (rv…) ---- */
+  case 'rival_state': {
+    requireOwner();
+    $pdo = db(); rvTables($pdo);
+    out(['ok' => true, 'kws' => rvKwList(true),
+         'mine' => $pdo->query('SELECT shop_id id, name FROM rv_mine')->fetchAll()]);
+  }
+  case 'rival_scans': {
+    requireOwner();
+    out(['ok' => true, 'scans' => rvScans((string)($in['kw_id'] ?? ''))]);
+  }
+  case 'rival_kw_save': {
+    requireOwner();
+    $pdo = db(); rvTables($pdo);
+    $kw = trim((string)preg_replace('/\s+/u', ' ', (string)($in['kw'] ?? '')));
+    if ($kw === '' || mb_strlen($kw, 'UTF-8') > 120) fail('Từ khoá trống hoặc quá dài.');
+    $id = (string)($in['id'] ?? '');
+    foreach (rvKwList(true) as $k)
+      if ($k['id'] !== $id && rvNorm($k['kw']) === rvNorm($kw)) fail('Từ khoá này đã có trong danh sách.');
+    $kind = ($in['kind'] ?? '') === 'sp' ? 'sp' : 'main';
+    $note = mb_substr(trim((string)($in['note'] ?? '')), 0, 300, 'UTF-8');
+    $off = !empty($in['off']) ? 1 : 0;
+    if ($id !== '') {
+      $st = $pdo->prepare('UPDATE rv_kw SET kw = ?, kind = ?, note = ?, off = ? WHERE id = ?');
+      $st->execute([$kw, $kind, $note, $off, $id]);
+      if (!$st->rowCount()) fail('Không thấy từ khoá này.', 404);
+    } else {
+      $id = 'rk' . bin2hex(random_bytes(6));
+      $pdo->prepare('INSERT INTO rv_kw (id, kw, kind, note, off, created) VALUES (?,?,?,?,?,?)')
+          ->execute([$id, $kw, $kind, $note, $off, gmdate('c')]);
+    }
+    out(['ok' => true, 'id' => $id]);
+  }
+  case 'rival_kw_del': {
+    requireOwner();
+    $pdo = db(); rvTables($pdo);
+    $id = (string)($in['id'] ?? '');
+    $pdo->prepare('DELETE FROM rv_scan WHERE kw_id = ?')->execute([$id]);
+    $pdo->prepare('DELETE FROM rv_kw WHERE id = ?')->execute([$id]);
+    out(['ok' => true]);
+  }
+  case 'rival_scan_del': {
+    requireOwner();
+    $pdo = db(); rvTables($pdo);
+    $pdo->prepare('DELETE FROM rv_scan WHERE kw_id = ? AND date = ? AND src = ?')
+        ->execute([(string)($in['kw_id'] ?? ''), (string)($in['date'] ?? ''), (string)($in['src'] ?? 'metric')]);
+    out(['ok' => true]);
+  }
+  case 'rival_mine': {
+    requireOwner();
+    $pdo = db(); rvTables($pdo);
+    $sid = preg_replace('/\D/', '', (string)($in['shop_id'] ?? ''));
+    if ($sid === '') fail('Thiếu mã gian hàng.');
+    if (!empty($in['on']))
+      $pdo->prepare('INSERT INTO rv_mine (shop_id, name) VALUES (?, ?) ON CONFLICT(shop_id) DO UPDATE SET name = excluded.name')
+          ->execute([$sid, mb_substr(trim((string)($in['name'] ?? '')), 0, 120, 'UTF-8')]);
+    else $pdo->prepare('DELETE FROM rv_mine WHERE shop_id = ?')->execute([$sid]);
+    out(['ok' => true]);
+  }
+
   /* Số liệu cho mục Báo cáo Ads → Radar. Ai có quyền Shopee Ads là xem được:
      chỉ có chi phí quảng cáo, không có giá vốn. */
   case 'ad_radar': {

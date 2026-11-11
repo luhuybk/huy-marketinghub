@@ -2,3 +2,4 @@ api/config.php
 api/data/
 dist/
 .DS_Store
+tools/.hub_token

@@ -540,6 +540,58 @@ function api(req, res, body){
       return send({ok:true});
     }
 
+    /* ---- Theo dõi đối thủ — chỉ chủ ---- */
+    case 'rival_state': {
+      if (!owner()) return;
+      const D = db(); rvTables(D);
+      return send({ok:true, kws:rvKwList(true), mine:D.prepare('SELECT shop_id id, name FROM rv_mine').all()});
+    }
+    case 'rival_scans': {
+      if (!owner()) return;
+      return send({ok:true, scans:rvScans(String(inp.kw_id || ''))});
+    }
+    case 'rival_kw_save': {
+      if (!owner()) return;
+      const D = db(); rvTables(D);
+      const kw = String(inp.kw || '').replace(/\s+/gu, ' ').trim();
+      if (!kw || [...kw].length > 120) return fail('Từ khoá trống hoặc quá dài.');
+      let id = String(inp.id || '');
+      if (rvKwList(true).some(k => k.id !== id && rvNorm(k.kw) === rvNorm(kw))) return fail('Từ khoá này đã có trong danh sách.');
+      const kind = inp.kind === 'sp' ? 'sp' : 'main', note = [...String(inp.note || '').trim()].slice(0, 300).join(''), off = inp.off ? 1 : 0;
+      if (id){
+        const r = D.prepare('UPDATE rv_kw SET kw = ?, kind = ?, note = ?, off = ? WHERE id = ?').run(kw, kind, note, off, id);
+        if (!r.changes) return fail('Không thấy từ khoá này.', 404);
+      } else {
+        id = 'rk' + crypto.randomBytes(6).toString('hex');
+        D.prepare('INSERT INTO rv_kw (id, kw, kind, note, off, created) VALUES (?,?,?,?,?,?)').run(id, kw, kind, note, off, iso());
+      }
+      return send({ok:true, id});
+    }
+    case 'rival_kw_del': {
+      if (!owner()) return;
+      const D = db(); rvTables(D);
+      D.prepare('DELETE FROM rv_scan WHERE kw_id = ?').run(String(inp.id || ''));
+      D.prepare('DELETE FROM rv_kw WHERE id = ?').run(String(inp.id || ''));
+      return send({ok:true});
+    }
+    case 'rival_scan_del': {
+      if (!owner()) return;
+      const D = db(); rvTables(D);
+      D.prepare('DELETE FROM rv_scan WHERE kw_id = ? AND date = ? AND src = ?')
+        .run(String(inp.kw_id || ''), String(inp.date || ''), String(inp.src || 'metric'));
+      return send({ok:true});
+    }
+    case 'rival_mine': {
+      if (!owner()) return;
+      const D = db(); rvTables(D);
+      const sid = String(inp.shop_id || '').replace(/\D/g, '');
+      if (!sid) return fail('Thiếu mã gian hàng.');
+      if (inp.on) D.prepare('INSERT INTO rv_mine (shop_id, name) VALUES (?, ?) ON CONFLICT(shop_id) DO UPDATE SET name = excluded.name')
+                   .run(sid, [...String(inp.name || '').trim()].slice(0, 120).join(''));
+      else D.prepare('DELETE FROM rv_mine WHERE shop_id = ?').run(sid);
+      return send({ok:true});
+    }
+
     /* Số liệu cho Báo cáo Ads → Radar — ai có quyền Shopee Ads */
     case 'ad_radar': {
       if (!need()) return;
@@ -1181,6 +1233,113 @@ function ingestRoute(req, res, body){
   return out(Object.assign({ok:true, need_full:ingestNeedFull(devId)}, r));
 }
 
+/* ---------------- Theo dõi đối thủ: bản Node của các hàm rv… trong api/lib.php ---------------- */
+const RV_TOP = 20, RV_TICKET_GIO = 6;
+function rvTables(D){
+  D.exec(`CREATE TABLE IF NOT EXISTS rv_kw (id TEXT PRIMARY KEY, kw TEXT NOT NULL, kind TEXT,
+      note TEXT, off INTEGER DEFAULT 0, created TEXT);
+    CREATE TABLE IF NOT EXISTS rv_scan (kw_id TEXT NOT NULL, date TEXT NOT NULL, src TEXT NOT NULL,
+      d_from TEXT, d_to TEXT, at TEXT, data TEXT, PRIMARY KEY (kw_id, date, src));
+    CREATE TABLE IF NOT EXISTS rv_mine (shop_id TEXT PRIMARY KEY, name TEXT)`);
+}
+const rvNorm = s => String(s || '').trim().toLowerCase().replace(/\s+/gu, ' ');
+const rvNgay = s => { s = String(s || '').replace(/\D/g, ''); return s.length === 8 ? `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}` : ''; };
+function rvItem(p){
+  const b = String(p.product_base_id || '').split('__');
+  const item = String(b[1] || '').replace(/\D/g, '');
+  if (!item) return null;
+  const url = String(p.url_product || ''), img = String(p.url_thumbnail || '');
+  const so = k => Math.round(+p[k] || 0);
+  return {
+    id:item, sid:String(b[2] || '').replace(/\D/g, ''),
+    n:String(p.product_name || '').replace(/\s+/gu, ' ').trim(),
+    img:img.startsWith('https://') ? img : '', url:url.startsWith('https://shopee.vn/') ? url : '',
+    shop:String(p.shop_name || '').trim(), mall:Math.trunc(+p.official_type || 0) === 1,
+    brand:String(p.final_brand || '').trim(), created:String(p.platform_created_at || '').slice(0, 10),
+    p:so('price'), pmin:so('price_min'), pmax:so('price_max'),
+    sold:so('order_count'), rev:so('revenue'), rc:so('rating_count'), ra:Math.round((+p.rating_avg || 0) * 100) / 100,
+    o:so('order_custom'), op:so('previous_order_custom'), r:so('revenue_custom'), rp:so('previous_revenue_custom')
+  };
+}
+function rvKwList(caTat = true){
+  const D = db(); rvTables(D);
+  return D.prepare(`SELECT k.*, (SELECT MAX(date) FROM rv_scan s WHERE s.kw_id = k.id) last,
+      (SELECT COUNT(*) FROM rv_scan s WHERE s.kw_id = k.id) n FROM rv_kw k ORDER BY k.created`).all()
+    .filter(r => caTat || r.off !== 1)
+    .map(r => ({id:String(r.id), kw:String(r.kw), kind:r.kind === 'sp' ? 'sp' : 'main', note:String(r.note || ''),
+                off:r.off === 1, last:String(r.last || ''), n:r.n}));
+}
+function rvScanSave(inp){
+  const D = db(); rvTables(D);
+  let kw = D.prepare('SELECT * FROM rv_kw WHERE id = ?').get(String(inp.kw_id || ''));
+  /* create — xem chú thích ở rvScanSave() bên PHP */
+  if (!kw && inp.create && Array.isArray(inp.query) && inp.query.length === 1){
+    const ten = String(inp.query[0] || '').replace(/\s+/gu, ' ').trim();
+    const co = rvKwList(true).find(k => rvNorm(k.kw) === rvNorm(ten));
+    if (co) kw = {id:co.id, kw:co.kw};
+    else if (ten && [...ten].length <= 120){
+      kw = {id:'rk' + crypto.randomBytes(6).toString('hex'), kw:ten};
+      D.prepare('INSERT INTO rv_kw (id, kw, kind, note, off, created) VALUES (?,?,?,?,0,?)').run(kw.id, ten, 'main', '', iso());
+    }
+  }
+  if (!kw) return {error:'Không thấy từ khoá này trong danh sách theo dõi.'};
+  const qs = (Array.isArray(inp.query) ? inp.query : []).map(rvNorm);
+  if (!qs.length || !qs.includes(rvNorm(kw.kw)))
+    return {error:`Kết quả gửi lên là của "${qs.join(', ')}", không phải "${kw.kw}".`};
+  const m = new Map();
+  (Array.isArray(inp.products) ? inp.products : []).forEach(p => { const x = p && typeof p === 'object' ? rvItem(p) : null; if (x) m.set(x.id, x); });
+  if (!m.size) return {error:'Không có sản phẩm nào trong kết quả.'};
+  const items = [...m.values()].sort((a, b) => b.r - a.r).slice(0, RV_TOP);
+  const nay = vnNow().date;
+  let date = rvNgay(inp.date); if (!date || date > nay) date = nay;
+  const tu = rvNgay(inp.from), den = rvNgay(inp.to);
+  D.prepare(`INSERT INTO rv_scan (kw_id, date, src, d_from, d_to, at, data) VALUES (?,?,?,?,?,?,?)
+      ON CONFLICT(kw_id, date, src) DO UPDATE SET d_from=excluded.d_from, d_to=excluded.d_to,
+      at=excluded.at, data=excluded.data`).run(String(kw.id), date, 'metric', tu, den, iso(), JSON.stringify(items));
+  return {ok:true, kw:String(kw.kw), date, from:tu, to:den, n:items.length,
+          top:items[0].shop + ' — ' + [...items[0].n].slice(0, 50).join('')};
+}
+function rvScans(kwId, max = 60){
+  const D = db(); rvTables(D);
+  return D.prepare('SELECT date, src, d_from, d_to, at, data FROM rv_scan WHERE kw_id = ? ORDER BY date DESC LIMIT ' + max).all(kwId)
+    .map(r => { let d = []; try { d = JSON.parse(r.data); } catch(e){}
+      return {date:r.date, src:r.src, from:r.d_from || '', to:r.d_to || '', at:r.at || '', items:Array.isArray(d) ? d : []}; });
+}
+function rvTicketNew(){
+  const t = crypto.randomBytes(20).toString('hex');
+  kvSet('rv_ticket', {hash:sha(t), exp:Math.floor(Date.now() / 1000) + RV_TICKET_GIO * 3600});
+  return t;
+}
+function rvTicketOk(t){
+  const v = kvGet('rv_ticket', null);
+  return !!v && String(t || '').length >= 32 && +v.exp > Date.now() / 1000 && v.hash === sha(String(t));
+}
+function rivalRoute(req, res, body){
+  const h = {'Content-Type':'application/json; charset=utf-8', 'Cache-Control':'no-store'};
+  if (req.headers.origin === 'https://metric.vn')
+    Object.assign(h, {'Access-Control-Allow-Origin':'https://metric.vn', 'Access-Control-Allow-Methods':'POST, OPTIONS',
+                      'Access-Control-Allow-Headers':'Content-Type', 'Vary':'Origin'});
+  const out = (o, code = 200) => { res.writeHead(code, h); res.end(JSON.stringify(o)); };
+  if (req.method === 'OPTIONS'){ res.writeHead(204, h); return res.end(); }
+  if (req.method !== 'POST') return out({ok:false, error:'Cổng này chỉ nhận POST từ tác vụ quét.'}, 405);
+  let inp; try { inp = JSON.parse(body || '{}'); } catch(e){ return out({ok:false, error:'Không đọc được JSON.'}, 400); }
+  if (inp.do === 'kws'){
+    const tok = String(inp.token || '');
+    if (tok.length < 32) return out({ok:false, error:'Thiếu token.'}, 400);
+    const [tt] = ingestDevice(tok, inp.label || 'Tác vụ quét đối thủ', req.socket.remoteAddress);
+    if (tt !== 'ok') return out({ok:false, pending: tt === 'pending', error: tt === 'pending'
+      ? 'Chờ chủ cho phép: Marketing Hub → Cài đặt → Nhận số liệu quảng cáo tự động → Cho phép.'
+      : 'Thiết bị này đã bị thu hồi quyền gửi số.'}, 403);
+    return out({ok:true, ticket:rvTicketNew(), url:`http://localhost:${PORT}/api/rival.php`, today:vnNow().date, kws:rvKwList(false)});
+  }
+  if (inp.do === 'scan'){
+    if (!rvTicketOk(inp.ticket)) return out({ok:false, error:'Vé quét không đúng hoặc đã hết hạn — xin vé mới bằng do:"kws".'}, 403);
+    const r = rvScanSave(inp);
+    return r.error ? out({ok:false, error:r.error}, 400) : out(r);
+  }
+  return out({ok:false, error:'Không hiểu yêu cầu.'}, 400);
+}
+
 /* ---------------- máy chủ ---------------- */
 http.createServer((req, res) => {
   let p = decodeURIComponent(req.url.split('?')[0]);
@@ -1195,6 +1354,16 @@ http.createServer((req, res) => {
     req.on('data', c => { body += c; if (body.length > 2e6) req.destroy(); });
     req.on('end', () => tgHook(req, res, body)
       .catch(e => { res.writeHead(500); res.end('lỗi: ' + e.message); }));
+    return;
+  }
+
+  if (p === '/api/rival.php'){
+    let body = '';
+    req.on('data', c => { body += c; if (body.length > 4e6) req.destroy(); });
+    req.on('end', () => { try { rivalRoute(req, res, body); } catch(e){
+      res.writeHead(500, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ok:false, error:e.message}));
+    }});
     return;
   }
 

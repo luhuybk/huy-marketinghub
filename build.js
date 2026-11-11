@@ -70,7 +70,7 @@ copy('icon.svg');
 /* api/: máy chủ đăng nhập + đồng bộ.
    KHÔNG chép config.php — mã mật khẩu của bạn chỉ nằm trên máy chủ,
    không đi qua git và không nằm trong thư mục dựng. */
-['api/index.php', 'api/lib.php', 'api/cron.php', 'api/tg.php', 'api/ingest.php', 'api/push_hub.py',
+['api/index.php', 'api/lib.php', 'api/cron.php', 'api/tg.php', 'api/ingest.php', 'api/rival.php', 'api/push_hub.py',
  'api/config.example.php', 'api/.htaccess'].forEach(copy);
 
 /* ---------- cấu hình máy chủ ---------- */

@@ -870,6 +870,30 @@ và có giá vốn — nên chỉ máy có quyền Tính chi phí mới thấy c
 
 ---
 
+## 🎯 Theo dõi đối thủ
+
+Mục chỉ chủ thấy. Mỗi tuần một tác vụ (AI) mở **Metric**, phân tích từng từ khoá
+đang theo dõi và gửi 20 sản phẩm đứng đầu theo doanh số vào Hub. Mỗi lần quét
+là một **bản chụp**; Hub so bản mới với bản trước để chỉ ra ai lên/tụt hạng, ai
+mới vào hay rớt top, ai đổi giá, đổi ảnh bìa, đổi tên.
+
+- Quy trình quét cho tác vụ: `tools/quet-doi-thu.md`. Cổng nhận: `api/rival.php`
+  (token thiết bị → vé ngắn hạn → trang Metric gửi thẳng kết quả bằng vé, mở
+  CORS cho đúng `https://metric.vn`). Token nằm ở `tools/.hub_token`, ngoài git.
+- Dữ liệu **ở máy chủ, không đồng bộ** về máy: bảng `rv_kw` (từ khoá), `rv_scan`
+  (bản chụp), `rv_mine` (gian hàng của mình). App hỏi bằng các action
+  `rival_*` (chỉ chủ) và giữ tạm trong `rv` (`js/state.js`).
+- Tên trường của Metric chỉ xuất hiện ở `rvItem()` (`api/lib.php`, bản Node ở
+  `serve.js`). Metric đổi tên trường thì sửa đúng hàm đó.
+- "Từ lần quét trước" = hiệu của **tổng** lượt bán / doanh số giữa hai bản chụp
+  (số cộng dồn), không phải hiệu của hai kỳ 30 ngày trượt.
+- Giới hạn cần nhớ: mỗi từ khoá tốn 1 lượt phân tích Metric cho mỗi lần quét;
+  số Metric trễ ~9 ngày; Metric không có voucher và tên phân loại (phần này lấy
+  từ Shopee, chưa làm — khi làm thì voucher quy ra % và **giá cuối**, có tính
+  đơn tối thiểu và mức giảm tối đa).
+
+---
+
 ## 🚀 Hàng mới về
 
 Chữa đúng một chuyện: hàng về rồi mà quên up, up rồi mà quên chạy quảng cáo.
