@@ -1237,8 +1237,11 @@ function ingestRoute(req, res, body){
 }
 
 /* ---------------- Theo dõi đối thủ: bản Node của các hàm rv… trong api/lib.php ---------------- */
-const RV_TOP = 20, RV_TICKET_GIO = 6, RV_SP_TOP = 10;
+const RV_TOP = 20, RV_TICKET_GIO = 6, RV_SP_TOP = 10, RV_SP_GIU = 400;
+const rvDaTao = new WeakSet();          // kho nào đã dựng bảng rv… rồi
 function rvTables(D){
+  if (rvDaTao.has(D)) return;
+  rvDaTao.add(D);
   D.exec(`CREATE TABLE IF NOT EXISTS rv_kw (id TEXT PRIMARY KEY, kw TEXT NOT NULL, kind TEXT,
       note TEXT, off INTEGER DEFAULT 0, created TEXT);
     CREATE TABLE IF NOT EXISTS rv_scan (kw_id TEXT NOT NULL, date TEXT NOT NULL, src TEXT NOT NULL,
@@ -1393,6 +1396,7 @@ function rvSpClean(x){
   const tiers = mang(x.tiers).slice(0, 3).filter(obj).map(t => ({n: chu(t.n, 60), o: mang(t.o).slice(0, 60).map(o => chu(o, 80))}));
   const vouchers = mang(x.vouchers).slice(0, 12).filter(obj).map(v => ({
     code: chu(v.code, 40), min: tien(v.min), val: tien(v.val), pct: pct(v.pct), cap: tien(v.cap), coin: !!v.coin,
+    start: Math.max(0, Math.trunc(so(v.start))),
     end: Math.max(0, Math.trunc(so(v.end))), used: Math.max(0, Math.min(100, Math.trunc(so(v.used)))), lab: chu(v.lab, 60)}));
   const def = obj(x.def) ? x.def : {};
   return {
@@ -1409,10 +1413,13 @@ function rvSpSave(inp){
   const D = db(); rvTables(D);
   const x = inp.item && typeof inp.item === 'object' ? rvSpClean(inp.item) : null;
   if (!x) return {error:'Gói gửi lên không có sản phẩm.'};
-  if (!x.models.length && !x.def.f) return {error:'Sản phẩm ' + x.id + ' không có giá lẫn phân loại — trang chưa tải xong?'};
+  if (x.n === '' || (!x.models.length && !x.def.f))
+    return {error:'Sản phẩm ' + x.id + ' không có tên, hoặc không có giá lẫn phân loại — trang chưa tải xong?'};
   const date = rvNgayQuet(inp);
   D.prepare(`INSERT INTO rv_sp (item_id, date, at, data) VALUES (?,?,?,?)
       ON CONFLICT(item_id, date) DO UPDATE SET at=excluded.at, data=excluded.data`).run(x.id, date, iso(), JSON.stringify(x));
+  D.prepare('DELETE FROM rv_sp WHERE item_id = ? AND date < ?')
+   .run(x.id, new Date(Date.parse(date + 'T00:00:00Z') - RV_SP_GIU * 864e5).toISOString().slice(0, 10));
   return {ok:true, id:x.id, date, models:x.models.length, lines:x.lines.length, f:x.def.f};
 }
 function rvSpList(){
@@ -1442,10 +1449,11 @@ function rvSps(ids, max = 8){
   const out = {};
   for (let i = 0; i < ids.length; i += 200){
     const lo = ids.slice(i, i + 200);
-    D.prepare('SELECT item_id, date, data FROM rv_sp WHERE item_id IN (' + lo.map(() => '?').join(',') + ') ORDER BY date DESC').all(...lo)
+    D.prepare('SELECT item_id, date, data FROM rv_sp WHERE item_id IN (' + lo.map(() => '?').join(',') +
+              ') AND date IN (SELECT s2.date FROM rv_sp s2 WHERE s2.item_id = rv_sp.item_id ORDER BY s2.date DESC LIMIT ' + Math.trunc(max) +
+              ') ORDER BY date DESC').all(...lo)
       .forEach(r => {
         const id = String(r.item_id);
-        if ((out[id] || []).length >= max) return;
         let d = null; try { d = JSON.parse(r.data); } catch(e){}
         if (d && typeof d === 'object') (out[id] = out[id] || []).push(Object.assign({date:r.date}, d));
       });

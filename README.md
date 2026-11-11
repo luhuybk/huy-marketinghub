@@ -914,6 +914,12 @@ tốn lượt Metric.
   không vượt mức giảm tối đa, mỗi đơn một voucher shop (lấy cái giảm nhiều nhất)
   cộng voucher Shopee nếu có. Phân loại Shopee chọn sẵn thì dùng đúng số Shopee
   hiện. Bảng top hiện giá cuối của **phân loại rẻ nhất còn hàng**.
+- Voucher shop **chưa tới ngày bắt đầu, đã hết hạn hoặc đã hết lượt** không được
+  tính vào giá cuối (`rvVoucherDung`) — Shopee liệt kê cả voucher sắp diễn ra.
+- **Lần quét bù** (`rvLaBu`): gửi lên sau ngày nó mang tên. Chỉ so thứ hạng và
+  doanh số trong kỳ với nó; giá, ảnh bìa, tên, tổng đã bán thì không.
+- Trang tự hỏi lại máy chủ khi số đã cũ quá 10 phút; bản chụp trang Shopee giữ
+  400 ngày, mỗi lần mở chỉ tải 8 bản mới nhất của mỗi sản phẩm.
 - Voucher Shopee không cho biết mức giảm tối đa; `shopee-quet.js` suy ra khi số
   tiền giảm thật nhỏ hơn % × giá. Giá là giá tài khoản phụ nhìn thấy — voucher
   "khách hàng mới" của shop có tính vào và được ghi chú.

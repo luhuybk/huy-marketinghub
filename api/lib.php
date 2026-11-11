@@ -922,8 +922,13 @@ function adRadarData(int $soNgay = 400): array {
 const RV_TOP = 20;            // Metric trả 20 sản phẩm đầu cho mỗi lần phân tích
 const RV_TICKET_GIO = 6;      // vé quét sống bao lâu
 const RV_SP_TOP = 10;          // mỗi từ khoá đọc trang Shopee của mấy sản phẩm đứng đầu
+const RV_SP_GIU = 400;         // bản chụp trang Shopee giữ bao nhiêu ngày
 
 function rvTables(PDO $pdo): void {
+  /* Mỗi yêu cầu gọi hàm này 4–6 lần (mỗi hàm rv… một lần) — làm một lần là đủ */
+  static $xong = false;
+  if ($xong) return;
+  $xong = true;
   $pdo->exec('CREATE TABLE IF NOT EXISTS rv_kw (id TEXT PRIMARY KEY, kw TEXT NOT NULL, kind TEXT,
       note TEXT, off INTEGER DEFAULT 0, created TEXT)');
   $pdo->exec('CREATE TABLE IF NOT EXISTS rv_scan (kw_id TEXT NOT NULL, date TEXT NOT NULL, src TEXT NOT NULL,
@@ -1156,7 +1161,9 @@ function rvScans(string $kwId, int $max = 60): array {
             {k: sp|shop|platform|ads|other, lab, amt, min, pct, val, cap, code}
      models từng phân loại: {n, p (giá bán), pb (giá gốc), ok (còn hàng)}
      tiers  nhóm phân loại: {n, o:[…]}
-     vouchers  voucher shop đang phát: {code, min, val, pct, cap, coin, end, used, lab}
+     vouchers  voucher shop đang phát: {code, min, val, pct, cap, coin, start, end, used, lab}
+               (start/end là giây Unix — voucher chưa tới ngày hoặc đã dùng hết thì
+               app không tính vào giá cuối)
      tags   nhãn khuyến mãi ("Mua để nhận quà", "Flash Sale"…) */
 function rvSpClean(array $x): ?array {
   $id = preg_replace('/\D/', '', (string)($x['id'] ?? ''));
@@ -1183,6 +1190,7 @@ function rvSpClean(array $x): ?array {
     $vs[] = ['code' => $chu($v['code'] ?? '', 40), 'min' => $tien($v['min'] ?? 0), 'val' => $tien($v['val'] ?? 0),
              'pct' => max(0, min(100, round((float)(is_numeric($v['pct'] ?? null) ? $v['pct'] : 0), 1))),
              'cap' => $tien($v['cap'] ?? 0), 'coin' => !empty($v['coin']),
+             'start' => max(0, (int)($v['start'] ?? 0)),
              'end' => max(0, (int)($v['end'] ?? 0)), 'used' => max(0, min(100, (int)($v['used'] ?? 0))),
              'lab' => $chu($v['lab'] ?? '', 60)];
   $def = is_array($x['def'] ?? null) ? $x['def'] : [];
@@ -1203,11 +1211,16 @@ function rvSpSave(array $in): array {
   $pdo = db(); rvTables($pdo);
   $x = is_array($in['item'] ?? null) ? rvSpClean($in['item']) : null;
   if (!$x) return ['error' => 'Gói gửi lên không có sản phẩm.'];
-  if (!$x['models'] && !$x['def']['f']) return ['error' => 'Sản phẩm ' . $x['id'] . ' không có giá lẫn phân loại — trang chưa tải xong?'];
+  if ($x['n'] === '' || (!$x['models'] && !$x['def']['f']))
+    return ['error' => 'Sản phẩm ' . $x['id'] . ' không có tên, hoặc không có giá lẫn phân loại — trang chưa tải xong?'];
   $date = rvNgayQuet($in);
   $pdo->prepare('INSERT INTO rv_sp (item_id, date, at, data) VALUES (?,?,?,?)
       ON CONFLICT(item_id, date) DO UPDATE SET at=excluded.at, data=excluded.data')
       ->execute([$x['id'], $date, gmdate('c'), json_encode($x, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]);
+  /* Dọn bản chụp quá cũ của chính sản phẩm này — không thì bảng cứ phình mãi
+     (vài trăm sản phẩm × mỗi tuần một lần × cả các ngày sale). */
+  $pdo->prepare('DELETE FROM rv_sp WHERE item_id = ? AND date < ?')
+      ->execute([$x['id'], (new DateTime($date))->modify('-' . RV_SP_GIU . ' days')->format('Y-m-d')]);
   return ['ok' => true, 'id' => $x['id'], 'date' => $date, 'models' => count($x['models']),
           'lines' => count($x['lines']), 'f' => $x['def']['f']];
 }
@@ -1248,12 +1261,14 @@ function rvSps(array $ids, int $max = 8): array {
   $ids = array_values(array_unique(array_filter(array_map(fn($i) => preg_replace('/\D/', '', (string)$i), $ids))));
   $out = [];
   foreach (array_chunk($ids, 200) as $lo) {
+    /* Chỉ lấy $max bản mới nhất của MỖI sản phẩm ngay trong câu hỏi — không
+       kéo cả năm bản chụp lên rồi mới bỏ bớt. */
     $st = $pdo->prepare('SELECT item_id, date, data FROM rv_sp WHERE item_id IN (' . implode(',', array_fill(0, count($lo), '?')) .
+                        ') AND date IN (SELECT s2.date FROM rv_sp s2 WHERE s2.item_id = rv_sp.item_id ORDER BY s2.date DESC LIMIT ' . (int)$max .
                         ') ORDER BY date DESC');
     $st->execute($lo);
     foreach ($st->fetchAll() as $r) {
       $id = (string)$r['item_id'];
-      if (count($out[$id] ?? []) >= $max) continue;
       $d = json_decode((string)$r['data'], true);
       if (is_array($d)) $out[$id][] = ['date' => (string)$r['date']] + $d;
     }

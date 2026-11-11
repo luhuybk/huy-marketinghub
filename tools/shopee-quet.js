@@ -16,7 +16,7 @@
    thì sửa đúng hàm đó. Máy chủ (rvSpClean) ép kiểu lại lần nữa.
    ============================================================ */
 (() => {
-  const BAN = 4;
+  const BAN = 5;
   if (window.__sp && window.__sp.v === BAN) return 'đã gắn sẵn (bản ' + BAN + ')';
   const cu = window.__sp || {};
   const S = window.__sp = {v: BAN, pc: cu.pc || {}, st: {run: false, n: 0, i: 0, ok: 0, skip: 0, loi: [], dung: '', xong: false}};
@@ -96,7 +96,7 @@
         return {code: v.voucher_code || '', min: dong(v.min_spend), val: coin ? 0 : dong(v.discount_value),
                 pct: coin ? (+v.coin_percentage || +v.reward_percentage || 0) : (+v.discount_percentage || 0),
                 cap: dong(coin ? (v.coin_cap || v.reward_cap) : v.discount_cap), coin,
-                end: +v.end_time || 0, used: +v.percentage_used || 0,
+                start: +v.start_time || 0, end: +v.end_time || 0, used: v.fully_redeemed ? 100 : (+v.percentage_used || 0),
                 lab: (v.customised_labels || []).map(l => l && l.content).filter(Boolean).join(', ')};
       }),
       tags: [...new Set(tags)].slice(0, 6)
@@ -131,7 +131,7 @@
         const can = ds.filter(x => cfg.caDaQuet || !x.done);
         st.n = can.length; st.skip = ds.length - can.length;
         let hong = 0;
-        const nghi = Array.isArray(cfg.nghi) && cfg.nghi[1] >= cfg.nghi[0] && cfg.nghi[0] >= 2000 ? cfg.nghi : [4000, 8000];   // ms giữa hai sản phẩm
+        const nghi = Array.isArray(cfg.nghi) && cfg.nghi[1] >= cfg.nghi[0] && cfg.nghi[0] >= 2000 ? cfg.nghi : [15000, 25000];   // ms giữa hai sản phẩm
         for (const x of can) {
           if (st.dung) break;
           st.i++;

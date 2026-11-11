@@ -5499,7 +5499,7 @@ function viewRival(){
   const giaCuoi = r => {
     const g = r.spSum && r.spSum.re;
     if (!g) return '<span class="dim">chưa đọc</span>';
-    const cu = r.spPrev ? rvSpSum(r.spPrev).re : null;
+    const cu = r.spPrevSum ? r.spPrevSum.re : null;
     return `<b>${r.spSum.nhieuGia ? '<span class="dim rv-tu">từ</span> ' : ''}${money(g.f)}</b>${
       cu && cu.f !== g.f ? `<div class="${g.f < cu.f ? 'rv-dn' : 'rv-up'}">${g.f < cu.f ? '▼' : '▲'} từ ${moneyShort(cu.f)}</div>` : ''}
       <div class="dim">−${g.giam.toFixed(0)}% so với gốc ${moneyShort(g.pb)}</div>${
@@ -5527,7 +5527,7 @@ function viewRival(){
     const mv = r.isNew ? '<span class="chip acc">MỚI</span>'
              : r.move > 0 ? `<span class="rv-up">▲${r.move}</span>` : r.move < 0 ? `<span class="rv-dn">▼${-r.move}</span>`
              : cmp.prev ? '<span class="dim">–</span>' : '';
-    const giaDoi = r.prev && r.prev.p && r.prev.p !== r.p;
+    const giaDoi = r.pCu && r.pCu !== r.p;
     h += `<tr class="${r.mine ? 'rv-me' : ''}" data-act="rvprod" data-id="${esc(r.id)}">
       <td class="c rv-rk"><b>${r.rank}</b>${mv ? '<div>' + mv + '</div>' : ''}</td>
       <td><div class="rv-sp">${r.img ? `<img src="${esc(rvThumb(r.img))}" alt="" referrerpolicy="no-referrer" loading="lazy">` : '<span class="rv-noimg"></span>'}
@@ -5536,7 +5536,7 @@ function viewRival(){
             r.spSum ? ` <span class="chip">${r.spSum.n} phân loại</span>` : ''}${
             r.imgNew ? ' <span class="chip acc">🖼 ảnh bìa mới</span>' : ''}${r.nameNew ? ' <span class="chip">✏️ đổi tên</span>' : ''}${
             ((r.sp && r.sp.tags) || []).slice(0, 2).map(t => ` <span class="chip warn">${esc(t)}</span>`).join('')}</div></div></div></td>
-      <td class="r nw"><b>${money(r.p)}</b>${giaDoi ? `<div class="${r.p < r.prev.p ? 'rv-dn' : 'rv-up'}">${r.p < r.prev.p ? '▼' : '▲'} từ ${moneyShort(r.prev.p)}</div>` : ''}
+      <td class="r nw"><b>${money(r.p)}</b>${giaDoi ? `<div class="${r.p < r.pCu ? 'rv-dn' : 'rv-up'}">${r.p < r.pCu ? '▼' : '▲'} từ ${moneyShort(r.pCu)}</div>` : ''}
         ${r.pmin && r.pmin !== r.pmax ? `<div class="dim">${moneyShort(r.pmin)} – ${moneyShort(r.pmax)}</div>` : ''}</td>
       <td class="r nw rv-gc">${giaCuoi(r)}</td>
       <td class="r nw"><b>${moneyShort(r.r)}</b><div>${pct(r.gR)}</div></td>

@@ -104,14 +104,16 @@ là top mới nhất.
    __sp.chay({url:'https://darkblue-bat-395619.hostingersite.com/api/rival.php', ticket:'VE'})
    ```
 
-   Lệnh trả về ngay; việc đọc chạy ngầm trong trang, mỗi sản phẩm 5–9 giây
-   (cố ý chậm). Sản phẩm hôm nay đã đọc thì tự bỏ qua — chạy lại giữa chừng
+   Lệnh trả về ngay; việc đọc chạy ngầm trong trang, mỗi sản phẩm nghỉ 15–25
+   giây (cố ý chậm: 11/11/2026 chạy 5–9 giây thì lượt thứ hai trong ngày bị
+   Shopee đòi xác minh ngay sản phẩm đầu). Sản phẩm hôm nay đã đọc thì tự bỏ qua — chạy lại giữa chừng
    không đọc lặp. Muốn đọc lại cả những cái đã đọc: thêm `caDaQuet:true`.
-   Sau khi Shopee vừa đòi xác minh (chủ đã tự xác minh xong) thì chạy chậm hẳn lại:
-   thêm `nghi:[15000,25000]` (mili giây nghỉ giữa hai sản phẩm).
+   Quãng nghỉ chỉnh bằng `nghi:[tốiThiểu,tốiĐa]` (mili giây) — đừng hạ xuống.
 4. Hỏi tiến độ mỗi 1–2 phút bằng `__sp.tt()` →
    `{dangChay, xong, tong, da, ok, boQua, dung, loi, soLoi}`. Xong khi
-   `xong:true`. **Đừng điều hướng tab này** trong lúc đang chạy.
+   `xong:true`. **Đừng điều hướng tab này** trong lúc đang chạy. Nếu `__sp`
+   không còn (trang bị tải lại — thường là Shopee chuyển sang trang xác minh)
+   thì coi như đã dừng: xem địa chỉ trang rồi xử lý như mục 5 dưới đây.
 5. Nếu `dung` có chữ: đoạn mã đã tự dừng — Shopee đòi xác minh / đăng nhập lại,
    hoặc ba sản phẩm liên tiếp không đọc được. **Không giải captcha, không thử
    lách.** Báo chủ đúng câu trong `dung`, kèm đã đọc được mấy sản phẩm; lần
