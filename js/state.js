@@ -817,7 +817,9 @@ function blank(){
       postTargets: Object.assign({}, DEFAULT_POST_TARGETS),
       adRules:     Object.assign({}, DEFAULT_AD_RULES)
     },
-    meta:{ lastPull:null, lastPush:null, srvPull:'', srvPush:'' }
+    /* srvSeq: số thứ tự máy chủ đã kéo tới (xem doPull trong sync.js) ·
+       srvHealed: đã đẩy lại toàn bộ một lần sau khi có capAt */
+    meta:{ lastPull:null, lastPush:null, srvPull:'', srvPush:'', srvSeq:null, srvHealed:false }
   };
 }
 let db = blank();

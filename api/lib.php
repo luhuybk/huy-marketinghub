@@ -80,6 +80,36 @@ $KH_DB_IN_WEB = str_starts_with(realpath(dirname($DB_FILE)) ?: dirname($DB_FILE)
                                 realpath(dirname(__DIR__)) ?: dirname(__DIR__));
 
 /* ---------------- kết nối ---------------- */
+/* Số thứ tự máy chủ cấp cho MỖI LẦN GHI vào items — app kéo về theo số này
+   (action pull, tham số `after`), không theo updated_at nữa. Kéo theo
+   updated_at có ba lỗ:
+     · updated_at là giờ của máy đã sửa, không phải giờ tới máy chủ. Sửa lúc
+       mất sóng 10:00, có sóng lại đẩy lên 10:05, trong khi máy kia đã kéo tới
+       mốc 10:03 — bản sửa nằm sau lưng mốc, máy kia không bao giờ thấy nó.
+     · máy chủ PHP ghi giờ chỉ tới GIÂY (gmdate không có mili giây). Nhận số
+       quảng cáo tự động ghi hàng trăm dòng trong một giây; hơn 500 dòng trùng
+       một mốc là lượt kéo đứng nguyên một chỗ mãi mãi.
+     · nhân viên không có quyền xem 500 dòng liền nhau thì lượt kéo trả về
+       rỗng, máy gọi không có mốc mới để đi tiếp.
+   Số thứ tự thì không trùng, chỉ tăng, và máy chủ biết dòng cuối mình đã đọc
+   kể cả khi lọc bỏ nó. Cấp bằng trigger để mọi đường ghi — đồng bộ, nhận số
+   tự động, nút Telegram — đều được đánh số mà không phải nhớ sửa từng chỗ.
+   (Cùng cách với Life Hub.) */
+function itemsSeq(PDO $pdo): void {
+  $cols = array_column($pdo->query('PRAGMA table_info(items)')->fetchAll(), 'name');
+  if (!in_array('seq', $cols, true)) {
+    try {
+      $pdo->exec('ALTER TABLE items ADD COLUMN seq INTEGER NOT NULL DEFAULT 0');
+      $pdo->exec('UPDATE items SET seq = rowid');
+    } catch (Throwable $e) { /* yêu cầu khác vừa thêm cột trước — không sao */ }
+  }
+  $pdo->exec('CREATE INDEX IF NOT EXISTS items_seq ON items(seq)');
+  $pdo->exec('CREATE TRIGGER IF NOT EXISTS items_seq_ins AFTER INSERT ON items BEGIN
+      UPDATE items SET seq = (SELECT IFNULL(MAX(seq), 0) + 1 FROM items) WHERE rowid = NEW.rowid; END');
+  $pdo->exec('CREATE TRIGGER IF NOT EXISTS items_seq_upd AFTER UPDATE OF data, updated_at, deleted ON items BEGIN
+      UPDATE items SET seq = (SELECT IFNULL(MAX(seq), 0) + 1 FROM items) WHERE rowid = NEW.rowid; END');
+}
+
 function db(): PDO {
   static $pdo = null;
   if ($pdo) return $pdo;
@@ -110,6 +140,7 @@ function db(): PDO {
       updated_at TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (kind, item_id))');
   $pdo->exec('CREATE INDEX IF NOT EXISTS items_upd ON items(updated_at)');
+  itemsSeq($pdo);
   $pdo->exec('CREATE TABLE IF NOT EXISTS sessions (
       token_hash TEXT PRIMARY KEY, created_at TEXT, expires_at TEXT, label TEXT)');
   /* Cột vai trò thêm sau, nên bảng cũ chưa có. SQLite không có

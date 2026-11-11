@@ -2756,6 +2756,24 @@ Ba quy ước giữ cho mã không rối khi lớn dần:
    dòng, ai mới hơn thì thắng. Xoá là đánh dấu `deleted`, không xoá thật —
    nếu không, xoá ở máy này thì máy kia sẽ đẩy ngược nó về.
 
+   **Kéo về theo `seq`, không theo `updatedAt`** (từ 11/11/2026, cùng cách
+   với Life Hub). Mỗi lần ghi vào bảng `items`, trigger SQLite cấp một số thứ
+   tự tăng dần (`itemsSeq()` trong api/lib.php, bản Node trong serve.js); app
+   giữ số đã kéo tới ở `db.meta.srvSeq` và gửi `pull {after}`. Kéo theo mốc
+   giờ từng có ba lỗ: bản sửa lúc mất sóng đẩy lên muộn mang giờ cũ và bị lọt
+   mất; máy chủ PHP ghi giờ chỉ tới giây nên hơn 500 dòng trùng một mốc (nhận
+   số quảng cáo tự động) làm lượt kéo đứng yên mãi; nhân viên gặp 500 dòng
+   không có quyền xem liền nhau thì không có mốc để đi tiếp. Con trỏ `seq`
+   tính theo dòng máy chủ đã đọc, kể cả dòng bị lọc vì quyền. Đường cũ
+   (`pull {since}`) vẫn còn cho app bản cũ nằm trong bộ nhớ đệm.
+
+   **Mốc đẩy (`srvPush`) không vượt giờ của chính máy đó** (`capAt` trong
+   sync.js): bản ghi kéo từ nơi chạy nhanh giờ hơn mà đẩy lại thì mốc nhảy lên
+   tương lai, và việc mình sửa ngay sau đó bị coi là cũ, không bao giờ được
+   đẩy. Lần đầu chạy bản này (`srvHealed` chưa bật) app đẩy lại toàn bộ một
+   lần — máy chủ bỏ qua bản nào không mới hơn, chỉ bản sửa từng bị kẹt mới
+   được ghi. Máy chủ báo `reset` (cơ sở dữ liệu vừa khôi phục) cũng làm vậy.
+
 3. **Đổi tên một bộ dữ liệu phải khai ở hai chỗ.** `migrate()` trong
    `state.js` lo dữ liệu đang nằm trong máy; `KIND_ALIAS` + `UPGRADE` trong
    `sync.js` lo dữ liệu đang nằm trên máy chủ. Thiếu chỗ thứ hai thì bản ghi

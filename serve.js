@@ -65,6 +65,16 @@ function db(){
   catch(e){ /* đã có cột rồi */ }
   try { store.exec("ALTER TABLE sessions ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); }
   catch(e){ /* đã có cột rồi */ }
+  /* Số thứ tự cho mỗi lần ghi vào items — xem itemsSeq() trong api/lib.php */
+  if (!store.prepare('PRAGMA table_info(items)').all().some(r => r.name === 'seq')){
+    store.exec('ALTER TABLE items ADD COLUMN seq INTEGER NOT NULL DEFAULT 0');
+    store.exec('UPDATE items SET seq = rowid');
+  }
+  store.exec(`CREATE INDEX IF NOT EXISTS items_seq ON items(seq);
+    CREATE TRIGGER IF NOT EXISTS items_seq_ins AFTER INSERT ON items BEGIN
+      UPDATE items SET seq = (SELECT IFNULL(MAX(seq), 0) + 1 FROM items) WHERE rowid = NEW.rowid; END;
+    CREATE TRIGGER IF NOT EXISTS items_seq_upd AFTER UPDATE OF data, updated_at, deleted ON items BEGIN
+      UPDATE items SET seq = (SELECT IFNULL(MAX(seq), 0) + 1 FROM items) WHERE rowid = NEW.rowid; END;`);
   store.exec(`CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY, name TEXT NOT NULL, norm TEXT NOT NULL UNIQUE,
       pass_hash TEXT NOT NULL, role TEXT NOT NULL, perms TEXT NOT NULL,
@@ -411,6 +421,24 @@ function api(req, res, body){
 
     case 'pull': {
       if (!need()) return;
+      /* Kéo theo số thứ tự máy chủ cấp — xem chú thích bên api/index.php */
+      if (inp.after != null){
+        let after = Math.max(0, Math.trunc(Number(inp.after)) || 0);
+        const top = db().prepare('SELECT IFNULL(MAX(seq), 0) m FROM items').get().m;
+        const reset = after > top;
+        if (reset) after = 0;
+        const raw = db().prepare(`SELECT kind, item_id, data, updated_at, deleted, seq FROM items
+                                  WHERE seq > ? ORDER BY seq ASC LIMIT ${PULL_LIMIT}`).all(after);
+        let cursor = after; const rows = [];
+        for (const r of raw){
+          cursor = Math.max(cursor, Number(r.seq));
+          const data = JSON.parse(r.data);
+          if (!khMayRow(me, r.kind, data)) continue;
+          rows.push({kind:r.kind, item_id:r.item_id, data, updated_at:r.updated_at, deleted:!!r.deleted});
+        }
+        return send({ok:true, now:iso(), cursor, reset, more: raw.length >= PULL_LIMIT, checked: raw.length, rows,
+                     role:role(), name:me.name || '', perms:khPerms(me)});
+      }
       const raw = db().prepare(`SELECT kind, item_id, data, updated_at, deleted FROM items
                                 WHERE updated_at >= ? ORDER BY updated_at ASC LIMIT ${PULL_LIMIT}`)
                       .all(String(inp.since || ''));

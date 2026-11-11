@@ -1458,7 +1458,9 @@ function rvKwForm(id, goiY){
 function rvProdOpen(id){
   const {kw, ds} = rvView();
   if (!kw) return;
-  const his = ds.map(s => { const i = s.items.findIndex(x => x.id === id); return i < 0 ? null : Object.assign({date:s.date, rank:i + 1}, s.items[i]); })
+  /* bu: lần quét bù — giá, ảnh bìa, tổng đã bán của nó là số hôm quét bù,
+     không phải hồi đó, nên không đem so (xem rvLaBu) */
+  const his = ds.map(s => { const i = s.items.findIndex(x => x.id === id); return i < 0 ? null : Object.assign({date:s.date, rank:i + 1, bu:rvLaBu(s)}, s.items[i]); })
                 .filter(Boolean);
   const x = his[0];
   if (!x) return;
@@ -1553,7 +1555,7 @@ function rvProdOpen(id){
 
   /* ---- ảnh bìa qua các lần quét: chỉ hiện khi đã từng đổi ---- */
   const biaCu = [];
-  his.slice().reverse().forEach(r => { if (r.img && (!biaCu.length || biaCu[biaCu.length - 1].img !== r.img)) biaCu.push({img:r.img, date:r.date}); });
+  his.filter(r => !r.bu).reverse().forEach(r => { if (r.img && (!biaCu.length || biaCu[biaCu.length - 1].img !== r.img)) biaCu.push({img:r.img, date:r.date}); });
   if (biaCu.length > 1)
     h += `<div class="sec sm">Ảnh bìa đã đổi ${biaCu.length - 1} lần<span class="ln"></span></div>
       <div class="rv-bias">${biaCu.reverse().map((b, i) => `<a href="${esc(rvImg(b.img))}" target="_blank" rel="noopener noreferrer">
@@ -1564,14 +1566,15 @@ function rvProdOpen(id){
       <th class="r">Phân loại</th><th class="r">Doanh số kỳ</th><th class="r">Lượt bán kỳ</th><th class="r">Tổng đã bán</th><th>Ảnh bìa</th></tr></thead><tbody>`;
   his.forEach((r, i) => {
     const sau = his[i + 1];                    // lần quét cũ hơn
-    const doi = (a, b) => sau && a !== b ? ' class="r rv-doi"' : ' class="r"';
-    h += `<tr><td>${esc(fmtDate(r.date))}</td><td class="c"><b>${r.rank}</b></td>
+    const soDuoc = sau && !r.bu && !sau.bu;    // giá / ảnh / tổng đã bán chỉ so giữa hai lần quét thật
+    const doi = (a, b) => soDuoc && a !== b ? ' class="r rv-doi"' : ' class="r"';
+    h += `<tr><td>${esc(fmtDate(r.date))}${r.bu ? ' <span class="rv-chua">bù</span>' : ''}</td><td class="c"><b>${r.rank}</b></td>
       <td${doi(r.p, sau && sau.p)}>${money(r.p)}</td>
       <td${doi(r.pmin + '-' + r.pmax, sau && sau.pmin + '-' + sau.pmax)}>${moneyShort(r.pmin)} – ${moneyShort(r.pmax)}</td>
       <td class="r">${moneyShort(r.r)}</td><td class="r">${r.o.toLocaleString('vi-VN')}</td>
-      <td class="r">${r.sold.toLocaleString('vi-VN')}${sau && r.sold >= sau.sold ? ` <span class="dim">+${(r.sold - sau.sold).toLocaleString('vi-VN')}</span>` : ''}</td>
-      <td>${r.img && (!sau || sau.img !== r.img) ? `<img class="rv-tn" src="${esc(rvThumb(r.img))}" alt="" referrerpolicy="no-referrer" loading="lazy">${
-        sau ? ' <span class="chip acc">ảnh mới</span>' : ''}` : '<span class="dim">như cũ</span>'}</td></tr>`;
+      <td class="r">${r.sold.toLocaleString('vi-VN')}${soDuoc && r.sold >= sau.sold ? ` <span class="dim">+${(r.sold - sau.sold).toLocaleString('vi-VN')}</span>` : ''}</td>
+      <td>${r.img && (!soDuoc || sau.img !== r.img) ? `<img class="rv-tn" src="${esc(rvThumb(r.img))}" alt="" referrerpolicy="no-referrer" loading="lazy">${
+        soDuoc ? ' <span class="chip acc">ảnh mới</span>' : ''}` : '<span class="dim">như cũ</span>'}</td></tr>`;
   });
   h += `</tbody></table></div>
     <div class="dim" style="margin-top:8px">Ô tô vàng là chỗ vừa đổi so với lần quét trước đó. Số nhỏ cạnh "Tổng đã bán" là phần bán thêm giữa hai lần quét.</div>`;

@@ -197,7 +197,9 @@ const Server = (() => {
     mode = 'anon'; clearGrace();
   }
 
-  const pull  = since => call('pull', {since: since || ''});
+  /* after = số thứ tự máy chủ cấp (xem itemsSeq trong api/lib.php). Không
+     truyền after là đường cũ theo mốc giờ, chỉ dùng khi máy chủ còn bản cũ. */
+  const pull  = (since, after) => call('pull', after == null ? {since: since || ''} : {since: since || '', after});
   const push  = rows  => call('push', {rows});
   const stats = ()    => call('stats');
 
