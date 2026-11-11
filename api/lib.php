@@ -900,3 +900,147 @@ function adRadarData(int $soNgay = 400): array {
   }
   return $out;
 }
+
+/* ============================================================
+   THEO DÕI ĐỐI THỦ (rival)
+
+   Mỗi tuần một tác vụ mở Metric, phân tích từng từ khoá đang theo dõi và
+   gửi danh sách sản phẩm đứng đầu vào api/rival.php. Mỗi lần quét là một
+   "bản chụp" — Hub so bản mới với bản trước để thấy ai lên, ai tụt, ai đổi
+   giá, đổi ảnh bìa.
+
+   Cả mục này nằm ở máy chủ, KHÔNG đồng bộ về máy như các bộ dữ liệu khác:
+   25 từ khoá × 20 sản phẩm × mỗi tuần sẽ phình nhanh, mà chỉ chủ xem. App
+   hỏi máy chủ khi mở trang (action rival_*). Bản Node ở serve.js.
+
+     rv_kw    từ khoá đang theo dõi
+     rv_scan  một bản chụp = (từ khoá, ngày quét, nguồn). data = JSON mảng
+              sản phẩm đã rút gọn, xếp theo doanh số trong kỳ giảm dần.
+     rv_mine  gian hàng của mình (theo mã shop Shopee) — để tô nổi trong bảng
+   ============================================================ */
+const RV_TOP = 20;            // Metric trả 20 sản phẩm đầu cho mỗi lần phân tích
+const RV_TICKET_GIO = 6;      // vé quét sống bao lâu
+
+function rvTables(PDO $pdo): void {
+  $pdo->exec('CREATE TABLE IF NOT EXISTS rv_kw (id TEXT PRIMARY KEY, kw TEXT NOT NULL, kind TEXT,
+      note TEXT, off INTEGER DEFAULT 0, created TEXT)');
+  $pdo->exec('CREATE TABLE IF NOT EXISTS rv_scan (kw_id TEXT NOT NULL, date TEXT NOT NULL, src TEXT NOT NULL,
+      d_from TEXT, d_to TEXT, at TEXT, data TEXT, PRIMARY KEY (kw_id, date, src))');
+  $pdo->exec('CREATE TABLE IF NOT EXISTS rv_mine (shop_id TEXT PRIMARY KEY, name TEXT)');
+}
+function rvNorm(string $s): string {
+  return (string)preg_replace('/\s+/u', ' ', mb_strtolower(trim($s), 'UTF-8'));
+}
+function rvNgay(string $s): string {         // '20261102' hoặc '2026-11-02' → '2026-11-02'
+  $s = preg_replace('/\D/', '', $s);
+  return strlen($s) === 8 ? substr($s, 0, 4) . '-' . substr($s, 4, 2) . '-' . substr($s, 6, 2) : '';
+}
+/* Một sản phẩm Metric trả về → bản rút gọn Hub lưu. Tên trường gốc của Metric
+   chỉ xuất hiện ở đây; Metric đổi tên trường thì sửa đúng một hàm này. */
+function rvItem(array $p): ?array {
+  $b = explode('__', (string)($p['product_base_id'] ?? ''));
+  $item = preg_replace('/\D/', '', (string)($b[1] ?? ''));
+  if ($item === '') return null;
+  $url = (string)($p['url_product'] ?? '');
+  $img = (string)($p['url_thumbnail'] ?? '');
+  $so = fn($k) => (int)round((float)($p[$k] ?? 0));
+  return [
+    'id' => $item, 'sid' => preg_replace('/\D/', '', (string)($b[2] ?? '')),
+    'n' => trim((string)preg_replace('/\s+/u', ' ', (string)($p['product_name'] ?? ''))),
+    'img' => str_starts_with($img, 'https://') ? $img : '',
+    'url' => str_starts_with($url, 'https://shopee.vn/') ? $url : '',
+    'shop' => trim((string)($p['shop_name'] ?? '')), 'mall' => (int)($p['official_type'] ?? 0) === 1,
+    'brand' => trim((string)($p['final_brand'] ?? '')),
+    'created' => substr((string)($p['platform_created_at'] ?? ''), 0, 10),
+    'p' => $so('price'), 'pmin' => $so('price_min'), 'pmax' => $so('price_max'),
+    'sold' => $so('order_count'), 'rev' => $so('revenue'),
+    'rc' => $so('rating_count'), 'ra' => round((float)($p['rating_avg'] ?? 0), 2),
+    /* trong kỳ đã chọn (mặc định 30 ngày) và kỳ liền trước cùng độ dài */
+    'o' => $so('order_custom'), 'op' => $so('previous_order_custom'),
+    'r' => $so('revenue_custom'), 'rp' => $so('previous_revenue_custom'),
+  ];
+}
+function rvKwList(bool $caTat = true): array {
+  $pdo = db(); rvTables($pdo);
+  $rows = $pdo->query('SELECT k.*, (SELECT MAX(date) FROM rv_scan s WHERE s.kw_id = k.id) last,
+      (SELECT COUNT(*) FROM rv_scan s WHERE s.kw_id = k.id) n FROM rv_kw k ORDER BY k.created')->fetchAll();
+  $out = [];
+  foreach ($rows as $r) {
+    if (!$caTat && (int)$r['off'] === 1) continue;
+    $out[] = ['id' => (string)$r['id'], 'kw' => (string)$r['kw'], 'kind' => $r['kind'] === 'sp' ? 'sp' : 'main',
+              'note' => (string)$r['note'], 'off' => (int)$r['off'] === 1,
+              'last' => (string)($r['last'] ?? ''), 'n' => (int)$r['n']];
+  }
+  return $out;
+}
+/* Ghi một bản chụp. Trả ['ok'=>true,…] hoặc ['error'=>…]. */
+function rvScanSave(array $in): array {
+  $pdo = db(); rvTables($pdo);
+  $st = $pdo->prepare('SELECT * FROM rv_kw WHERE id = ?');
+  $st->execute([(string)($in['kw_id'] ?? '')]);
+  $kw = $st->fetch();
+  /* create: tác vụ được phép thêm một từ khoá mới ngay lúc gửi kết quả đầu
+     tiên của nó — để quét thử một từ khoá không bắt chủ vào khai trước. Phải
+     nói rõ `create`, và kết quả phải là của đúng MỘT từ khoá. */
+  if (!$kw && !empty($in['create']) && count((array)($in['query'] ?? [])) === 1) {
+    $ten = trim((string)preg_replace('/\s+/u', ' ', (string)$in['query'][0]));
+    foreach (rvKwList(true) as $k) if (rvNorm($k['kw']) === rvNorm($ten)) $kw = ['id' => $k['id'], 'kw' => $k['kw']];
+    if (!$kw && $ten !== '' && mb_strlen($ten, 'UTF-8') <= 120) {
+      $kw = ['id' => 'rk' . bin2hex(random_bytes(6)), 'kw' => $ten];
+      $pdo->prepare('INSERT INTO rv_kw (id, kw, kind, note, off, created) VALUES (?,?,?,?,0,?)')
+          ->execute([$kw['id'], $ten, 'main', '', gmdate('c')]);
+    }
+  }
+  if (!$kw) return ['error' => 'Không thấy từ khoá này trong danh sách theo dõi.'];
+  /* Chốt chặn gửi nhầm: kết quả đang hiện trên Metric phải đúng là của từ
+     khoá này. Tác vụ quét hàng chục từ khoá liên tiếp — lệch một nhịp là số
+     của "sáp vuốt tóc" chui vào "gôm xịt tóc" mà nhìn bảng không ai biết. */
+  $qs = array_map(fn($q) => rvNorm((string)$q), (array)($in['query'] ?? []));
+  if (!$qs || !in_array(rvNorm((string)$kw['kw']), $qs, true))
+    return ['error' => 'Kết quả gửi lên là của "' . implode(', ', $qs) . '", không phải "' . $kw['kw'] . '".'];
+  $items = [];
+  foreach ((array)($in['products'] ?? []) as $p) {
+    $x = is_array($p) ? rvItem($p) : null;
+    if ($x) $items[$x['id']] = $x;
+  }
+  if (!$items) return ['error' => 'Không có sản phẩm nào trong kết quả.'];
+  $items = array_values($items);
+  usort($items, fn($a, $b) => $b['r'] <=> $a['r']);
+  $items = array_slice($items, 0, RV_TOP);
+  $nay = (new DateTime('now', new DateTimeZone(KH_TZ)))->format('Y-m-d');
+  $date = rvNgay((string)($in['date'] ?? ''));
+  if ($date === '' || $date > $nay) $date = $nay;
+  $tu = rvNgay((string)($in['from'] ?? '')); $den = rvNgay((string)($in['to'] ?? ''));
+  $pdo->prepare('INSERT INTO rv_scan (kw_id, date, src, d_from, d_to, at, data) VALUES (?,?,?,?,?,?,?)
+      ON CONFLICT(kw_id, date, src) DO UPDATE SET d_from=excluded.d_from, d_to=excluded.d_to,
+      at=excluded.at, data=excluded.data')
+      ->execute([(string)$kw['id'], $date, 'metric', $tu, $den, gmdate('c'),
+                 json_encode($items, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]);
+  return ['ok' => true, 'kw' => (string)$kw['kw'], 'date' => $date, 'from' => $tu, 'to' => $den,
+          'n' => count($items), 'top' => $items[0]['shop'] . ' — ' . mb_substr($items[0]['n'], 0, 50, 'UTF-8')];
+}
+function rvScans(string $kwId, int $max = 60): array {
+  $pdo = db(); rvTables($pdo);
+  $st = $pdo->prepare('SELECT date, src, d_from, d_to, at, data FROM rv_scan WHERE kw_id = ? ORDER BY date DESC LIMIT ' . $max);
+  $st->execute([$kwId]);
+  $out = [];
+  foreach ($st->fetchAll() as $r) {
+    $d = json_decode((string)$r['data'], true);
+    $out[] = ['date' => (string)$r['date'], 'src' => (string)$r['src'], 'from' => (string)$r['d_from'],
+              'to' => (string)$r['d_to'], 'at' => (string)$r['at'], 'items' => is_array($d) ? $d : []];
+  }
+  return $out;
+}
+/* Vé quét: tác vụ đổi token thiết bị lấy một vé ngắn hạn, rồi trang Metric
+   dùng vé đó để gửi kết quả. Token thật vì thế không bao giờ phải đi qua
+   trang web của bên thứ ba. */
+function rvTicketNew(): string {
+  $t = bin2hex(random_bytes(20));
+  kvSet('rv_ticket', ['hash' => hash('sha256', $t), 'exp' => time() + RV_TICKET_GIO * 3600]);
+  return $t;
+}
+function rvTicketOk(string $t): bool {
+  $v = kvGet('rv_ticket', null);
+  return is_array($v) && strlen($t) >= 32 && (int)($v['exp'] ?? 0) > time()
+      && hash_equals((string)($v['hash'] ?? ''), hash('sha256', $t));
+}

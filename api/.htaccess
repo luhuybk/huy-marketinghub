@@ -1,4 +1,4 @@
-# Chỉ index.php, cron.php, tg.php và ingest.php được gọi từ ngoài.
+# Chỉ index.php, cron.php, tg.php, ingest.php và rival.php được gọi từ ngoài.
 # push_hub.py chỉ phát qua ingest.php?script=1 (đã điền sẵn địa chỉ Hub).
 # Cấu hình, thư viện dùng chung và dữ liệu thì không.
 

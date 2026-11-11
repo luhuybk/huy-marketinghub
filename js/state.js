@@ -4851,4 +4851,112 @@ function launchAutoMarks(){
   return n;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "9c58f644"]);
+/* ============================================================
+   THEO DÕI ĐỐI THỦ
+
+   Dữ liệu của mục này KHÔNG nằm trong `db` và không đồng bộ: nó ở máy chủ
+   (bảng rv_kw / rv_scan / rv_mine, xem api/lib.php), app hỏi khi mở trang
+   và giữ trong `rv` dưới đây. Mỗi tuần một tác vụ quét Metric rồi gửi vào
+   api/rival.php — app chỉ đọc và so sánh.
+
+   Một "bản chụp" (scan) = danh sách sản phẩm đứng đầu của một từ khoá vào
+   một ngày quét, đã xếp theo doanh số trong kỳ giảm dần. Mỗi sản phẩm:
+     id, sid (mã SP, mã shop Shopee) · n (tên) · img · url · shop · mall
+     p (giá bán) · pmin, pmax (giá thấp/cao nhất trong các phân loại)
+     r, o (doanh số, lượt bán trong kỳ) · rp, op (kỳ liền trước, do Metric tính)
+     rev, sold (tổng từ trước tới giờ) · rc, ra (số đánh giá, điểm)
+   ============================================================ */
+const rv = {state:null, scans:{}, err:'', asked:false, busy:false};
+const RV_KINDS = {main:'Từ khoá chính', sp:'Từ khoá sản phẩm'};
+const RV_SHOW = 10;                       // bảng mặc định hiện top mấy
+
+const rvKws   = () => (rv.state && rv.state.kws) || [];
+const rvKwOf  = id => rvKws().find(k => k.id === id) || null;
+/* Ảnh nhỏ của Shopee: thêm _tn vào cuối địa chỉ ảnh gốc */
+const rvThumb = u => u ? u + '_tn' : '';
+const rvPct   = (a, b) => b > 0 ? (a - b) / b * 100 : null;
+
+/* Gian hàng của mình: chủ đã đánh dấu (theo mã shop), hoặc trùng tên với một
+   gian hàng đã khai trong Hub. Đánh dấu theo mã chứ không theo tên vì tên
+   trên Metric hay khác tên mình đặt ("CINPLUS STORE CHÍNH HÃNG"). */
+function rvIsMine(x){
+  const m = (rv.state && rv.state.mine) || [];
+  if (x.sid && m.some(s => String(s.id) === String(x.sid))) return true;
+  const ten = norm(x.shop);
+  return !!ten && shops().some(s => norm(s.name) === ten);
+}
+
+/* So bản chụp `cur` với bản trước `prev` (có thể không có).
+   Số "từ lần quét trước" lấy bằng hiệu của TỔNG lượt bán / TỔNG doanh số —
+   hai con số cộng dồn, nên hiệu của chúng đúng là phần bán thêm giữa hai lần
+   quét, không phụ thuộc kỳ 30 ngày trượt của Metric. */
+function rvCompare(cur, prev){
+  const cu = new Map(((prev && prev.items) || []).map((x, i) => [x.id, Object.assign({rank:i + 1}, x)]));
+  const rows = (cur.items || []).map((x, i) => {
+    const o = cu.get(x.id) || null;
+    return Object.assign({}, x, {
+      rank: i + 1, prev: o, isNew: !!prev && !o, mine: rvIsMine(x),
+      move: o ? o.rank - (i + 1) : 0,
+      dSold: o && x.sold >= o.sold ? x.sold - o.sold : null,
+      dRev:  o && x.rev  >= o.rev  ? x.rev  - o.rev  : null,
+      imgNew:  !!(o && o.img && x.img && o.img !== x.img),
+      nameNew: !!(o && o.n && o.n !== x.n),
+      gR: rvPct(x.r, x.rp), gO: rvPct(x.o, x.op)
+    });
+  });
+  const con = new Set(rows.map(r => r.id));
+  const out = prev ? [...cu.values()].filter(x => !con.has(x.id)) : [];
+  return {rows, out, prev: prev || null,
+          days: prev && cur.to && prev.to ? Math.round((new Date(cur.to) - new Date(prev.to)) / 864e5) : null};
+}
+
+/* "Điều gì vừa đổi" — những việc đáng để mắt, xếp theo mức quan trọng.
+   Mỗi dòng: {icon, cls, id (sản phẩm), text}. */
+function rvChanges(cmp){
+  const out = [], ten = r => (r.shop || 'shop ?') + ' — ' + cut(r.n, 46);
+  if (!cmp.prev) return out;
+  cmp.rows.forEach(r => {
+    if (r.isNew) out.push({w: r.rank <= 10 ? 90 : 40, icon:'🆕', cls:'acc', id:r.id,
+      text: ten(r) + ' mới vào top ' + RV_TOP_N + ', đứng hạng ' + r.rank});
+    if (r.prev && Math.abs(r.move) >= 2 && (r.rank <= 10 || r.prev.rank <= 10))
+      out.push({w: 60 + Math.abs(r.move), icon: r.move > 0 ? '⬆️' : '⬇️', cls: r.move > 0 ? 'warn' : 'ok', id:r.id,
+        text: ten(r) + (r.move > 0 ? ' lên ' : ' tụt ') + Math.abs(r.move) + ' hạng (' + r.prev.rank + ' → ' + r.rank + ')'});
+    if (r.prev && r.prev.p && r.p !== r.prev.p){
+      const pc = rvPct(r.p, r.prev.p);
+      out.push({w: 70 + Math.min(20, Math.abs(pc)), icon:'💰', cls: r.p < r.prev.p ? 'bad' : 'ok', id:r.id,
+        text: ten(r) + (r.p < r.prev.p ? ' hạ giá ' : ' tăng giá ') + money(r.prev.p) + ' → ' + money(r.p) +
+              ' (' + (pc > 0 ? '+' : '') + pc.toFixed(0) + '%)'});
+    }
+    if (r.prev && r.prev.pmin && r.pmin !== r.prev.pmin)
+      out.push({w: 50, icon:'🏷', cls:'', id:r.id,
+        text: ten(r) + ': phân loại rẻ nhất ' + money(r.prev.pmin) + ' → ' + money(r.pmin)});
+    if (r.prev && r.prev.pmax && r.pmax !== r.prev.pmax)
+      out.push({w: 30, icon:'🏷', cls:'', id:r.id,
+        text: ten(r) + ': phân loại đắt nhất ' + money(r.prev.pmax) + ' → ' + money(r.pmax)});
+    if (r.imgNew)  out.push({w: 65, icon:'🖼', cls:'acc', id:r.id, text: ten(r) + ' đổi ảnh bìa'});
+    if (r.nameNew) out.push({w: 45, icon:'✏️', cls:'', id:r.id, text: ten(r) + ' đổi tên sản phẩm'});
+  });
+  cmp.out.forEach(x => out.push({w: x.rank <= 10 ? 80 : 35, icon:'📉', cls:'ok', id:x.id,
+    text: (x.shop || 'shop ?') + ' — ' + cut(x.n, 46) + ' rớt khỏi top ' + RV_TOP_N + ' (trước đứng hạng ' + x.rank + ')'}));
+  return out.sort((a, b) => b.w - a.w);
+}
+const RV_TOP_N = 20;
+const cut = (s, n) => { s = String(s || ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+
+/* Báo cáo chữ của một từ khoá — để dán vào Zalo/Telegram */
+function rvReportText(kw, cur, cmp){
+  const L = ['🎯 ĐỐI THỦ — "' + kw.kw + '"',
+             'Quét ngày ' + fmtDate(cur.date) + (cur.from ? ' · số Metric ' + fmtDate(cur.from).slice(0,5) + '–' + fmtDate(cur.to).slice(0,5) : ''), ''];
+  cmp.rows.slice(0, RV_SHOW).forEach(r => {
+    L.push(r.rank + '. ' + (r.mine ? '⭐ ' : '') + (r.shop || '?') + ' — ' + cut(r.n, 50));
+    L.push('   ' + money(r.p) + (r.pmin && r.pmin !== r.pmax ? ' (' + moneyShort(r.pmin) + '–' + moneyShort(r.pmax) + ')' : '') +
+           ' · DS ' + moneyShort(r.r) + (r.gR != null ? ' (' + (r.gR >= 0 ? '▲' : '▼') + Math.abs(r.gR).toFixed(0) + '%)' : '') +
+           ' · ' + r.o.toLocaleString('vi-VN') + ' lượt bán' +
+           (r.dSold != null ? ' · từ lần trước +' + r.dSold.toLocaleString('vi-VN') : ''));
+  });
+  const ch = rvChanges(cmp);
+  if (ch.length){ L.push('', 'ĐIỀU GÌ VỪA ĐỔI' + (cmp.prev ? ' (so với ' + fmtDate(cmp.prev.date) + ')' : '')); ch.slice(0, 12).forEach(c => L.push(c.icon + ' ' + c.text)); }
+  return L.join('\n');
+}
+
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "a8bba810"]);

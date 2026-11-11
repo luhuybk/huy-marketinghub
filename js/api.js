@@ -226,6 +226,13 @@ const Server = (() => {
   /* Nhận số liệu quảng cáo tự động — chỉ chủ */
   const ingestList = ()        => call('ingest_list');
   const ingestSet  = (id, act) => call('ingest_set', {id, do: act});
+  /* Theo dõi đối thủ — dữ liệu ở máy chủ, chỉ chủ gọi được */
+  const rivalState   = ()      => call('rival_state');
+  const rivalScans   = kwId    => call('rival_scans', {kw_id: kwId});
+  const rivalKwSave  = v       => call('rival_kw_save', v);
+  const rivalKwDel   = id      => call('rival_kw_del', {id});
+  const rivalScanDel = (kwId, date, src) => call('rival_scan_del', {kw_id: kwId, date, src});
+  const rivalMine    = (sid, name, on)   => call('rival_mine', {shop_id: sid, name, on});
 
   const users     = ()  => call('users_list');
   /* Chỉ tên, ai đăng nhập cũng gọi được — cần để giao việc cho một người. */
@@ -235,6 +242,7 @@ const Server = (() => {
 
   return {probe, login, logout, logoutAll, pull, push, pushBeacon, stats,
           tgGet, tgSave, tgTest, tgReport, tgHook, remind, ingestList, ingestSet,
+          rivalState, rivalScans, rivalKwSave, rivalKwDel, rivalScanDel, rivalMine,
           users, userNames, userSave, userDel, takeWhoChanged, notePerms,
           available, authed, state, role, isOwner, name, perms, may, call};
 })();
@@ -336,4 +344,4 @@ const Gate = (() => {
 })();
 window.Gate = Gate;
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/api.js", "9c58f644"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/api.js", "a8bba810"]);

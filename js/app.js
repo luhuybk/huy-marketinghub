@@ -20,6 +20,7 @@ const NAV = [
   {id:'ads',      icon:'◎', label:'Shopee Ads',   perm:'ads'},
   {id:'adreport', icon:'📊',label:'Báo cáo Ads',  perm:'ads'},
   {id:'keywords', icon:'🔎',label:'Đánh từ khoá',  perm:'ads'},
+  {id:'rival',    icon:'🎯',label:'Theo dõi đối thủ', ownerOnly:true},
   {id:'cost',     icon:'🧮',label:'Tính chi phí',  perm:'cost'},
   {id:'improve',  icon:'🔻',label:'Cải thiện SP', perm:'improve'},
   {id:'newprod',  icon:'💡',label:'Sản phẩm mới', perm:'newprod'},
@@ -36,9 +37,9 @@ const TITLES = {today:'Hôm nay', dash:'Tổng quan', pipeline:'Booking', kols:'
                 sp:'Sức khoẻ trên Shopee', adreport:'Báo cáo quảng cáo',
                 adcamp:'Chiến dịch', keywords:'Đánh top từ khoá', kw:'Dự án từ khoá',
                 cost:'Tính chi phí', costsp:'Chi phí sản phẩm', pj:'Dự án',
-                launch:'Hàng mới về'};
+                launch:'Hàng mới về', rival:'Theo dõi đối thủ'};
 /* Trang chỉ chủ mở được. Nhân viên gõ thẳng đường dẫn cũng bị đưa về Hôm nay. */
-const OWNER_PAGES = ['settings', 'review'];
+const OWNER_PAGES = ['settings', 'review', 'rival'];
 /* Trang con mở từ một trang chính — quyền đi theo trang cha. */
 const PAGE_PERM = {kol:'kols', product:'ads', sp:'improve', adcamp:'ads', kw:'ads',
                    costsp:'cost', pj:'cost'};
@@ -117,6 +118,7 @@ function render(){
       case 'adreport': html = viewAdReport(); break;
       case 'adcamp':   html = viewAdcamp(route.id); break;
       case 'keywords': html = viewKeywords(); break;
+      case 'rival':    ensureRival(); html = viewRival(); break;
       case 'kw':       html = viewKw(route.id); break;
       case 'cost':     html = viewCost(); break;
       case 'costsp':   html = viewCostSp(route.id); break;
@@ -1368,6 +1370,118 @@ function ensureSettingsCfg(){
   if (!cfgAsked.users) loadUsers(true);
   if (!cfgAsked.stats) loadStats(true);
   if (!cfgAsked.ing)   loadIng();
+}
+
+/* ============================================================
+   THEO DÕI ĐỐI THỦ — nạp từ máy chủ (xem `rv` trong js/state.js)
+
+   Cùng khuôn với các thẻ Cài đặt: trang mở ra mà chưa hỏi thì hỏi, cờ
+   `asked` bật ngay lúc bắt đầu hỏi nên máy chủ lỗi cũng chỉ hỏi một lần,
+   không quay vòng render → hỏi → render.
+   ============================================================ */
+function rvCurKw(){
+  const ks = rvKws();
+  return ks.find(k => k.id === ui.rvKw) || ks.find(k => !k.off && k.n) || ks.find(k => !k.off) || ks[0] || null;
+}
+function ensureRival(){
+  if (!window.Server || !Server.authed() || !isOwner()) return;
+  if (!rv.asked) return void loadRival();
+  const k = rvCurKw();
+  if (k && !rv.scans[k.id] && !rv.busy) loadRivalScans(k.id);
+}
+async function loadRival(){
+  rv.asked = true; rv.busy = true;
+  try { rv.state = await Server.rivalState(); rv.err = ''; }
+  catch(e){ rv.err = e.message || 'lỗi không rõ'; }
+  rv.busy = false;
+  const k = rvCurKw();
+  if (k && !rv.scans[k.id]) await loadRivalScans(k.id, true);
+  if (route.page === 'rival') render();
+}
+async function loadRivalScans(kwId, im){
+  rv.busy = true;
+  try { rv.scans[kwId] = (await Server.rivalScans(kwId)).scans || []; rv.err = ''; }
+  catch(e){ rv.err = e.message || 'lỗi không rõ'; rv.scans[kwId] = rv.scans[kwId] || []; }
+  rv.busy = false;
+  if (!im && route.page === 'rival') render();
+}
+/* Bản chụp đang xem và bản ngay trước nó của từ khoá đang chọn */
+function rvView(){
+  const kw = rvCurKw();
+  const ds = kw ? (rv.scans[kw.id] || []) : [];
+  const i = Math.max(0, ds.findIndex(s => s.date === ui.rvDate));
+  const cur = ds[i] || null;
+  return {kw, ds, cur, prev: ds[i + 1] || null, cmp: cur ? rvCompare(cur, ds[i + 1] || null) : null};
+}
+function rvKwForm(id){
+  const cu = id ? rvKwOf(id) : null;
+  formModal({
+    title: cu ? 'Sửa từ khoá theo dõi' : 'Thêm từ khoá theo dõi',
+    values: cu || {kw:'', kind:'main', note:'', off:false},
+    fields: [
+      {k:'kw', l:'Từ khoá', t:'text', req:true, ph:'vd gôm xịt tóc · sáp vuốt tóc nam Roug'},
+      {k:'kind', l:'Loại', t:'select', half:true, opts: Object.entries(RV_KINDS)},
+      {k:'off', l:'Trạng thái', t:'check', half:true, ph:'Tạm ngừng quét'},
+      {k:'note', l:'Ghi chú', t:'text', ph:'vd sản phẩm của mình ứng với từ khoá này'}
+    ],
+    extra: cu ? '' : `<div class="dim" style="margin-top:10px">Gõ đúng như bạn sẽ tìm trên Metric. Mỗi từ khoá tốn
+      1 lượt phân tích Metric cho mỗi lần quét.</div>`,
+    async onSave(v){
+      if (!String(v.kw || '').trim()){ toast('Gõ từ khoá'); return false; }
+      const r = await Server.rivalKwSave({id: cu ? cu.id : '', kw: v.kw, kind: v.kind, note: v.note, off: !!v.off});
+      if (!cu) ui.rvKw = r.id;
+      await loadRival();
+      toast(cu ? 'Đã lưu' : 'Đã thêm — lần quét tới sẽ có số');
+    },
+    onDelete: cu ? async () => {
+      if (!confirm('Xoá từ khoá "' + cu.kw + '" cùng ' + cu.n + ' lần quét đã lưu? Không lấy lại được.')) return false;
+      await Server.rivalKwDel(cu.id);
+      delete rv.scans[cu.id]; ui.rvKw = '';
+      await loadRival(); toast('Đã xoá');
+    } : null
+  });
+}
+/* Lịch sử một sản phẩm qua các lần quét của từ khoá đang xem */
+function rvProdOpen(id){
+  const {kw, ds} = rvView();
+  if (!kw) return;
+  const his = ds.map(s => { const i = s.items.findIndex(x => x.id === id); return i < 0 ? null : Object.assign({date:s.date, rank:i + 1}, s.items[i]); })
+                .filter(Boolean);
+  const x = his[0];
+  if (!x) return;
+  const mine = rvIsMine(x), danhDau = ((rv.state && rv.state.mine) || []).some(m => String(m.id) === String(x.sid));
+  let h = `<div class="rv-ph">
+      ${x.img ? `<img src="${esc(x.img)}" alt="" referrerpolicy="no-referrer" loading="lazy">` : ''}
+      <div class="grow">
+        <div><b>${esc(x.n)}</b></div>
+        <div class="dim" style="margin:4px 0">${esc(x.shop)}${x.mall ? ' · Mall' : ''}${x.brand ? ' · ' + esc(x.brand) : ''}${
+          x.created ? ' · lên kệ ' + esc(fmtDate(x.created)) : ''}</div>
+        <div>${money(x.p)}${x.pmin && x.pmin !== x.pmax ? ` <span class="dim">phân loại ${money(x.pmin)} – ${money(x.pmax)}</span>` : ''}</div>
+        <div class="dim" style="margin-top:4px">Tổng đã bán ${x.sold.toLocaleString('vi-VN')} · tổng doanh số ${moneyShort(x.rev)}
+          · ${x.ra ? x.ra.toFixed(1) + '★ ' : ''}${x.rc.toLocaleString('vi-VN')} đánh giá</div>
+        <div class="btns" style="margin-top:10px">
+          ${x.url ? `<a class="btn sm" href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">Mở trên Shopee ↗</a>` : ''}
+          ${x.sid ? `<button class="btn sm" data-act="rvmine" data-id="${esc(x.sid)}" data-name="${esc(x.shop)}" data-on="${danhDau ? '' : '1'}">${
+            danhDau ? 'Bỏ đánh dấu shop của mình' : mine ? '⭐ Shop của mình (trùng tên gian hàng)' : '⭐ Đây là shop của mình'}</button>` : ''}
+        </div>
+      </div></div>
+    <div class="sec sm">Qua các lần quét — "${esc(kw.kw)}"<span class="ln"></span></div>
+    <div class="tblwrap"><table class="tbl sm rv-his"><thead><tr><th>Ngày quét</th><th class="c">Hạng</th><th class="r">Giá bán</th>
+      <th class="r">Phân loại</th><th class="r">Doanh số kỳ</th><th class="r">Lượt bán kỳ</th><th class="r">Tổng đã bán</th><th>Ảnh bìa</th></tr></thead><tbody>`;
+  his.forEach((r, i) => {
+    const sau = his[i + 1];                    // lần quét cũ hơn
+    const doi = (a, b) => sau && a !== b ? ' class="r rv-doi"' : ' class="r"';
+    h += `<tr><td>${esc(fmtDate(r.date))}</td><td class="c"><b>${r.rank}</b></td>
+      <td${doi(r.p, sau && sau.p)}>${money(r.p)}</td>
+      <td${doi(r.pmin + '-' + r.pmax, sau && sau.pmin + '-' + sau.pmax)}>${moneyShort(r.pmin)} – ${moneyShort(r.pmax)}</td>
+      <td class="r">${moneyShort(r.r)}</td><td class="r">${r.o.toLocaleString('vi-VN')}</td>
+      <td class="r">${r.sold.toLocaleString('vi-VN')}${sau && r.sold >= sau.sold ? ` <span class="dim">+${(r.sold - sau.sold).toLocaleString('vi-VN')}</span>` : ''}</td>
+      <td>${r.img && (!sau || sau.img !== r.img) ? `<img class="rv-tn" src="${esc(rvThumb(r.img))}" alt="" referrerpolicy="no-referrer" loading="lazy">${
+        sau ? ' <span class="chip acc">ảnh mới</span>' : ''}` : '<span class="dim">như cũ</span>'}</td></tr>`;
+  });
+  h += `</tbody></table></div>
+    <div class="dim" style="margin-top:8px">Ô tô vàng là chỗ vừa đổi so với lần quét trước đó. Số nhỏ cạnh "Tổng đã bán" là phần bán thêm giữa hai lần quét.</div>`;
+  openModal('Đối thủ', h, `<div class="btns end"><div class="grow"></div><button class="btn sm" data-act="closem">Đóng</button></div>`, true);
 }
 
 /* Thiết bị gửi số liệu quảng cáo tự động — xem thẻ ingestCard() */
@@ -4677,6 +4791,31 @@ function launchStepCustomForm(id){
 
 const ACTIONS = {
   nav:  id => go(id),
+  /* ---- Theo dõi đối thủ ---- */
+  rvkw:     id => { ui.rvKw = id; ui.rvDate = ''; ui.rvAll = false; render(); },
+  rvdate:   id => { ui.rvDate = id; render(); },
+  rvall:    () => { ui.rvAll = !ui.rvAll; render(); },
+  rvnew:    () => rvKwForm(null),
+  rvedit:   id => rvKwForm(id),
+  rvprod:   id => rvProdOpen(id),
+  rvreload: () => { rv.asked = false; rv.scans = {}; rv.state = null; render(); },
+  rvcopy:   () => { const v = rvView(); if (v.cur) copyText(rvReportText(v.kw, v.cur, v.cmp)); },
+  rvmine:   async (id, el) => {
+    try { await Server.rivalMine(id, el.dataset.name || '', !!el.dataset.on); }
+    catch(e){ return toast('Không lưu được: ' + (e.message || e)); }
+    closeAllModals();
+    try { rv.state = await Server.rivalState(); } catch(e){}
+    toast(el.dataset.on ? 'Đã đánh dấu là shop của mình' : 'Đã bỏ đánh dấu');
+    render();
+  },
+  rvscandel: async () => {
+    const v = rvView();
+    if (!v.cur || !confirm('Xoá lần quét ngày ' + fmtDate(v.cur.date) + ' của "' + v.kw.kw + '"?')) return;
+    try { await Server.rivalScanDel(v.kw.id, v.cur.date, v.cur.src); }
+    catch(e){ return toast('Không xoá được: ' + (e.message || e)); }
+    ui.rvDate = ''; delete rv.scans[v.kw.id];
+    await loadRival(); toast('Đã xoá lần quét');
+  },
   /* Cảnh báo "chưa nạp file ngày/tháng" mở thẳng đúng tab của Báo cáo Ads,
      không rơi vào Radar (tab mặc định) rồi phải tự tìm. */
   adgo: id => { ui.adTab = id; go('adreport'); },
@@ -4979,6 +5118,7 @@ const ACTIONS = {
     else if (p === 'improve') spImportModal('');
     else if (p === 'newprod') ideaForm(null);
     else if (p === 'launch') ACTIONS.newlaunch();
+    else if (p === 'rival') rvKwForm(null);
     else if (p === 'keywords' || p === 'kw') kwForm(null);
     else if (p === 'pj') pjAddForm(route.id);
     else if (p === 'cost') { if (ui.costTab === 'pj') pjForm(null); else costSpForm(null); }
@@ -5266,4 +5406,4 @@ function checkBuild(){
   }
 })();
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "9c58f644"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "a8bba810"]);
