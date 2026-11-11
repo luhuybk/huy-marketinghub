@@ -237,4 +237,4 @@ const Sync = (() => {
 })();
 window.Sync = Sync;
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/sync.js", "9998179b"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/sync.js", "534e9336"]);

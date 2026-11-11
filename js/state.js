@@ -5002,7 +5002,14 @@ function rvSpDiff(cur, prev){
    Số "từ lần quét trước" lấy bằng hiệu của TỔNG lượt bán / TỔNG doanh số —
    hai con số cộng dồn, nên hiệu của chúng đúng là phần bán thêm giữa hai lần
    quét, không phụ thuộc kỳ 30 ngày trượt của Metric. */
+/* Lần quét BÙ: gửi lên sau ngày nó mang tên (tác vụ chọn một kỳ cũ trên
+   Metric để có cái mà so). Thứ hạng và doanh số trong kỳ của nó là thật, nhưng
+   giá, ảnh bìa và TỔNG đã bán là số của hôm quét bù chứ không phải hồi đó —
+   nên không lấy hiệu tổng đã bán với một lần quét bù. `at` là giờ UTC. */
+const rvLaBu = s => !!(s && s.at && s.date &&
+  new Date(new Date(s.at).getTime() + 7 * 36e5).toISOString().slice(0, 10) > s.date);
 function rvCompare(cur, prev, next){
+  const bu = rvLaBu(prev) || rvLaBu(cur);
   const cu = new Map(((prev && prev.items) || []).map((x, i) => [x.id, Object.assign({rank:i + 1}, x)]));
   const rows = (cur.items || []).map((x, i) => {
     const o = cu.get(x.id) || null;
@@ -5011,8 +5018,8 @@ function rvCompare(cur, prev, next){
       sp, spPrev, spSum: rvSpSum(sp), spCh: rvSpDiff(sp, spPrev),
       rank: i + 1, prev: o, isNew: !!prev && !o, mine: rvIsMine(x),
       move: o ? o.rank - (i + 1) : 0,
-      dSold: o && x.sold >= o.sold ? x.sold - o.sold : null,
-      dRev:  o && x.rev  >= o.rev  ? x.rev  - o.rev  : null,
+      dSold: !bu && o && x.sold >= o.sold ? x.sold - o.sold : null,
+      dRev:  !bu && o && x.rev  >= o.rev  ? x.rev  - o.rev  : null,
       imgNew:  !!(o && o.img && x.img && o.img !== x.img),
       nameNew: !!(o && o.n && o.n !== x.n),
       gR: rvPct(x.r, x.rp), gO: rvPct(x.o, x.op)
@@ -5020,7 +5027,7 @@ function rvCompare(cur, prev, next){
   });
   const con = new Set(rows.map(r => r.id));
   const out = prev ? [...cu.values()].filter(x => !con.has(x.id)) : [];
-  return {rows, out, prev: prev || null,
+  return {rows, out, prev: prev || null, bu,
           days: prev && cur.to && prev.to ? Math.round((new Date(cur.to) - new Date(prev.to)) / 864e5) : null};
 }
 
@@ -5114,4 +5121,4 @@ function rvReportText(kw, cur, cmp, vol){
   return L.join('\n');
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "9998179b"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "534e9336"]);

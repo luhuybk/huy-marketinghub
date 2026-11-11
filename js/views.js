@@ -5397,7 +5397,8 @@ function viewRival(){
 
   if (ds.length > 1)
     h += `<div class="chips rv-dates"><span class="dim rv-lb">Lần quét</span>${ds.slice(0, 14).map(s =>
-      `<button class="btn sm ${s.date === cur.date ? 'pri' : ''}" data-act="rvdate" data-id="${esc(s.date)}">${esc(fmtDate(s.date).slice(0, 5))}</button>`).join('')}</div>`;
+      `<button class="btn sm ${s.date === cur.date ? 'pri' : ''}" data-act="rvdate" data-id="${esc(s.date)}"${
+        rvLaBu(s) ? ' title="quét bù: kỳ cũ được quét sau này"' : ''}>${esc(fmtDate(s.date).slice(0, 5))}${rvLaBu(s) ? ' <span class="rv-chua">bù</span>' : ''}</button>`).join('')}</div>`;
 
   const rows = cmp.rows, top = rows.slice(0, ui.rvAll ? rows.length : RV_SHOW);
   const tong = rows.reduce((a, r) => a + r.r, 0), tongTruoc = rows.reduce((a, r) => a + r.rp, 0);
@@ -5407,7 +5408,9 @@ function viewRival(){
   const pct = v => v == null ? '' : `<span class="${v >= 0 ? 'rv-up' : 'rv-dn'}">${v >= 0 ? '▲' : '▼'} ${Math.abs(v).toFixed(0)}%</span>`;
 
   h += `<div class="dim rv-ky">Quét ngày <b>${esc(fmtDate(cur.date))}</b>${cur.from ? ` · số Metric tính cho kỳ <b>${esc(fmtDate(cur.from))} – ${esc(fmtDate(cur.to))}</b>` : ''}${
-      cmp.prev ? ` · so với lần quét <b>${esc(fmtDate(cmp.prev.date))}</b>` : ' · chưa có lần quét trước để so'}</div>`;
+      cmp.prev ? ` · so với lần quét <b>${esc(fmtDate(cmp.prev.date))}</b>${
+        cmp.bu ? ' <span class="chip warn" title="Kỳ cũ được quét bù sau này: so được thứ hạng và doanh số trong kỳ; giá, ảnh bìa và tổng đã bán của hồi đó thì không có">có lần quét bù — chỉ so thứ hạng và doanh số kỳ</span>' : ''}`
+               : ' · chưa có lần quét trước để so'}</div>`;
 
   /* ---- 3a. thị trường của từ khoá: lượt tìm kiếm + cả thị trường, không chỉ top ---- */
   const m = cur.extra && cur.extra.market;
@@ -5486,6 +5489,7 @@ function viewRival(){
 
   /* ---- 5. bảng top: xem dạng bảng số, hoặc dạng ảnh bìa lớn ---- */
   const coSp = rows.some(r => r.sp);
+  const coHieu = !!cmp.prev && !cmp.bu;       // có hiệu "tổng đã bán" giữa hai lần quét thật
   const ngaySp = rows.map(r => r.sp && r.sp.date).filter(Boolean).sort().pop() || '';
   h += sectionTitle('Top ' + top.length + ' theo doanh số',
     `<button class="${ui.rvMode !== 'img' ? 'on' : ''}" data-act="rvmode" data-id="tbl">▤ Bảng</button>` +
@@ -5518,7 +5522,7 @@ function viewRival(){
   } else {
   h += `<div class="tblwrap"><table class="tbl rv-tbl"><thead><tr>
       <th class="c">Hạng</th><th>Sản phẩm</th><th class="r">Giá bán</th><th class="r">Giá cuối<div class="rv-thn">sau voucher</div></th><th class="r">Doanh số kỳ</th>
-      <th class="r">Lượt bán kỳ</th><th class="r">${cmp.prev ? 'Từ lần quét trước' : 'Tổng đã bán'}</th><th class="r">Đánh giá</th></tr></thead><tbody>`;
+      <th class="r">Lượt bán kỳ</th><th class="r">${coHieu ? 'Từ lần quét trước' : 'Tổng đã bán'}</th><th class="r">Đánh giá</th></tr></thead><tbody>`;
   top.forEach(r => {
     const mv = r.isNew ? '<span class="chip acc">MỚI</span>'
              : r.move > 0 ? `<span class="rv-up">▲${r.move}</span>` : r.move < 0 ? `<span class="rv-dn">▼${-r.move}</span>`
@@ -5537,14 +5541,14 @@ function viewRival(){
       <td class="r nw rv-gc">${giaCuoi(r)}</td>
       <td class="r nw"><b>${moneyShort(r.r)}</b><div>${pct(r.gR)}</div></td>
       <td class="r nw">${r.o.toLocaleString('vi-VN')}<div>${pct(r.gO)}</div></td>
-      <td class="r nw">${cmp.prev
+      <td class="r nw">${coHieu
           ? (r.dSold != null ? `<b>+${r.dSold.toLocaleString('vi-VN')}</b> lượt<div class="dim">+${moneyShort(r.dRev || 0)}</div>` : '<span class="dim">mới vào top</span>')
           : `${r.sold.toLocaleString('vi-VN')}<div class="dim">${moneyShort(r.rev)}</div>`}</td>
       <td class="r nw">${r.ra ? r.ra.toFixed(1) + '★' : '—'}<div class="dim">${r.rc.toLocaleString('vi-VN')}</div></td></tr>`;
   });
   h += `</tbody></table></div>
     <div class="dim" style="margin-top:8px">Hạng xếp theo doanh số trong kỳ của Metric (thường là 30 ngày, số trễ khoảng 9 ngày).
-      ▲▼ % là so với kỳ liền trước cùng độ dài. ${cmp.prev ? '"Từ lần quét trước" là phần bán thêm giữa hai lần quét.' : ''}
+      ▲▼ % là so với kỳ liền trước cùng độ dài. ${coHieu ? '"Từ lần quét trước" là phần bán thêm giữa hai lần quét.' : ''}
       ${coSp ? `<b>Giá cuối</b> là giá khách thật sự trả cho phân loại rẻ nhất còn hàng, sau voucher shop và voucher Shopee — đọc trên trang Shopee ngày ${esc(fmtDate(ngaySp))}.`
              : '<b>Giá cuối</b> chưa có: tác vụ quét chưa đọc trang Shopee của các sản phẩm này.'}
       Bấm một dòng để xem ảnh bìa lớn, bảng giá chi tiết, phân loại và lịch sử của đối thủ đó.</div>`;
@@ -5571,4 +5575,4 @@ function viewRival(){
   return h;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "9998179b"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "534e9336"]);
