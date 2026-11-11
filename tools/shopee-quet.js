@@ -16,7 +16,7 @@
    thì sửa đúng hàm đó. Máy chủ (rvSpClean) ép kiểu lại lần nữa.
    ============================================================ */
 (() => {
-  const BAN = 3;
+  const BAN = 4;
   if (window.__sp && window.__sp.v === BAN) return 'đã gắn sẵn (bản ' + BAN + ')';
   const cu = window.__sp || {};
   const S = window.__sp = {v: BAN, pc: cu.pc || {}, st: {run: false, n: 0, i: 0, ok: 0, skip: 0, loi: [], dung: '', xong: false}};
@@ -131,6 +131,7 @@
         const can = ds.filter(x => cfg.caDaQuet || !x.done);
         st.n = can.length; st.skip = ds.length - can.length;
         let hong = 0;
+        const nghi = Array.isArray(cfg.nghi) && cfg.nghi[1] >= cfg.nghi[0] && cfg.nghi[0] >= 2000 ? cfg.nghi : [4000, 8000];   // ms giữa hai sản phẩm
         for (const x of can) {
           if (st.dung) break;
           st.i++;
@@ -149,7 +150,7 @@
           if (loi) { st.loi.push(x.id + ' (' + (x.shop || '') + '): ' + loi); hong++; } else hong = 0;
           /* ba sản phẩm liền nhau cùng hỏng = có chuyện (bị chặn, mất mạng, vé hết hạn) — dừng, đừng cố */
           if (hong >= 3) { st.dung = 'Ba sản phẩm liên tiếp không đọc được — dừng lại. Lỗi cuối: ' + loi; break; }
-          await ngu(4000 + Math.random() * 4000);
+          await ngu(nghi[0] + Math.random() * (nghi[1] - nghi[0]));
         }
       } catch (e) { st.dung = String(e && e.message || e); }
       st.run = false; st.xong = true;
