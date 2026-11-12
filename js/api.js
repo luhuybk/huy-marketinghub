@@ -230,6 +230,7 @@ const Server = (() => {
   const ingestSet  = (id, act) => call('ingest_set', {id, do: act});
   /* Gợi ý nâng ROAS mục tiêu — máy chủ tự tính từ số quảng cáo tự động */
   const adTgUp = () => call('ad_tg_up');
+  const adTgMute = id => call('ad_tg_mute', {id});
   /* Theo dõi đối thủ — dữ liệu ở máy chủ, chỉ chủ gọi được */
   const rivalState   = ()      => call('rival_state');
   const rivalScans   = kwId    => call('rival_scans', {kw_id: kwId});
@@ -246,7 +247,7 @@ const Server = (() => {
 
   return {probe, login, logout, logoutAll, pull, push, pushBeacon, stats,
           tgGet, tgSave, tgTest, tgReport, tgHook, remind, ingestList, ingestSet,
-          rivalState, rivalScans, rivalKwSave, rivalKwDel, rivalScanDel, rivalMine, adTgUp,
+          rivalState, rivalScans, rivalKwSave, rivalKwDel, rivalScanDel, rivalMine, adTgUp, adTgMute,
           users, userNames, userSave, userDel, takeWhoChanged, notePerms,
           available, authed, state, role, isOwner, name, perms, may, call};
 })();
@@ -348,4 +349,4 @@ const Gate = (() => {
 })();
 window.Gate = Gate;
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/api.js", "85da265d"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/api.js", "53d5fc78"]);

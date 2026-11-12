@@ -336,7 +336,7 @@ function start(DATA){
     const pct=(na-nb)/nb*100, cls=Math.abs(pct)<3||dir===0?'flat':((pct>0)===(dir>0)?'up':'down');
     /* Tỉ lệ (CTR, CVR, thêm giỏ): % là so với mức cũ, kèm số ĐIỂM phần trăm —
        5% → 6% là "▲ 20% (+1.00 điểm)". Chỉ ghi một trong hai là hiểu lầm. */
-    const pp = RATE.has(k) ? ` <span class="pp">(${ppT(a-b)})</span>` : '';
+    const pp = RATE.has(k) && Math.abs(a-b) >= 0.005 ? ` <span class="pp">(${ppT(a-b)})</span>` : '';
     return `<span class="c"><span class="${cls}" ${RATE.has(k)?`title="${f(b)} → ${f(a)}: ${a<b?'giảm':'tăng'} ${Math.abs(a-b).toFixed(2)} điểm phần trăm, tức ${a<b?'giảm':'tăng'} ${Math.abs(pct).toFixed(0)}% so với mức cũ"`:''}>${pct>0?'▲':'▼'} ${Math.abs(pct).toFixed(0)}%${pp}</span> · kỳ so sánh ${VOL.has(k)&&!SAME?f(b/LB)+'/ngày':f(b)}</span>`;
   }
   const RATE = new Set(['ctr','atcr','cr']);
@@ -367,7 +367,7 @@ function start(DATA){
        GẦN NHẤT có số, không theo kỳ đang chọn — luôn là chuyện của hiện tại. */
     const chon = new Set(cs);
     TGUP.forEach(x => { if (x.c && chon.has(x.c)) out.push({c:x.c, f:'Nên nâng ROAS mục tiêu', cost:x.cost,
-      m:`${dshort(x.from)}–${dshort(x.to)}: ROAS ${x.r3.toFixed(1)}, mục tiêu ${x.tg} (vượt ${((x.r3/x.tg-1)*100).toFixed(0)}%) · ${x.orders} đơn · chi ${fmt(x.cost)}đ → đề xuất nâng lên <b>${x.goi}</b>`}); });
+      m:`${dshort(x.from)}–${dshort(x.to)} ngày nào cũng đạt: ROAS gộp ${x.r3.toFixed(1)}, mục tiêu ${x.tg} (vượt ${((x.r3/x.tg-1)*100).toFixed(0)}%) · ${x.orders} đơn · chi ${fmt(x.cost)}đ → đề xuất nâng lên <b>${x.goi}</b>`}); });
     return out;
   }
   /* gợi ý của máy chủ, gắn sẵn với chiến dịch trong DATA */
@@ -395,7 +395,7 @@ function start(DATA){
     aSel.value=ST.a; bSel.value=ST.b;
   }
   function renderMods(cs){ document.getElementById('mods').innerHTML = modulesHTML(derive(sumAll(cs,A)), derive(sumAll(cs,B))); }
-  const DESC={'Đốt tiền':'Tiêu tiền nhưng không có đơn','Doanh số giảm':'Doanh số mỗi ngày giảm từ 30% trở lên','ROAS giảm':'ROAS giảm từ 30% trở lên','ROAS thấp':'ROAS dưới 60% mức trung bình của shop','Chi phí tăng vọt':'Chi phí mỗi ngày tăng gấp đôi nhưng hiệu quả kém','CTR giảm':'Tỉ lệ click giảm từ 40% trở lên','Hết ngân sách':'Quảng cáo tốt nhưng gần hết ngân sách ngày','Nên nâng ROAS mục tiêu':'ROAS 3 ngày gần nhất vượt mục tiêu từ 15% — giữ mục tiêu cũ thì Shopee sẽ đẩy chi tiêu lên, nâng một nhịp để giữ phần lời'};
+  const DESC={'Đốt tiền':'Tiêu tiền nhưng không có đơn','Doanh số giảm':'Doanh số mỗi ngày giảm từ 30% trở lên','ROAS giảm':'ROAS giảm từ 30% trở lên','ROAS thấp':'ROAS dưới 60% mức trung bình của shop','Chi phí tăng vọt':'Chi phí mỗi ngày tăng gấp đôi nhưng hiệu quả kém','CTR giảm':'Tỉ lệ click giảm từ 40% trở lên','Hết ngân sách':'Quảng cáo tốt nhưng gần hết ngân sách ngày','Nên nâng ROAS mục tiêu':'3 ngày gần nhất ngày nào cũng đạt mục tiêu và ROAS gộp vượt từ 15% — giữ mục tiêu cũ thì Shopee sẽ đẩy chi tiêu lên, nâng một nhịp để giữ phần lời'};
   let OPEN=new Set();
   function shopDrop(cs){
     const ids = ST.shop==='all' ? DATA.shops.map((_,i)=>i) : [+ST.shop], out=[];
@@ -501,9 +501,10 @@ function start(DATA){
         <input class="ulink num" id="dUrl" readonly value="${url}" aria-label="Link quảng cáo"> <button type="button" id="dCopy">Sao chép link</button> <span class="note" id="dCopied"></span><br>
         <a class="link" href="${url}" target="_blank" rel="noopener">Mở trong tab mới ↗</a>
       </div>
-      ${tgUp?`<div class="callout tgup"><b>Nên nâng ROAS mục tiêu ${c.tg} → ${tgUp.goi}.</b> ${dlong(tgUp.from)} – ${dlong(tgUp.to)}: ROAS ${tgUp.r3.toFixed(2)}, vượt mục tiêu ${((tgUp.r3/tgUp.tg-1)*100).toFixed(0)}% (${tgUp.orders} đơn, chi ${fmt(tgUp.cost)}đ, ${tgUp.dat}/3 ngày tự đạt mục tiêu).
+      ${tgUp?`<div class="callout tgup"><b>Nên nâng ROAS mục tiêu ${c.tg} → ${tgUp.goi}.</b> ${dlong(tgUp.from)} – ${dlong(tgUp.to)}: ROAS ${tgUp.r3.toFixed(2)}, vượt mục tiêu ${((tgUp.r3/tgUp.tg-1)*100).toFixed(0)}% (${tgUp.orders} đơn, chi ${fmt(tgUp.cost)}đ, cả 3 ngày ngày nào cũng tự đạt mục tiêu).
         Giữ mục tiêu cũ thì Shopee hiểu là còn dư địa và đẩy giá thầu, đẩy chi tiêu lên cho tới khi ROAS lùi về gần ${c.tg} — phần lời có được từ tối ưu sản phẩm thành tiền quảng cáo.
-        Nâng một nhịp (tối đa 15%, vẫn thấp hơn ROAS thực 10%) rồi chờ 3 ngày: Hub tự nhận mức mới vào sáng hôm sau và xét lại sau 3 ngày chạy theo mức đó.</div>`:''}
+        Nâng một nhịp (tối đa 15%, vẫn thấp hơn ROAS thực 10%) rồi chờ 3 ngày: Hub tự nhận mức mới vào sáng hôm sau và xét lại sau 3 ngày chạy theo mức đó.
+        Muốn giữ mức này thì bấm <b>Đã xử lý</b> ở trang Hôm nay (hoặc dưới tin Telegram) — Hub thôi nhắc 14 ngày.</div>`:''}
       ${c.tgc&&c.tgc.length?`<div class="note">Đổi ROAS mục tiêu: ${c.tgc.slice().reverse().map(x=>`${x[1]||'—'} → <b>${x[2]||'—'}</b> (nhận ${dshort(x[0])})`).join(' · ')}</div>`:''}
       ${sib.length?`<div class="callout">Shop này còn ${sib.length} quảng cáo khác cho cùng sản phẩm: ${sib.map((x,i)=>`<button type="button" data-sib="${i}">ID ${esc(x.id)}</button>`).join(', ')}. Khi so với số trên Shopee, nhớ đối chiếu đúng ID.</div>`:''}
       <div class="cmpbar" aria-label="Chọn ngày xem và ngày so sánh">

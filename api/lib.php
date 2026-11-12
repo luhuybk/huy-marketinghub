@@ -400,7 +400,7 @@ function tgApi(string $token, string $method, array $params): array {
     ]);
     $raw = curl_exec($ch);
     if ($raw === false) $err = curl_error($ch);
-    curl_close($ch);
+    /* không gọi curl_close(): từ PHP 8.0 nó không còn tác dụng, 8.5 thì báo lỗi thời */
   } else {
     $raw = @file_get_contents($url, false, stream_context_create(['http' => [
       'method' => 'POST', 'timeout' => 15, 'ignore_errors' => true,
@@ -984,35 +984,52 @@ function adRadarData(int $soNgay = 400): array {
 
    Luật (đọc kho thô ad_raw, mỗi shop tính tới ngày cuối có số của shop đó):
      · chiến dịch đang chạy, có đặt ROAS mục tiêu
-     · AD_TG_NGAY ngày gần nhất: chi ≥ AD_TG_CHI, ≥ AD_TG_DON đơn — ít hơn thì
-       một đơn lẻ cũng làm ROAS nhảy vọt, không nói lên gì
-     · ROAS gộp cả mấy ngày (doanh thu ÷ chi phí, không phải trung bình cộng
-       ROAS từng ngày) ≥ mục tiêu × AD_TG_VUOT, VÀ ít nhất AD_TG_DAT ngày tự nó
-       đạt mục tiêu — một ngày trúng lớn không đủ
+     · AD_TG_NGAY ngày gần nhất: chi ≥ AD_TG_CHI, ≥ AD_TG_DON đơn
+     · CẢ AD_TG_NGAY ngày, ngày nào cũng tự đạt mục tiêu, VÀ ROAS gộp cả mấy
+       ngày (doanh thu ÷ chi phí, không phải trung bình cộng ROAS từng ngày)
+       ≥ mục tiêu × AD_TG_VUOT
      · mục tiêu vừa đổi thì chờ đủ AD_TG_NGAY ngày chạy theo mức mới mới xét
      · số liệu của shop cũ quá AD_TG_CU ngày (tác vụ buổi sáng ngừng gửi) thì
-       thôi, gợi ý theo số cũ dễ sai
+       thôi — "3 ngày gần nhất" lúc đó đã là chuyện tuần trước
+     · đã bấm "Đã xử lý" (adTgMute) thì im tới khi mục tiêu đổi, hoặc hết
+       AD_TG_IM ngày
    Mức đề xuất: nâng tối đa AD_TG_BUOC một lần, và chừa ít nhất 10% dưới ROAS
    thực (AD_TG_CHUA) để Shopee vẫn còn đơn mà chạy; làm tròn 0,1.
 
-   Số 12/11/2026 trên dữ liệu thật: 31 chiến dịch đủ chi tiêu, ROAS thực
-   thường chỉ đạt 50–90% mục tiêu (trung vị 65%), 1 chiến dịch vượt 15% — nên
-   gợi ý hiếm và đáng đọc, không thành tiếng ồn. Bản Node ở serve.js.
+   VÌ SAO PHẢI CẢ BA NGÀY. Bản đầu chỉ đòi 2/3 ngày đạt. Chạy lại luật đó trên
+   122 ngày số thật (10/07–08/11/2026, 224 chiến dịch, lấy mục tiêu hiện tại
+   làm mốc) thì nó bật 24 đợt, và 86% số đợt ấy 7 ngày kế tiếp ROAS tự rơi lại
+   dưới mục tiêu (trung vị còn 0,67 lần mục tiêu) — toàn là một ngày trúng đơn
+   lớn kéo cả cửa sổ lên. Nâng mục tiêu theo những lần đó là sai. Đòi cả ba
+   ngày đều đạt thì còn 4 đợt; 3 đợt có số tuần sau để đối chứng thì 2 đợt vẫn
+   nằm trên mục tiêu. Vượt sát nút (gộp 1,05–1,09 lần) thì cả 4 lần đều rơi
+   lại — nên giữ ngưỡng 1,15. Ngày sale đôi (8/8, 9/9, 10/10) ROAS toàn shop
+   chỉ cao hơn quanh đó ~10%, dưới ngưỡng, nên không cần luật riêng cho sale.
+   Cũng từ số đó: ROAS thực hiếm khi chạm mục tiêu (3.844 cửa sổ đủ chi tiêu,
+   2% có tuần kế tiếp đạt, trung vị 60%) — gợi ý này sẽ hiếm, và đáng đọc.
+   Bản Node ở serve.js.
    ============================================================ */
 const AD_TG_NGAY = 3;
-const AD_TG_DAT  = 2;
 const AD_TG_VUOT = 1.15;
 const AD_TG_CHI  = 45000;
 const AD_TG_DON  = 3;
 const AD_TG_BUOC = 1.15;
 const AD_TG_CHUA = 0.9;
-const AD_TG_CU   = 7;
+const AD_TG_CU   = 4;
+const AD_TG_IM   = 14;
 
+/* id cố định theo chiến dịch: Telegram nhớ "hôm nay đã nhắc việc này chưa" và
+   nút dưới tin nhắn gọi lại đúng việc bằng id này. */
+function adTgId(string $shop, string $cid): string {
+  return 'tgup_' . substr(sha1($shop . '|' . $cid), 0, 12);
+}
 function adTgUp(): array {
   $pdo = db();
   adTables($pdo);
   $tz = new DateTimeZone(KH_TZ);
   $quaCu = (new DateTime('now', $tz))->modify('-' . AD_TG_CU . ' days')->format('Y-m-d');
+  $imTu  = (new DateTime('now', $tz))->modify('-' . AD_TG_IM . ' days')->format('Y-m-d');
+  $im = kvGet('ad_tg_mute', []) ?: [];
   $cuoi = [];
   foreach ($pdo->query('SELECT shop, MAX(date) d FROM ad_raw GROUP BY shop')->fetchAll() as $r) $cuoi[$r['shop']] = (string)$r['d'];
   $doi = [];
@@ -1032,35 +1049,58 @@ function adTgUp(): array {
       $cost += (int)$r['cost']; $gmv += (int)$r['gmv']; $don += (int)$r['orders'];
       if ((int)$r['cost'] > 0 && (int)$r['gmv'] / (int)$r['cost'] >= $tg) $dat++;
     }
-    if ($cost < AD_TG_CHI || $don < AD_TG_DON || $dat < AD_TG_DAT) continue;
+    /* $dat đếm ngày CÓ số và tự đạt mục tiêu — ngày không chạy cũng là không đạt */
+    if ($cost < AD_TG_CHI || $don < AD_TG_DON || $dat < AD_TG_NGAY) continue;
     $r3 = $gmv / $cost;
     if ($r3 < $tg * AD_TG_VUOT) continue;
-    $out[] = ['shop' => $shop, 'cid' => $cid, 't' => trim((string)$m['title']) ?: 'Chiến dịch ' . $cid,
+    $id = adTgId($shop, $cid);
+    $i0 = is_array($im[$id] ?? null) ? $im[$id] : null;
+    if ($i0 && abs((float)($i0['tg'] ?? 0) - $tg) < 0.001 && (string)($i0['at'] ?? '') > $imTu) continue;
+    $out[] = ['id' => $id, 'shop' => $shop, 'cid' => $cid, 't' => trim((string)$m['title']) ?: 'Chiến dịch ' . $cid,
               'item' => (string)$m['item'], 'tg' => $tg, 'r3' => round($r3, 2),
-              'cost' => $cost, 'gmv' => $gmv, 'orders' => $don, 'dat' => $dat, 'from' => $tu, 'to' => $den,
+              'cost' => $cost, 'gmv' => $gmv, 'orders' => $don, 'from' => $tu, 'to' => $den,
               'goi' => round(max($tg + 0.1, min($tg * AD_TG_BUOC, $r3 * AD_TG_CHUA)), 1),
               'doi' => $c ? [(string)$c['date'], (float)$c['old'], (float)$c['new']] : null];
   }
   usort($out, fn($a, $b) => $b['cost'] <=> $a['cost']);
   return $out;
 }
+/* "Đã xử lý": đã nâng mục tiêu trên Shopee, hoặc cố ý giữ mức này. Ghi lại
+   MỨC MỤC TIÊU lúc bấm — sáng hôm sau Hub nhận mức mới thì dấu này hết tác
+   dụng (và luật chờ 3 ngày theo mức mới lo phần còn lại); còn giữ nguyên mức
+   cũ thì im AD_TG_IM ngày rồi mới nhắc lại nếu ROAS vẫn vượt. Không có nó thì
+   một chiến dịch chạy tốt đều sẽ bị nhắc mỗi ngày không dứt, và người ta tắt
+   luôn cả luồng nhắc. Trả false khi gợi ý đó không còn. */
+function adTgMute(string $id): bool {
+  foreach (adTgUp() as $x) {
+    if ($x['id'] !== $id) continue;
+    $tz = new DateTimeZone(KH_TZ);
+    $cu = (new DateTime('now', $tz))->modify('-60 days')->format('Y-m-d');
+    $im = array_filter(kvGet('ad_tg_mute', []) ?: [], fn($v) => is_array($v) && (string)($v['at'] ?? '') >= $cu);
+    $im[$id] = ['tg' => $x['tg'], 'at' => (new DateTime('now', $tz))->format('Y-m-d')];
+    kvSet('ad_tg_mute', (object)$im);
+    return true;
+  }
+  return false;
+}
 /* Cùng gợi ý đó dưới dạng một việc trong danh sách nhắc — hiện ở trang Hôm
    nay và đi Telegram (luồng Shopee Ads). Máy chủ tự dựng chứ không đợi app
-   đẩy lên: số về lúc sáng sớm, cả khi chưa ai mở app. Không có nút "xong":
-   nâng mục tiêu trên Shopee xong thì sáng hôm sau Hub thấy mức mới và việc tự
-   biến mất. id cố định theo chiến dịch để Telegram nhớ đã nhắc hôm nay chưa. */
+   đẩy lên: số về lúc sáng sớm, cả khi chưa ai mở app. Nút "xong" của việc
+   này là adTgMute() — doneSet chỉ để nút hiện ra, không phải ô dữ liệu nào
+   (auto:true báo cho app và tg.php đi đường riêng). */
 function adTgTasks(): array {
   $nay = (new DateTime('now', new DateTimeZone(KH_TZ)))->format('Y-m-d');
   $so = fn($v) => rtrim(rtrim(number_format((float)$v, 2, ',', '.'), '0'), ',');
   $ng = fn($d) => substr($d, 8, 2) . '/' . substr($d, 5, 2);
   return array_map(fn($x) => [
-    'id' => 'tgup_' . substr(sha1($x['shop'] . '|' . $x['cid']), 0, 12),
+    'id' => $x['id'],
     'feed' => 'ads', 'due' => $nay, 'icon' => '🎯', 'auto' => true,
     'title' => 'Nâng ROAS mục tiêu ' . $so($x['tg']) . ' → ' . $so($x['goi']) . ': ' . $x['t'],
-    'sub' => $x['shop'] . ' · ' . AD_TG_NGAY . ' ngày ' . $ng($x['from']) . '–' . $ng($x['to']) . ': ROAS ' . $so($x['r3'])
-           . ', vượt mục tiêu ' . round(($x['r3'] / $x['tg'] - 1) * 100) . '% · ' . $x['orders'] . ' đơn · chi '
+    'sub' => $x['shop'] . ' · ' . AD_TG_NGAY . ' ngày ' . $ng($x['from']) . '–' . $ng($x['to']) . ' ngày nào cũng đạt mục tiêu, ROAS gộp '
+           . $so($x['r3']) . ' (vượt ' . round(($x['r3'] / $x['tg'] - 1) * 100) . '%) · ' . $x['orders'] . ' đơn · chi '
            . number_format($x['cost'], 0, ',', '.') . 'đ. Giữ mục tiêu cũ thì Shopee sẽ đẩy chi tiêu lên.',
     'ref' => ['kind' => 'radar', 'shop' => $x['shop'], 'cid' => $x['cid']],
+    'doneLabel' => '✅ Đã xử lý', 'doneSet' => ['im' => 1],
     'x' => $x], adTgUp());
 }
 

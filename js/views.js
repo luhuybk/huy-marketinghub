@@ -133,8 +133,9 @@ const rateChip = (cur, prev, goodUp) => {
   const cau = pctText(prev, 2) + ' → ' + pctText(cur, 2) + ': ' + (d.pp < 0 ? 'giảm ' : 'tăng ') +
               ppText(d.pp).slice(1) + ' phần trăm, tức ' + (d.rel < 0 ? 'giảm ' : 'tăng ') +
               Math.abs(d.rel).toFixed(0) + '% so với mức cũ';
+  /* lệch chưa tới 0,005 điểm thì làm tròn ra "0,00 điểm" — bỏ, khỏi rối */
   return `<span class="chip ${cls}" title="${esc(cau)}">${d.rel > 0 ? '▲' : '▼'} ${Math.abs(d.rel).toFixed(0)}%` +
-         ` <span class="pp">(${ppText(d.pp)})</span></span>`;
+         (Math.abs(d.pp) >= 0.005 ? ` <span class="pp">(${ppText(d.pp)})</span>` : '') + `</span>`;
 };
 
 /* ============================================================
@@ -5596,4 +5597,4 @@ function viewRival(){
   return h;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "85da265d"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "53d5fc78"]);
