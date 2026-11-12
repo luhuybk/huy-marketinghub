@@ -714,6 +714,12 @@ function adTables(PDO $pdo): void {
       PRIMARY KEY (shop, cid, date))');
   $pdo->exec('CREATE TABLE IF NOT EXISTS ad_meta (shop TEXT NOT NULL, cid TEXT NOT NULL, title TEXT,
       type TEXT, state TEXT, roas REAL, item TEXT, PRIMARY KEY (shop, cid))');
+  /* ad_tg_log: mỗi lần ROAS mục tiêu của một chiến dịch đổi (thấy lúc nhận
+     số buổi sáng). ad_meta chỉ giữ số HIỆN TẠI nên không có bảng này thì
+     không biết mục tiêu vừa đổi hôm nào — mà gợi ý nâng mục tiêu phải chờ đủ
+     3 ngày chạy theo mức mới rồi mới xét lại (xem adTgUp). date = ngày nhận. */
+  $pdo->exec('CREATE TABLE IF NOT EXISTS ad_tg_log (shop TEXT NOT NULL, cid TEXT NOT NULL, date TEXT NOT NULL,
+      old REAL, new REAL, PRIMARY KEY (shop, cid, date))');
   $them = ['ad_raw' => ['conv' => 'INTEGER', 'atc' => 'INTEGER'],
            'ad_meta' => ['budget' => 'INTEGER', 'start' => 'INTEGER']];
   foreach ($them as $bang => $cot) {
@@ -744,9 +750,18 @@ function adIngest(string $histCsv, string $campCsv): array {
   $insM = $pdo->prepare('INSERT INTO ad_meta (shop,cid,title,type,state,roas,item,budget,start) VALUES (?,?,?,?,?,?,?,?,?)
       ON CONFLICT(shop,cid) DO UPDATE SET title=excluded.title, type=excluded.type, state=excluded.state,
       roas=excluded.roas, item=excluded.item, budget=excluded.budget, start=excluded.start');
+  /* Mục tiêu đang lưu, để biết lần nhận này có đổi không. Cùng ngày đổi hai
+     lần thì giữ `old` của lần đầu, `new` của lần sau cùng. */
+  $tgCu = [];
+  foreach ($pdo->query('SELECT shop, cid, roas FROM ad_meta')->fetchAll() as $r) $tgCu[$r['shop'] . "\0" . $r['cid']] = (float)$r['roas'];
+  $insL = $pdo->prepare('INSERT INTO ad_tg_log (shop, cid, date, old, new) VALUES (?,?,?,?,?)
+      ON CONFLICT(shop, cid, date) DO UPDATE SET new = excluded.new');
   foreach ($meta as $m) {
     $shop = trim((string)($m['shop'] ?? '')); $cid = ingId($m['campaign_id'] ?? '');
     if ($shop === '' || $cid === '') continue;
+    $tgMoi = (float)($m['roas_target'] ?? 0);
+    if (isset($tgCu[$shop . "\0" . $cid]) && abs($tgCu[$shop . "\0" . $cid] - $tgMoi) > 0.001)
+      $insL->execute([$shop, $cid, $homNay, $tgCu[$shop . "\0" . $cid], $tgMoi]);
     $insM->execute([$shop, $cid, trim((string)($m['title'] ?? '')), (string)($m['type'] ?? ''),
                     (string)($m['state'] ?? ''), (float)($m['roas_target'] ?? 0), ingId($m['item_id'] ?? ''),
                     (int)round((float)($m['budget'] ?? 0)), (int)round((float)($m['start_time'] ?? 0))]);
@@ -940,8 +955,13 @@ function adRadarData(int $soNgay = 400): array {
   }
   $meta = [];
   foreach ($pdo->query('SELECT * FROM ad_meta')->fetchAll() as $m) $meta[$m['shop'] . "\0" . $m['cid']] = $m;
+  $doi = [];          // shop\0cid => [[ngày nhận, cũ, mới], …] cũ → mới
+  foreach ($pdo->query('SELECT * FROM ad_tg_log ORDER BY date')->fetchAll() as $r)
+    $doi[$r['shop'] . "\0" . $r['cid']][] = [(string)$r['date'], (float)$r['old'], (float)$r['new']];
+  $out['tgUp'] = adTgUp();
   foreach ($camp as $k => $c) {
     $m = $meta[$k] ?? [];
+    if (isset($doi[$k])) $c['tgc'] = array_slice($doi[$k], -5);
     $c['d'] = (object)$c['d'];      // giữ dạng {chỉ số: …}, kể cả khi chỉ số liền 0,1,2…
     $out['camps'][] = $c + [
       't' => trim((string)($m['title'] ?? '')) ?: 'Chiến dịch ' . $c['id'],
@@ -950,6 +970,98 @@ function adRadarData(int $soNgay = 400): array {
       'item' => (string)($m['item'] ?? ''), 'start' => (int)($m['start'] ?? 0)];
   }
   return $out;
+}
+
+/* ============================================================
+   GỢI Ý NÂNG ROAS MỤC TIÊU
+
+   Chiến dịch "Tối đa doanh thu — tuỳ chỉnh ROAS" của Shopee cố giữ ROAS thực
+   QUANH mức mục tiêu. Sản phẩm được tối ưu (ảnh bìa, giá, đánh giá…) thì ROAS
+   thực lên cao hơn mục tiêu — Shopee hiểu là còn dư địa và tự đẩy giá thầu,
+   đẩy chi tiêu lên cho tới khi ROAS lùi về gần mục tiêu. Tức là phần lời có
+   được từ tối ưu bị đổi thành chi tiêu quảng cáo. Nâng mục tiêu một nhịp thì
+   giữ lại được phần lời đó (đổi lại có thể ít đơn hơn một chút).
+
+   Luật (đọc kho thô ad_raw, mỗi shop tính tới ngày cuối có số của shop đó):
+     · chiến dịch đang chạy, có đặt ROAS mục tiêu
+     · AD_TG_NGAY ngày gần nhất: chi ≥ AD_TG_CHI, ≥ AD_TG_DON đơn — ít hơn thì
+       một đơn lẻ cũng làm ROAS nhảy vọt, không nói lên gì
+     · ROAS gộp cả mấy ngày (doanh thu ÷ chi phí, không phải trung bình cộng
+       ROAS từng ngày) ≥ mục tiêu × AD_TG_VUOT, VÀ ít nhất AD_TG_DAT ngày tự nó
+       đạt mục tiêu — một ngày trúng lớn không đủ
+     · mục tiêu vừa đổi thì chờ đủ AD_TG_NGAY ngày chạy theo mức mới mới xét
+     · số liệu của shop cũ quá AD_TG_CU ngày (tác vụ buổi sáng ngừng gửi) thì
+       thôi, gợi ý theo số cũ dễ sai
+   Mức đề xuất: nâng tối đa AD_TG_BUOC một lần, và chừa ít nhất 10% dưới ROAS
+   thực (AD_TG_CHUA) để Shopee vẫn còn đơn mà chạy; làm tròn 0,1.
+
+   Số 12/11/2026 trên dữ liệu thật: 31 chiến dịch đủ chi tiêu, ROAS thực
+   thường chỉ đạt 50–90% mục tiêu (trung vị 65%), 1 chiến dịch vượt 15% — nên
+   gợi ý hiếm và đáng đọc, không thành tiếng ồn. Bản Node ở serve.js.
+   ============================================================ */
+const AD_TG_NGAY = 3;
+const AD_TG_DAT  = 2;
+const AD_TG_VUOT = 1.15;
+const AD_TG_CHI  = 45000;
+const AD_TG_DON  = 3;
+const AD_TG_BUOC = 1.15;
+const AD_TG_CHUA = 0.9;
+const AD_TG_CU   = 7;
+
+function adTgUp(): array {
+  $pdo = db();
+  adTables($pdo);
+  $tz = new DateTimeZone(KH_TZ);
+  $quaCu = (new DateTime('now', $tz))->modify('-' . AD_TG_CU . ' days')->format('Y-m-d');
+  $cuoi = [];
+  foreach ($pdo->query('SELECT shop, MAX(date) d FROM ad_raw GROUP BY shop')->fetchAll() as $r) $cuoi[$r['shop']] = (string)$r['d'];
+  $doi = [];
+  foreach ($pdo->query('SELECT * FROM ad_tg_log ORDER BY date')->fetchAll() as $r) $doi[$r['shop'] . "\0" . $r['cid']] = $r;
+  $q = $pdo->prepare('SELECT cost, gmv, orders FROM ad_raw WHERE shop = ? AND cid = ? AND date BETWEEN ? AND ?');
+  $out = [];
+  foreach ($pdo->query("SELECT * FROM ad_meta WHERE roas > 0 AND state = 'ongoing'")->fetchAll() as $m) {
+    $shop = (string)$m['shop']; $cid = (string)$m['cid']; $tg = (float)$m['roas'];
+    $den = $cuoi[$shop] ?? '';
+    if ($den === '' || $den < $quaCu) continue;
+    $tu = (new DateTime($den))->modify('-' . (AD_TG_NGAY - 1) . ' days')->format('Y-m-d');
+    $c = $doi[$shop . "\0" . $cid] ?? null;
+    if ($c && (string)$c['date'] > $tu) continue;
+    $q->execute([$shop, $cid, $tu, $den]);
+    $cost = 0; $gmv = 0; $don = 0; $dat = 0;
+    foreach ($q->fetchAll() as $r) {
+      $cost += (int)$r['cost']; $gmv += (int)$r['gmv']; $don += (int)$r['orders'];
+      if ((int)$r['cost'] > 0 && (int)$r['gmv'] / (int)$r['cost'] >= $tg) $dat++;
+    }
+    if ($cost < AD_TG_CHI || $don < AD_TG_DON || $dat < AD_TG_DAT) continue;
+    $r3 = $gmv / $cost;
+    if ($r3 < $tg * AD_TG_VUOT) continue;
+    $out[] = ['shop' => $shop, 'cid' => $cid, 't' => trim((string)$m['title']) ?: 'Chiến dịch ' . $cid,
+              'item' => (string)$m['item'], 'tg' => $tg, 'r3' => round($r3, 2),
+              'cost' => $cost, 'gmv' => $gmv, 'orders' => $don, 'dat' => $dat, 'from' => $tu, 'to' => $den,
+              'goi' => round(max($tg + 0.1, min($tg * AD_TG_BUOC, $r3 * AD_TG_CHUA)), 1),
+              'doi' => $c ? [(string)$c['date'], (float)$c['old'], (float)$c['new']] : null];
+  }
+  usort($out, fn($a, $b) => $b['cost'] <=> $a['cost']);
+  return $out;
+}
+/* Cùng gợi ý đó dưới dạng một việc trong danh sách nhắc — hiện ở trang Hôm
+   nay và đi Telegram (luồng Shopee Ads). Máy chủ tự dựng chứ không đợi app
+   đẩy lên: số về lúc sáng sớm, cả khi chưa ai mở app. Không có nút "xong":
+   nâng mục tiêu trên Shopee xong thì sáng hôm sau Hub thấy mức mới và việc tự
+   biến mất. id cố định theo chiến dịch để Telegram nhớ đã nhắc hôm nay chưa. */
+function adTgTasks(): array {
+  $nay = (new DateTime('now', new DateTimeZone(KH_TZ)))->format('Y-m-d');
+  $so = fn($v) => rtrim(rtrim(number_format((float)$v, 2, ',', '.'), '0'), ',');
+  $ng = fn($d) => substr($d, 8, 2) . '/' . substr($d, 5, 2);
+  return array_map(fn($x) => [
+    'id' => 'tgup_' . substr(sha1($x['shop'] . '|' . $x['cid']), 0, 12),
+    'feed' => 'ads', 'due' => $nay, 'icon' => '🎯', 'auto' => true,
+    'title' => 'Nâng ROAS mục tiêu ' . $so($x['tg']) . ' → ' . $so($x['goi']) . ': ' . $x['t'],
+    'sub' => $x['shop'] . ' · ' . AD_TG_NGAY . ' ngày ' . $ng($x['from']) . '–' . $ng($x['to']) . ': ROAS ' . $so($x['r3'])
+           . ', vượt mục tiêu ' . round(($x['r3'] / $x['tg'] - 1) * 100) . '% · ' . $x['orders'] . ' đơn · chi '
+           . number_format($x['cost'], 0, ',', '.') . 'đ. Giữ mục tiêu cũ thì Shopee sẽ đẩy chi tiêu lên.',
+    'ref' => ['kind' => 'radar', 'shop' => $x['shop'], 'cid' => $x['cid']],
+    'x' => $x], adTgUp());
 }
 
 /* ============================================================

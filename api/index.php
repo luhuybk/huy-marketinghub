@@ -551,10 +551,17 @@ switch ($action) {
 
   /* Số liệu cho mục Báo cáo Ads → Radar. Ai có quyền Shopee Ads là xem được:
      chỉ có chi phí quảng cáo, không có giá vốn. */
+  /* Radar nằm trong Báo cáo Ads — quyền adreport, hoặc ads như trước khi tách */
   case 'ad_radar': {
     requireAuth();
-    if (!khMay(currentUser(), 'ads')) fail('Tài khoản này chưa được xem Shopee Ads.', 403);
+    if (!khMay(currentUser(), 'adreport') && !khMay(currentUser(), 'ads')) fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
     out(['ok' => true] + adRadarData());
+  }
+  /* Gợi ý nâng ROAS mục tiêu, dạng việc cho trang Hôm nay (xem adTgTasks) */
+  case 'ad_tg_up': {
+    requireAuth();
+    if (!khMay(currentUser(), 'adreport') && !khMay(currentUser(), 'ads')) fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
+    out(['ok' => true, 'tasks' => adTgTasks()]);
   }
 
   /* Trả về cấu hình để hiện lên màn Cài đặt. KHÔNG trả mã bot —

@@ -95,6 +95,7 @@ function render(){
   route = parseHash();
   const view = $('#view');
   if (!view) return;
+  ensureAdTg();
 
   let html = '';
   try {
@@ -1383,6 +1384,34 @@ function ensureSettingsCfg(){
 function rvCurKw(){
   const ks = rvKws();
   return ks.find(k => k.id === ui.rvKw) || ks.find(k => !k.off && k.n) || ks.find(k => !k.off) || ks[0] || null;
+}
+/* Gợi ý nâng ROAS mục tiêu (adTg ở js/state.js). Hỏi ở mọi lần vẽ nhưng chỉ
+   thật sự gọi máy chủ khi chưa có hoặc đã quá AD_TG_PHUT phút — số quảng cáo
+   chỉ về mỗi sáng một lần. Có thì vẽ lại để trang Hôm nay và số đếm cạnh mục
+   Hôm nay hiện ra; lỗi thì im lặng, lần sau hỏi lại. */
+const AD_TG_PHUT = 30;
+function ensureAdTg(){
+  if (!window.Server || !Server.authed() || !(may('adreport') || may('ads'))) return;
+  if (adTg.busy || (adTg.luc && Date.now() - adTg.luc < AD_TG_PHUT * 6e4)) return;
+  adTg.busy = true; adTg.luc = Date.now();
+  Server.adTgUp().then(r => {
+    const cu = JSON.stringify(adTg.tasks || []);
+    adTg.tasks = Array.isArray(r.tasks) ? r.tasks : [];
+    adTg.busy = false;
+    if (JSON.stringify(adTg.tasks) !== cu) render();
+  }).catch(() => { adTg.busy = false; });
+}
+/* Mở Radar ở đúng một chiến dịch. Radar là trang riêng trong khung (iframe)
+   nên gửi qua sessionStorage: khung đang mở thì gọi nó đọc ngay, chưa mở thì
+   lúc tải xong nó tự đọc (xem __radarMo trong radar.html). */
+function radarMo(shop, cid){
+  try { sessionStorage.setItem('kolhub.radar.mo', JSON.stringify({shop, cid})); } catch(e){}
+  ui.adTab = 'radar';
+  go('adreport');
+  setTimeout(() => {
+    try { const f = document.querySelector('#radarbox iframe');
+          if (f && f.contentWindow && f.contentWindow.__radarMo) f.contentWindow.__radarMo(); } catch(e){}
+  }, 200);
 }
 const RV_CU_PHUT = 10;      // mở lại trang sau chừng này phút thì hỏi lại máy chủ
 function ensureRival(){
@@ -5142,8 +5171,9 @@ const ACTIONS = {
     save(); render(); toast('Đã dời hạn sang ' + fmtDate(addDays(today(), n)));
   },
   taskopen: id => {
-    const t = reminderTasks().find(x => x.id === id);
+    const t = reminderTasks().find(x => x.id === id) || serverTasks().find(x => x.id === id);
     if (!t || !t.ref) return;
+    if (t.ref.kind === 'radar') return radarMo(t.ref.shop, t.ref.cid);
     if (t.ref.kind === 'kols')     go('kol', t.ref.id);
     else if (t.ref.kind === 'bookings'){ const b = bookingOf(t.ref.id); if (b) go('kol', b.kolId); }
     else if (t.ref.kind === 'actions'){ const a = db.actions.find(x => x.id === t.ref.id); if (a) go('product', a.productId); }
@@ -5519,4 +5549,4 @@ function checkBuild(){
   }
 })();
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "ca1d16c5"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "85da265d"]);
