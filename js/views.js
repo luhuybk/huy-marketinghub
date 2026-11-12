@@ -5366,7 +5366,7 @@ function viewRival(){
   if (!ks.length)
     return emptyBox('Chưa theo dõi từ khoá nào',
       'Thêm các từ khoá chính ("gôm xịt tóc") và từ khoá sản phẩm ("sáp vuốt tóc nam Roug"). Mỗi tuần tác vụ quét sẽ lấy top sản phẩm của từng từ khoá trên Metric — từ khoá nào ít biến động thì đặt quét 2 tuần hoặc mỗi tháng một lần cho đỡ tốn lượt.',
-      'rvnew', 'Thêm từ khoá');
+      isOwner() ? 'rvnew' : '', isOwner() ? 'Thêm từ khoá' : '');
 
   const {kw, ds, cur, cmp, vol, volPrev} = rvView();
 
@@ -5381,7 +5381,7 @@ function viewRival(){
       <div class="dim grow">${bat.length} từ khoá đang theo dõi · đợt quét tới quét <b>${toi.length}</b> từ khoá đã tới hạn
         (tốn ${toi.length} lượt Metric) · khoảng <b>${rvLuotThang(ks)}</b> lượt mỗi tháng</div>
       <button class="btn sm" data-act="rvreload">↻ Tải lại</button>
-      <button class="btn pri" data-act="rvnew">+ Từ khoá</button>
+      ${isOwner() ? '<button class="btn pri" data-act="rvnew">+ Từ khoá</button>' : ''}
     </div>`;
   Object.keys(RV_KINDS).forEach(id => {
     if (nhom(id).length)
@@ -5393,7 +5393,7 @@ function viewRival(){
       <div class="dim">${esc(RV_KINDS[kw.kind])}${kw.off ? ' · đang tạm ngừng quét'
         : ' · quét ' + esc(RV_TAN[rvEvery(kw)].toLowerCase()) + (!kw.last ? '' : kw.due ? ' · tới hạn ở đợt quét tới' : ' · lần tới khoảng ' + esc(fmtDate(kw.next)))}${
         kw.note ? ' · ' + esc(kw.note) : ''}</div></div>
-      <button class="btn sm" data-act="rvedit" data-id="${esc(kw.id)}">✎ Sửa</button></div>`;
+      ${isOwner() ? `<button class="btn sm" data-act="rvedit" data-id="${esc(kw.id)}">✎ Sửa</button>` : ''}</div>`;
 
   if (!rv.scans[kw.id]) return h + `<div class="dim" style="padding:20px 4px">Đang tải các lần quét…</div>`;
   if (!cur)
@@ -5562,10 +5562,11 @@ function viewRival(){
   /* ---- 6. từ khoá liên quan ---- */
   if (vol && vol.rel && vol.rel.length){
     const co = new Set(ks.map(k => norm(k.kw)));
-    h += sectionTitle('Từ khoá liên quan được tìm nhiều', `<span class="dim">lượt tìm trong 14 ngày · bấm để theo dõi thêm</span>`);
+    h += sectionTitle('Từ khoá liên quan được tìm nhiều', `<span class="dim">lượt tìm trong 14 ngày${isOwner() ? ' · bấm để theo dõi thêm' : ''}</span>`);
     h += `<div class="chips">${vol.rel.map(x => co.has(norm(x.k))
         ? `<span class="chip ok">✓ ${esc(x.k)} · ${so(x.v)}</span>`
-        : `<button class="btn sm" data-act="rvnewfrom" data-id="${esc(x.k)}">${esc(x.k)} <span class="dim">· ${so(x.v)}</span></button>`).join('')}</div>`;
+        : isOwner() ? `<button class="btn sm" data-act="rvnewfrom" data-id="${esc(x.k)}">${esc(x.k)} <span class="dim">· ${so(x.v)}</span></button>`
+        : `<span class="chip">${esc(x.k)} · ${so(x.v)}</span>`).join('')}</div>`;
   }
 
   if (cmp.out.length)
@@ -5576,8 +5577,8 @@ function viewRival(){
   h += `<div class="btns" style="margin-top:16px">
       <button class="btn sm" data-act="rvcopy">Sao chép báo cáo</button>
       <div class="grow"></div>
-      <button class="btn sm dngr" data-act="rvscandel">Xoá lần quét này</button></div>`;
+      ${isOwner() ? '<button class="btn sm dngr" data-act="rvscandel">Xoá lần quét này</button>' : ''}</div>`;
   return h;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "cf15e246"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "ca1d16c5"]);

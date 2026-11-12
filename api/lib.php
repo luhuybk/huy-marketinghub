@@ -166,7 +166,24 @@ function db(): PDO {
      danh sách việc cần nhắc. Mã bot mà đồng bộ xuống trình duyệt thì
      coi như dán nó lên mọi máy từng đăng nhập. */
   $pdo->exec('CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL)');
+  khTachAds($pdo);
   return $pdo;
+}
+/* 12/11/2026: Báo cáo Ads và Đánh từ khoá tách khỏi quyền Shopee Ads thành
+   quyền riêng. Ai đang có Shopee Ads thì được thêm hai quyền mới — một lần
+   duy nhất (cờ trong kv), để không ai mất trang đang dùng vào ngày đưa bản
+   mới lên. Sau đó chủ gỡ từng quyền tuỳ ý; lần sau không chạy lại nữa. */
+function khTachAds(PDO $pdo): void {
+  if ($pdo->query("SELECT 1 FROM kv WHERE k = 'perm_tach_ads'")->fetch()) return;
+  $pdo->beginTransaction();
+  foreach ($pdo->query('SELECT id, perms FROM users')->fetchAll() as $u) {
+    $p = json_decode((string)$u['perms'], true);
+    if (!is_array($p) || !in_array('ads', $p, true)) continue;
+    $p = array_values(array_unique(array_merge($p, ['adreport', 'keywords'])));
+    $pdo->prepare('UPDATE users SET perms = ? WHERE id = ?')->execute([json_encode($p, JSON_UNESCAPED_UNICODE), $u['id']]);
+  }
+  $pdo->exec("INSERT OR REPLACE INTO kv (k, v) VALUES ('perm_tach_ads', '\"" . gmdate('c') . "\"')");
+  $pdo->commit();
 }
 
 /* ============================================================
@@ -181,9 +198,12 @@ function db(): PDO {
 
 /* Các trang tick được cho một tài khoản. 'today' luôn có nên không nằm đây;
    'settings' và 'review' chỉ chủ vào được nên cũng không tick được.
+   'rival' (Theo dõi đối thủ) chỉ là quyền XEM; thêm/sửa/xoá từ khoá, xoá lần
+   quét, đánh dấu shop của mình vẫn chỉ chủ (requireOwner ở api/index.php).
    Danh sách này phải khớp PERMS trong js/state.js. */
 const KH_PERMS = ['dash','pipeline','kols','clips','postfb','posttt','ads',
-                  'improve','newprod','compare','resources','cost','launch'];
+                  'improve','newprod','compare','resources','cost','launch',
+                  'adreport','keywords','rival'];
 
 /* Bộ dữ liệu nào cần quyền nào. Có MỘT trong số quyền liệt kê là đọc được.
 
@@ -197,20 +217,20 @@ const KH_KIND_PERM = [
   'templates' => ['kols','pipeline'],
   'bookings'  => ['pipeline','kols','clips'],
   'clips'     => ['clips','pipeline','kols'],
-  'adperiods' => ['ads'],
-  'actions'   => ['ads'],
-  'adcamps'   => ['ads'],
-  'addays'    => ['ads'],
-  'adfixes'   => ['ads'],
-  'orderstats'=> ['ads'],
-  'keywords'  => ['ads'],
-  'kwranks'   => ['ads'],
+  'adperiods' => ['ads','adreport'],
+  'actions'   => ['ads','adreport'],
+  'adcamps'   => ['ads','adreport'],
+  'addays'    => ['ads','adreport'],
+  'adfixes'   => ['ads','adreport'],
+  'orderstats'=> ['ads','adreport'],
+  'keywords'  => ['ads','keywords'],
+  'kwranks'   => ['ads','keywords'],
   /* shops mang cả bảng phí, nên bên Tính chi phí cũng phải đọc được */
-  'shops'     => ['ads','cost'],
+  'shops'     => ['ads','cost','adreport','keywords'],
   'costs'     => ['cost'],
   'costlogs'  => ['cost'],
   'projects'  => ['cost'],
-  'spweeks'   => ['improve','ads'],
+  'spweeks'   => ['improve','ads','adreport'],
   'impacts'   => ['improve'],
   'ideas'     => ['newprod'],
   /* Hàng mới về. Dấu "đã xong" (lmarks) mang ROAS hoà vốn nhưng không mang

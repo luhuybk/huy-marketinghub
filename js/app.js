@@ -18,9 +18,9 @@ const NAV = [
   {id:'postfb',   icon:'📘',label:'Bài Facebook', perm:'postfb'},
   {id:'posttt',   icon:'🎬',label:'Bài TikTok',   perm:'posttt'},
   {id:'ads',      icon:'◎', label:'Shopee Ads',   perm:'ads'},
-  {id:'adreport', icon:'📊',label:'Báo cáo Ads',  perm:'ads'},
-  {id:'keywords', icon:'🔎',label:'Đánh từ khoá',  perm:'ads'},
-  {id:'rival',    icon:'🎯',label:'Theo dõi đối thủ', ownerOnly:true},
+  {id:'adreport', icon:'📊',label:'Báo cáo Ads',  perm:'adreport'},
+  {id:'keywords', icon:'🔎',label:'Đánh từ khoá',  perm:'keywords'},
+  {id:'rival',    icon:'🎯',label:'Theo dõi đối thủ', perm:'rival'},
   {id:'cost',     icon:'🧮',label:'Tính chi phí',  perm:'cost'},
   {id:'improve',  icon:'🔻',label:'Cải thiện SP', perm:'improve'},
   {id:'newprod',  icon:'💡',label:'Sản phẩm mới', perm:'newprod'},
@@ -39,15 +39,16 @@ const TITLES = {today:'Hôm nay', dash:'Tổng quan', pipeline:'Booking', kols:'
                 cost:'Tính chi phí', costsp:'Chi phí sản phẩm', pj:'Dự án',
                 launch:'Hàng mới về', rival:'Theo dõi đối thủ'};
 /* Trang chỉ chủ mở được. Nhân viên gõ thẳng đường dẫn cũng bị đưa về Hôm nay. */
-const OWNER_PAGES = ['settings', 'review', 'rival'];
-/* Trang con mở từ một trang chính — quyền đi theo trang cha. */
-const PAGE_PERM = {kol:'kols', product:'ads', sp:'improve', adcamp:'ads', kw:'ads',
+const OWNER_PAGES = ['settings', 'review'];
+/* Trang con mở từ một trang chính — quyền đi theo trang cha. Mảng = có MỘT
+   trong số đó là vào được (chiến dịch mở từ cả Shopee Ads lẫn Báo cáo Ads). */
+const PAGE_PERM = {kol:'kols', product:'ads', sp:'improve', adcamp:['ads','adreport'], kw:'keywords',
                    costsp:'cost', pj:'cost'};
 const NAV_PERM  = Object.fromEntries(NAV.filter(n => n.perm).map(n => [n.id, n.perm]));
 const mayPage = id => {
   if (OWNER_PAGES.includes(id)) return isOwner();
   const p = NAV_PERM[id] || PAGE_PERM[id];
-  return !p || may(p);
+  return !p || [].concat(p).some(may);
 };
 /* Trang đầu tiên người này vào được — dùng khi họ gõ thẳng một đường dẫn
    không có quyền, và khi mở app lần đầu. Luôn có 'today' để rơi về. */
@@ -154,7 +155,7 @@ function render(){
    Chiều cao: lấp đầy phần màn hình còn lại dưới thanh tab, trang Radar tự
    cuộn bên trong — ngăn chi tiết của nó (position:fixed) mới nằm đúng chỗ. */
 function radarBox(){
-  const show = route.page === 'adreport' && adReportTab() === 'radar' && may('ads');
+  const show = route.page === 'adreport' && adReportTab() === 'radar' && may('adreport');
   let box = document.getElementById('radarbox');
   document.getElementById('view').classList.toggle('radaron', show);
   if (!show){ if (box) box.hidden = true; return; }
@@ -1385,7 +1386,7 @@ function rvCurKw(){
 }
 const RV_CU_PHUT = 10;      // mở lại trang sau chừng này phút thì hỏi lại máy chủ
 function ensureRival(){
-  if (!window.Server || !Server.authed() || !isOwner()) return;
+  if (!window.Server || !Server.authed() || !may('rival')) return;
   /* Tác vụ quét gửi số vào máy chủ lúc app đang mở — số trong `rv` cũ dần mà
      không ai hay. Quá RV_CU_PHUT phút thì hỏi lại; vẫn vẽ số cũ trong lúc chờ. */
   if (rv.asked && !rv.busy && rv.luc && Date.now() - rv.luc > RV_CU_PHUT * 6e4) return void loadRival(true);
@@ -1493,7 +1494,7 @@ function rvProdOpen(id){
         ${sp && sp.tags && sp.tags.length ? `<div class="chips" style="margin-top:8px">${sp.tags.map(t => `<span class="chip warn">${esc(t)}</span>`).join('')}</div>` : ''}
         <div class="btns" style="margin-top:10px">
           ${x.url ? `<a class="btn sm" href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">Mở trên Shopee ↗</a>` : ''}
-          ${x.sid ? `<button class="btn sm" data-act="rvmine" data-id="${esc(x.sid)}" data-name="${esc(x.shop)}" data-on="${danhDau ? '' : '1'}">${
+          ${x.sid && isOwner() ? `<button class="btn sm" data-act="rvmine" data-id="${esc(x.sid)}" data-name="${esc(x.shop)}" data-on="${danhDau ? '' : '1'}">${
             danhDau ? 'Bỏ đánh dấu shop của mình' : mine ? '⭐ Shop của mình (trùng tên gian hàng)' : '⭐ Đây là shop của mình'}</button>` : ''}
         </div>
       </div></div>`;
@@ -4895,8 +4896,8 @@ const ACTIONS = {
   rvkw:     id => { ui.rvKw = id; ui.rvDate = ''; ui.rvAll = false; render(); },
   rvdate:   id => { ui.rvDate = id; render(); },
   rvall:    () => { ui.rvAll = !ui.rvAll; render(); },
-  rvnew:    () => rvKwForm(null),
-  rvedit:   id => rvKwForm(id),
+  rvnew:    () => isOwner() && rvKwForm(null),
+  rvedit:   id => isOwner() && rvKwForm(id),
   rvprod:   id => rvProdOpen(id),
   rvreload: () => { rv.asked = false; rv.scans = {}; rv.vols = {}; rv.sp = {}; rv.state = null; render(); },
   rvmode:   id => { ui.rvMode = id === 'img' ? 'img' : 'tbl'; render(); },
@@ -4909,8 +4910,9 @@ const ACTIONS = {
   },
   rvcopy:   () => { const v = rvView(); if (v.cur) copyText(rvReportText(v.kw, v.cur, v.cmp, v.vol)); },
   /* thêm một từ khoá liên quan vào danh sách theo dõi — mở biểu mẫu điền sẵn */
-  rvnewfrom: id => rvKwForm(null, id),
+  rvnewfrom: id => isOwner() && rvKwForm(null, id),
   rvmine:   async (id, el) => {
+    if (!isOwner()) return;
     try { await Server.rivalMine(id, el.dataset.name || '', !!el.dataset.on); }
     catch(e){ return toast('Không lưu được: ' + (e.message || e)); }
     closeAllModals();
@@ -4919,6 +4921,7 @@ const ACTIONS = {
     render();
   },
   rvscandel: async () => {
+    if (!isOwner()) return;
     const v = rvView();
     if (!v.cur || !confirm('Xoá lần quét ngày ' + fmtDate(v.cur.date) + ' của "' + v.kw.kw + '"?')) return;
     try { await Server.rivalScanDel(v.kw.id, v.cur.date, v.cur.src); }
@@ -5228,7 +5231,7 @@ const ACTIONS = {
     else if (p === 'improve') spImportModal('');
     else if (p === 'newprod') ideaForm(null);
     else if (p === 'launch') ACTIONS.newlaunch();
-    else if (p === 'rival') rvKwForm(null);
+    else if (p === 'rival') { if (isOwner()) rvKwForm(null); }
     else if (p === 'keywords' || p === 'kw') kwForm(null);
     else if (p === 'pj') pjAddForm(route.id);
     else if (p === 'cost') { if (ui.costTab === 'pj') pjForm(null); else costSpForm(null); }
@@ -5516,4 +5519,4 @@ function checkBuild(){
   }
 })();
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "cf15e246"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "ca1d16c5"]);

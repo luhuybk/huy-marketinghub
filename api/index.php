@@ -118,6 +118,12 @@ function requireOwner(): void {
   requireAuth();
   if (roleOf() !== 'owner') fail('Tài khoản nhân viên không mở được phần cài đặt.', 403);
 }
+/* Phần không đồng bộ qua items (nên khMayRow không chặn hộ) mà nhân viên được
+   cấp quyền thì xem được — hiện là Theo dõi đối thủ. */
+function requirePerm(string $p): void {
+  requireAuth();
+  if (!khMay(currentUser(), $p)) fail('Tài khoản này chưa được cấp quyền xem mục này.', 403);
+}
 
 /* ---------------- chống dò mật khẩu ---------------- */
 function clientIp(): string {
@@ -475,15 +481,15 @@ switch ($action) {
     out(['ok' => true]);
   }
 
-  /* ---- Theo dõi đối thủ — chỉ chủ. Luật nằm ở lib.php (rv…) ---- */
+  /* ---- Theo dõi đối thủ — xem: quyền rival; thêm/sửa/xoá: chỉ chủ. Luật nằm ở lib.php (rv…) ---- */
   case 'rival_state': {
-    requireOwner();
+    requirePerm('rival');
     $pdo = db(); rvTables($pdo);
     out(['ok' => true, 'kws' => rvKwList(true),
          'mine' => $pdo->query('SELECT shop_id id, name FROM rv_mine')->fetchAll()]);
   }
   case 'rival_scans': {
-    requireOwner();
+    requirePerm('rival');
     $scans = rvScans((string)($in['kw_id'] ?? ''));
     /* sp: bản chụp trang Shopee của các sản phẩm có mặt trong những lần quét đó.
        (object) để PHP không biến một bảng rỗng thành [] */
