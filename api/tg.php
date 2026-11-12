@@ -184,8 +184,9 @@ $tasks = kvGet('reminders', []) ?: [];
 $task  = null;
 foreach ($tasks as $i => $t) if ((string)($t['id'] ?? '') === $taskId) { $task = $t; $tIdx = $i; break; }
 /* Việc máy chủ tự dựng (gợi ý nâng ROAS mục tiêu) không nằm trong danh sách
-   app đẩy lên. Chỉ hoãn được — không có doneSet/dueField nên hai nhánh ghi
-   lại danh sách bên dưới không bao giờ chạy tới với nó. */
+   app đẩy lên. Nó đi đường riêng ở nhánh `done` (auto:true) và không có
+   dueField, nên hai nhánh ghi lại danh sách bên dưới không bao giờ chạy tới
+   với nó ($tIdx = -1 chỉ để biến có mặt). */
 if ($task === null) {
   try { foreach (adTgTasks() as $t) if ($t['id'] === $taskId) { $task = $t; $tIdx = -1; break; } }
   catch (Throwable $e) {}
@@ -209,6 +210,13 @@ $unsend = function () use ($feed, $taskId) {
 switch ($op) {
   /* ---- xong: ghi đúng những ô app đã chỉ sẵn ---- */
   case 'done': {
+    /* việc máy chủ tự dựng: "xong" là ngừng nhắc (adTgMute), không ghi ô nào */
+    if (!empty($task['auto'])) {
+      adTgMute($taskId);
+      $answer('Đã ghi nhận ✅');
+      $stamp('<b>đã xử lý</b> · ' . $nowVn->format('H:i d/m') . ' · không nhắc lại tới khi mục tiêu đổi, hoặc sau ' . AD_TG_IM . ' ngày');
+      bye();
+    }
     if (empty($task['doneSet'])) { $answer('Việc này không đánh dấu xong từ đây được.'); bye(); }
     [$ok, $msg] = itemApply((array)($task['ref'] ?? []), (array)$task['doneSet'], $today);
     if (!$ok) { $answer($msg); $stamp($msg); bye(); }

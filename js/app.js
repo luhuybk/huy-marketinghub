@@ -155,6 +155,7 @@ function render(){
 
    Chiều cao: lấp đầy phần màn hình còn lại dưới thanh tab, trang Radar tự
    cuộn bên trong — ngăn chi tiết của nó (position:fixed) mới nằm đúng chỗ. */
+const RADAR_CU_PHUT = 30;      // khung Radar bị ẩn lâu hơn chừng này thì tải lại khi mở
 function radarBox(){
   const show = route.page === 'adreport' && adReportTab() === 'radar' && may('adreport');
   let box = document.getElementById('radarbox');
@@ -172,7 +173,7 @@ function radarBox(){
     box.hidden = false;
     /* Quay lại sau lâu: số đã cũ (tác vụ chạy mỗi sáng) — tải lại trang Radar */
     try { const w = box.firstElementChild.contentWindow;
-          if (w.radarLuc && Date.now() - w.radarLuc > 30 * 60e3) w.location.reload(); } catch(e){}
+          if (w.radarLuc && Date.now() - w.radarLuc > RADAR_CU_PHUT * 6e4) w.location.reload(); } catch(e){}
   }
   box.hidden = false;
   radarTheme();
@@ -1399,7 +1400,10 @@ function ensureAdTg(){
     adTg.tasks = Array.isArray(r.tasks) ? r.tasks : [];
     adTg.busy = false;
     if (JSON.stringify(adTg.tasks) !== cu) render();
-  }).catch(() => { adTg.busy = false; });
+  }).catch(() => {
+    /* hỏng (mất mạng, máy chủ bận): thử lại sau 2 phút chứ không đợi đủ nửa giờ */
+    adTg.busy = false; adTg.luc = Date.now() - (AD_TG_PHUT - 2) * 6e4;
+  });
 }
 /* Mở Radar ở đúng một chiến dịch. Radar là trang riêng trong khung (iframe)
    nên gửi qua sessionStorage: khung đang mở thì gọi nó đọc ngay, chưa mở thì
@@ -1409,8 +1413,11 @@ function radarMo(shop, cid){
   ui.adTab = 'radar';
   go('adreport');
   setTimeout(() => {
-    try { const f = document.querySelector('#radarbox iframe');
-          if (f && f.contentWindow && f.contentWindow.__radarMo) f.contentWindow.__radarMo(); } catch(e){}
+    /* Khung để lâu quá RADAR_CU_PHUT thì radarBox() vừa cho nó tải lại — đừng
+       gọi vào trang cũ đang bị gỡ (nó sẽ đọc mất lời nhắn); trang mới tải xong
+       tự đọc. */
+    try { const w = document.querySelector('#radarbox iframe').contentWindow;
+          if (w.__radarMo && w.radarLuc && Date.now() - w.radarLuc <= RADAR_CU_PHUT * 6e4) w.__radarMo(); } catch(e){}
   }, 200);
 }
 const RV_CU_PHUT = 10;      // mở lại trang sau chừng này phút thì hỏi lại máy chủ
@@ -5157,7 +5164,16 @@ const ACTIONS = {
 
   /* trang Hôm nay */
   ahead: id => { ui.todayAhead = +id || 0; render(); },
-  taskdone: id => {
+  taskdone: async id => {
+    /* việc máy chủ tự dựng (gợi ý nâng ROAS mục tiêu): "xong" là bảo máy chủ
+       ngừng nhắc — không có bản ghi nào dưới máy để sửa */
+    if (serverTasks().some(x => x.id === id)){
+      try { await Server.adTgMute(id); }
+      catch(e){ return toast('Không ghi được: ' + (e.message || e)); }
+      adTg.tasks = (adTg.tasks || []).filter(x => x.id !== id);
+      render();
+      return toast('Đã ghi nhận — không nhắc lại tới khi mục tiêu đổi, hoặc sau 14 ngày');
+    }
     const t = reminderTasks().find(x => x.id === id);
     if (!t) { toast('Việc này không còn nữa'); render(); return; }
     if (!taskDone(t)){ toast('Không tìm thấy bản ghi'); return; }

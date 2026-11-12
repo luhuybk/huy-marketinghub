@@ -563,6 +563,13 @@ switch ($action) {
     if (!khMay(currentUser(), 'adreport') && !khMay(currentUser(), 'ads')) fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
     out(['ok' => true, 'tasks' => adTgTasks()]);
   }
+  /* "Đã xử lý" một gợi ý — xem adTgMute() */
+  case 'ad_tg_mute': {
+    requireAuth();
+    if (!khMay(currentUser(), 'adreport') && !khMay(currentUser(), 'ads')) fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
+    if (!adTgMute((string)($in['id'] ?? ''))) fail('Gợi ý này không còn nữa.', 404);
+    out(['ok' => true]);
+  }
 
   /* Trả về cấu hình để hiện lên màn Cài đặt. KHÔNG trả mã bot —
      chỉ nói là "đã có" hay chưa. */

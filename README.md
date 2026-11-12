@@ -1128,14 +1128,26 @@ này và nhắc nâng mục tiêu một nhịp.
 
 - **Luật** (`adTgUp()` trong `api/lib.php`, bản Node ở `serve.js`): chiến dịch
   đang chạy, có đặt ROAS mục tiêu; 3 ngày gần nhất có số của shop đó chi ≥ 45k
-  và ≥ 3 đơn; ROAS gộp 3 ngày (doanh thu ÷ chi phí) ≥ mục tiêu × 1,15 **và** ít
-  nhất 2/3 ngày tự đạt mục tiêu. Đề xuất = nâng tối đa 15% và vẫn thấp hơn ROAS
-  thực 10%, làm tròn 0,1. Các ngưỡng là hằng `AD_TG_*` ngay trên hàm.
+  và ≥ 3 đơn; **cả 3 ngày, ngày nào cũng tự đạt mục tiêu**, và ROAS gộp 3 ngày
+  (doanh thu ÷ chi phí) ≥ mục tiêu × 1,15. Đề xuất = nâng tối đa 15% và vẫn thấp
+  hơn ROAS thực 10%, làm tròn 0,1. Các ngưỡng là hằng `AD_TG_*` ngay trên hàm.
+- **Vì sao phải cả ba ngày.** Bản đầu chỉ đòi 2/3 ngày đạt. Chạy lại trên 122
+  ngày số thật (10/07–08/11/2026, 224 chiến dịch) thì luật đó bật 24 đợt, và 86%
+  số đợt 7 ngày sau ROAS tự rơi lại dưới mục tiêu (trung vị còn 0,67 lần mục
+  tiêu) — toàn một ngày trúng đơn lớn. Đòi cả ba ngày thì còn 4 đợt, 2/3 đợt có
+  số đối chứng vẫn trên mục tiêu tuần sau. Vượt sát nút (1,05–1,09 lần) thì 4/4
+  lần rơi lại, nên giữ ngưỡng 1,15. Ngày sale đôi ROAS toàn shop chỉ cao hơn
+  quanh đó ~10% nên không có luật riêng cho sale. Muốn đổi ngưỡng thì chạy lại
+  phép thử này trước (số từ action `ad_radar`), đừng đổi theo cảm giác.
+- Cũng từ số đó: ROAS thực **hiếm khi chạm mục tiêu** (trung vị ~60% mục tiêu;
+  3.844 cửa sổ 3 ngày đủ chi tiêu chỉ 2% có tuần kế tiếp đạt). Gợi ý này vì thế
+  sẽ hiếm — nó dành cho lúc tối ưu sản phẩm thật sự kéo ROAS vượt mục tiêu.
 - **Lịch sử đổi mục tiêu** (`ad_tg_log`): `ad_meta` chỉ giữ số hiện tại, nên
   lúc nhận số mỗi sáng `adIngest()` so mục tiêu mới với số đang lưu, khác thì
   ghi một dòng (ngày nhận, cũ, mới). Mục tiêu vừa đổi thì chờ đủ 3 ngày chạy
   theo mức mới mới xét lại. Lịch sử chỉ có từ bản 12/11/2026 trở đi.
-- Số của shop cũ quá 7 ngày (tác vụ buổi sáng ngừng gửi) thì không gợi ý.
+- Số của shop cũ quá 4 ngày (tác vụ buổi sáng ngừng gửi) thì không gợi ý —
+  "3 ngày gần nhất" lúc đó đã là chuyện tuần trước.
 - **Hiện ở ba chỗ**: Radar (nhóm cảnh báo *Nên nâng ROAS mục tiêu* + đoạn giải
   thích và lịch sử đổi trong ngăn chi tiết), trang **Hôm nay** (luồng Shopee
   Ads, nút *Mở ›* mở thẳng ngăn chi tiết chiến dịch đó trong Radar —
@@ -1143,10 +1155,14 @@ này và nhắc nâng mục tiêu một nhịp.
   danh sách nhắc lúc gửi). Việc này do máy chủ dựng, KHÔNG nằm trong
   `reminderTasks()` của app — trộn vào thì đi Telegram hai lần. App hỏi bằng
   action `ad_tg_up` (`ensureAdTg()`, 30 phút một lần) và giữ ở `adTg`.
-- Không có nút "xong": nâng mục tiêu trên Shopee rồi thì sáng hôm sau Hub nhận
-  mức mới, việc tự biến mất. Trên Telegram chỉ hoãn được 4 / 12 giờ.
-- Số thật 12/11/2026: 31 chiến dịch đủ chi tiêu, ROAS thực thường chỉ đạt
-  50–90% mục tiêu (trung vị 65%), 1 chiến dịch vượt 15% — gợi ý hiếm, đáng đọc.
+- **Nút ✅ Đã xử lý** (trang Hôm nay và dưới tin Telegram → `adTgMute()`, action
+  `ad_tg_mute`): đã nâng mục tiêu trên Shopee, hoặc cố ý giữ mức này. Hub ghi
+  lại mức mục tiêu lúc bấm (`kv` → `ad_tg_mute`): mục tiêu đổi thì dấu hết tác
+  dụng (luật chờ 3 ngày lo tiếp), giữ nguyên thì im 14 ngày rồi nhắc lại nếu
+  ROAS vẫn vượt. Không có nút này thì một chiến dịch chạy tốt đều bị nhắc mỗi
+  ngày không dứt. Trên Telegram còn hoãn được 4 / 12 giờ như mọi việc khác.
+- Cả luồng Telegram của việc này (cron gửi, hoãn, Đã xử lý) đã thử bằng một máy
+  chủ Telegram giả trên bản sao, cả bản PHP lẫn Node.
 
 ### Tỉ lệ đổi: % và điểm phần trăm
 

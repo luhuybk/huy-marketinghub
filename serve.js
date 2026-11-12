@@ -653,6 +653,12 @@ function api(req, res, body){
       if (!khMay(me, 'adreport') && !khMay(me, 'ads')) return fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
       return send({ok:true, tasks:adTgTasks()});
     }
+    case 'ad_tg_mute': {
+      if (!need()) return;
+      if (!khMay(me, 'adreport') && !khMay(me, 'ads')) return fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
+      if (!adTgMute(String(inp.id || ''))) return fail('Gợi ý này không còn nữa.', 404);
+      return send({ok:true});
+    }
 
     /* ---- nhận số liệu quảng cáo tự động ---- */
     case 'ingest_list': {
@@ -991,7 +997,7 @@ async function tgHook(req, res, body){
 
   const tasks = kvGet('reminders', []) || [];
   const tIdx = tasks.findIndex(t => String(t.id || '') === taskId);
-  /* việc máy chủ tự dựng (gợi ý nâng ROAS mục tiêu) — chỉ hoãn được, xem api/tg.php */
+  /* việc máy chủ tự dựng (gợi ý nâng ROAS mục tiêu) không nằm trong danh sách app đẩy lên — xem api/tg.php */
   let tuDung = null;
   if (tIdx < 0){ try { tuDung = adTgTasks().find(t => t.id === taskId) || null; } catch(e){} }
   if (tIdx < 0 && !tuDung){
@@ -1008,6 +1014,13 @@ async function tgHook(req, res, body){
   };
 
   if (op === 'done'){
+    /* việc máy chủ tự dựng: "xong" là ngừng nhắc (adTgMute) — xem api/tg.php */
+    if (task.auto){
+      adTgMute(taskId);
+      await answer('Đã ghi nhận ✅');
+      await stamp(`<b>đã xử lý</b> · ${nowVn.hm} ${dmy(nowVn.date).slice(0,5)} · không nhắc lại tới khi mục tiêu đổi, hoặc sau ${AD_TG_IM} ngày`);
+      return txt('ok');
+    }
     if (!task.doneSet){ await answer('Việc này không đánh dấu xong từ đây được.'); return txt('ok'); }
     const [ok, msg] = itemApply(task.ref || {}, task.doneSet, nowVn.date);
     if (!ok){ await answer(msg); await stamp(msg); return txt('ok'); }
@@ -1176,14 +1189,17 @@ function adRadarData(soNgay = 400){
       item:String(m.item || ''), start:Math.trunc(+m.start || 0)})); });
   return out;
 }
-/* Gợi ý nâng ROAS mục tiêu — giống adTgUp() bên PHP, xem chú thích ở đó */
-const AD_TG_NGAY = 3, AD_TG_DAT = 2, AD_TG_VUOT = 1.15, AD_TG_CHI = 45000, AD_TG_DON = 3,
-      AD_TG_BUOC = 1.15, AD_TG_CHUA = 0.9, AD_TG_CU = 7;
+/* Gợi ý nâng ROAS mục tiêu — giống adTgUp() bên PHP, xem chú thích ở đó
+   (luật, vì sao phải cả ba ngày đều đạt, và nút "Đã xử lý") */
+const AD_TG_NGAY = 3, AD_TG_VUOT = 1.15, AD_TG_CHI = 45000, AD_TG_DON = 3,
+      AD_TG_BUOC = 1.15, AD_TG_CHUA = 0.9, AD_TG_CU = 4, AD_TG_IM = 14;
 const ngayCong = (d, n) => new Date(Date.parse(d + 'T00:00:00Z') + n * 864e5).toISOString().slice(0, 10);
 const lam1 = v => Math.round(v * 10) / 10;
+const adTgId = (shop, cid) => 'tgup_' + crypto.createHash('sha1').update(shop + '|' + cid).digest('hex').slice(0, 12);
 function adTgUp(){
   const D = db(); adTables(D);
-  const quaCu = ngayCong(vnNow().date, -AD_TG_CU);
+  const quaCu = ngayCong(vnNow().date, -AD_TG_CU), imTu = ngayCong(vnNow().date, -AD_TG_IM);
+  const im = kvGet('ad_tg_mute', {}) || {};
   const cuoi = Object.fromEntries(D.prepare('SELECT shop, MAX(date) d FROM ad_raw GROUP BY shop').all().map(r => [r.shop, String(r.d)]));
   const doi = {};
   D.prepare('SELECT * FROM ad_tg_log ORDER BY date').all().forEach(r => { doi[r.shop + '\0' + r.cid] = r; });
@@ -1199,15 +1215,28 @@ function adTgUp(){
       cost += Math.trunc(+r.cost || 0); gmv += Math.trunc(+r.gmv || 0); don += Math.trunc(+r.orders || 0);
       if (+r.cost > 0 && +r.gmv / +r.cost >= tg) dat++;
     });
-    if (cost < AD_TG_CHI || don < AD_TG_DON || dat < AD_TG_DAT) return;
+    if (cost < AD_TG_CHI || don < AD_TG_DON || dat < AD_TG_NGAY) return;
     const r3 = gmv / cost;
     if (r3 < tg * AD_TG_VUOT) return;
-    out.push({shop, cid, t:String(m.title || '').trim() || 'Chiến dịch ' + cid, item:String(m.item || ''), tg,
-              r3:Math.round(r3 * 100) / 100, cost, gmv, orders:don, dat, from:tu, to:den,
+    const id = adTgId(shop, cid), i0 = im[id] && typeof im[id] === 'object' ? im[id] : null;
+    if (i0 && Math.abs((+i0.tg || 0) - tg) < 0.001 && String(i0.at || '') > imTu) return;
+    out.push({id, shop, cid, t:String(m.title || '').trim() || 'Chiến dịch ' + cid, item:String(m.item || ''), tg,
+              r3:Math.round(r3 * 100) / 100, cost, gmv, orders:don, from:tu, to:den,
               goi:lam1(Math.max(tg + 0.1, Math.min(tg * AD_TG_BUOC, r3 * AD_TG_CHUA))),
               doi: c ? [String(c.date), +c.old || 0, +c.new || 0] : null});
   });
   return out.sort((a, b) => b.cost - a.cost);
+}
+/* "Đã xử lý" — như adTgMute() bên PHP */
+function adTgMute(id){
+  const x = adTgUp().find(y => y.id === id);
+  if (!x) return false;
+  const cu = ngayCong(vnNow().date, -60);
+  const im = Object.fromEntries(Object.entries(kvGet('ad_tg_mute', {}) || {})
+    .filter(([, v]) => v && typeof v === 'object' && String(v.at || '') >= cu));
+  im[id] = {tg:x.tg, at:vnNow().date};
+  kvSet('ad_tg_mute', im);
+  return true;
 }
 /* như adTgTasks() bên PHP */
 function adTgTasks(){
@@ -1216,13 +1245,15 @@ function adTgTasks(){
                     return a.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + (b ? ',' + b : ''); };
   const ng = d => d.slice(8, 10) + '/' + d.slice(5, 7);
   return adTgUp().map(x => ({
-    id:'tgup_' + crypto.createHash('sha1').update(x.shop + '|' + x.cid).digest('hex').slice(0, 12),
+    id:x.id,
     feed:'ads', due:nay, icon:'🎯', auto:true,
     title:'Nâng ROAS mục tiêu ' + so(x.tg) + ' → ' + so(x.goi) + ': ' + x.t,
-    sub:x.shop + ' · ' + AD_TG_NGAY + ' ngày ' + ng(x.from) + '–' + ng(x.to) + ': ROAS ' + so(x.r3)
-       + ', vượt mục tiêu ' + Math.round((x.r3 / x.tg - 1) * 100) + '% · ' + x.orders + ' đơn · chi '
+    sub:x.shop + ' · ' + AD_TG_NGAY + ' ngày ' + ng(x.from) + '–' + ng(x.to) + ' ngày nào cũng đạt mục tiêu, ROAS gộp '
+       + so(x.r3) + ' (vượt ' + Math.round((x.r3 / x.tg - 1) * 100) + '%) · ' + x.orders + ' đơn · chi '
        + so(x.cost) + 'đ. Giữ mục tiêu cũ thì Shopee sẽ đẩy chi tiêu lên.',
-    ref:{kind:'radar', shop:x.shop, cid:x.cid}, x}));
+    ref:{kind:'radar', shop:x.shop, cid:x.cid},
+    doneLabel:'✅ Đã xử lý', doneSet:{im:1},
+    x}));
 }
 function adIngest(histCsv, campCsv){
   const D = db();
