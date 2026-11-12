@@ -1085,7 +1085,8 @@ lại. Tab **Báo cáo Ads** ngược lại — chỉ nạp file và đọc số
 con nào. Hai việc khác nhịp: một cái làm khi có ý tưởng, một cái làm mỗi sáng.
 Nên chúng là hai tab, không phải hai nửa của một trang.
 
-Cùng dùng quyền `ads`, nên không phải tick thêm gì cho người đã có Shopee Ads.
+Từ 12/11/2026 là quyền riêng `adreport` (trước đó đi chung `ads`); ai đang có
+Shopee Ads được tự thêm quyền này một lần — xem phần Quyền.
 
 Tab có ba mục con:
 
@@ -1106,8 +1107,8 @@ với thực tế, bảng tất cả quảng cáo, bấm một dòng mở ngăn 
   nó trong một iframe đặt **ngoài** `#view` (`radarBox()` trong `js/app.js`):
   `render()` thay cả `#view` mỗi lần vẽ, iframe nằm trong đó thì vẽ lại là tải
   lại, mất kỳ đang chọn và ngăn chi tiết. Chỉ ẩn/hiện, không bao giờ gỡ ra.
-- Số lấy bằng action `ad_radar` (cần quyền `ads` — chỉ có chi phí quảng cáo,
-  không có giá vốn), đọc thẳng **kho thô `ad_raw`/`ad_meta`** mà
+- Số lấy bằng action `ad_radar` (cần quyền `adreport` hoặc `ads` — chỉ có chi
+  phí quảng cáo, không có giá vốn), đọc thẳng **kho thô `ad_raw`/`ad_meta`** mà
   `api/ingest.php` ghi, tối đa 400 ngày. Không đọc adcamps/addays: hai kho đó
   đã gộp theo tháng hoặc chỉ giữ 45 ngày.
 - `ad_raw` có thêm `conv`, `atc` và `ad_meta` có thêm `budget`, `start` cho
@@ -1116,6 +1117,46 @@ với thực tế, bảng tất cả quảng cáo, bấm một dòng mở ngăn 
 - Màu sáng/tối theo Hub (`kolhub.theme`). Đổi luật cảnh báo trong Radar là sửa
   `computeAlerts()` trong `radar.html` — nó tách biệt với cờ của tab Theo
   tháng / Hôm qua.
+
+### Gợi ý nâng ROAS mục tiêu
+
+Chiến dịch "Tối đa doanh thu — tuỳ chỉnh ROAS" của Shopee cố giữ ROAS thực
+**quanh** mức mục tiêu. Tối ưu sản phẩm làm ROAS thực vượt mục tiêu thì Shopee
+hiểu là còn dư địa và tự đẩy giá thầu, đẩy chi tiêu lên cho tới khi ROAS lùi về
+gần mục tiêu — phần lời có được từ tối ưu thành tiền quảng cáo. Hub canh việc
+này và nhắc nâng mục tiêu một nhịp.
+
+- **Luật** (`adTgUp()` trong `api/lib.php`, bản Node ở `serve.js`): chiến dịch
+  đang chạy, có đặt ROAS mục tiêu; 3 ngày gần nhất có số của shop đó chi ≥ 45k
+  và ≥ 3 đơn; ROAS gộp 3 ngày (doanh thu ÷ chi phí) ≥ mục tiêu × 1,15 **và** ít
+  nhất 2/3 ngày tự đạt mục tiêu. Đề xuất = nâng tối đa 15% và vẫn thấp hơn ROAS
+  thực 10%, làm tròn 0,1. Các ngưỡng là hằng `AD_TG_*` ngay trên hàm.
+- **Lịch sử đổi mục tiêu** (`ad_tg_log`): `ad_meta` chỉ giữ số hiện tại, nên
+  lúc nhận số mỗi sáng `adIngest()` so mục tiêu mới với số đang lưu, khác thì
+  ghi một dòng (ngày nhận, cũ, mới). Mục tiêu vừa đổi thì chờ đủ 3 ngày chạy
+  theo mức mới mới xét lại. Lịch sử chỉ có từ bản 12/11/2026 trở đi.
+- Số của shop cũ quá 7 ngày (tác vụ buổi sáng ngừng gửi) thì không gợi ý.
+- **Hiện ở ba chỗ**: Radar (nhóm cảnh báo *Nên nâng ROAS mục tiêu* + đoạn giải
+  thích và lịch sử đổi trong ngăn chi tiết), trang **Hôm nay** (luồng Shopee
+  Ads, nút *Mở ›* mở thẳng ngăn chi tiết chiến dịch đó trong Radar —
+  `radarMo()` ↔ `__radarMo`), và **Telegram** (cron tự cộng `adTgTasks()` vào
+  danh sách nhắc lúc gửi). Việc này do máy chủ dựng, KHÔNG nằm trong
+  `reminderTasks()` của app — trộn vào thì đi Telegram hai lần. App hỏi bằng
+  action `ad_tg_up` (`ensureAdTg()`, 30 phút một lần) và giữ ở `adTg`.
+- Không có nút "xong": nâng mục tiêu trên Shopee rồi thì sáng hôm sau Hub nhận
+  mức mới, việc tự biến mất. Trên Telegram chỉ hoãn được 4 / 12 giờ.
+- Số thật 12/11/2026: 31 chiến dịch đủ chi tiêu, ROAS thực thường chỉ đạt
+  50–90% mục tiêu (trung vị 65%), 1 chiến dịch vượt 15% — gợi ý hiếm, đáng đọc.
+
+### Tỉ lệ đổi: % và điểm phần trăm
+
+CTR, CVR, tỉ lệ thêm giỏ… đổi thì app ghi **cả hai** cách nói: 5% → 6% hiện
+`▲ 20% (+1,0 điểm)` — tăng 1 **điểm phần trăm** (hiệu hai tỉ lệ, tiếng Anh là
+*pp*), tức tăng 20% so với mức cũ. Chỉ "+1%" thì tưởng nhỏ; chỉ "▲ 20%" cạnh
+con số 6% thì không biết là lên 6% hay 26%. Rê chuột lên chip đọc câu đủ.
+`rateDelta()`/`ppText()` ở `js/state.js`, chip `rateChip()` ở `js/views.js`
+(dùng cho mọi chỗ so CTR/CVR: bảng chiến dịch, Hôm nay / Hôm qua / Theo tháng,
+sản phẩm, phễu Shopee); Radar có bản riêng trong `cmpLine()`.
 
 File lấy cùng một chỗ: *Kênh Người Bán › Kênh Marketing › Quảng cáo Shopee ›
 Báo cáo*. Đọc được cả `.csv` lẫn `.xlsx`.

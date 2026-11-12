@@ -53,6 +53,9 @@ $nowIso = $nowVn->format('c');
    Danh sách do app đẩy lên, mỗi việc mang một ngày hẹn tuyệt đối. Nhờ
    vậy cron vẫn nhắc đúng cả khi bạn cả tuần không mở app. */
 $tasks  = kvGet('reminders', []) ?: [];
+/* cộng việc máy chủ tự dựng: gợi ý nâng ROAS mục tiêu (adTgTasks) — hỏng thì
+   bỏ qua, đừng để nó làm tắt cả đợt nhắc */
+try { $tasks = array_merge($tasks, adTgTasks()); } catch (Throwable $e) {}
 $snooze = kvGet('tg_snooze', []) ?: [];
 $last   = kvGet('tg_last', []) ?: [];
 

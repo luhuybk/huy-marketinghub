@@ -122,6 +122,20 @@ const deltaChip = (v, goodUp) => {
             : (goodUp === false ? v < 0 : v > 0) ? 'ok' : 'bad';
   return `<span class="chip ${cls}">${v > 0 ? '▲' : '▼'} ${Math.abs(v).toFixed(0)}%</span>`;
 };
+/* Mức đổi của một TỈ LỆ (CTR, CVR, tỉ lệ thêm giỏ…): % so với mức cũ, kèm số
+   ĐIỂM phần trăm — 5% → 6% hiện "▲ 20% (+1,0 điểm)". Xem rateDelta() ở
+   js/state.js vì sao phải nói cả hai. Rê chuột / chạm giữ để đọc câu đủ. */
+const rateChip = (cur, prev, goodUp) => {
+  const d = rateDelta(cur, prev);
+  if (!d || d.rel == null) return '';
+  const cls = goodUp == null || Math.abs(d.rel) < 1 ? ''
+            : (goodUp === false ? d.rel < 0 : d.rel > 0) ? 'ok' : 'bad';
+  const cau = pctText(prev, 2) + ' → ' + pctText(cur, 2) + ': ' + (d.pp < 0 ? 'giảm ' : 'tăng ') +
+              ppText(d.pp).slice(1) + ' phần trăm, tức ' + (d.rel < 0 ? 'giảm ' : 'tăng ') +
+              Math.abs(d.rel).toFixed(0) + '% so với mức cũ';
+  return `<span class="chip ${cls}" title="${esc(cau)}">${d.rel > 0 ? '▲' : '▼'} ${Math.abs(d.rel).toFixed(0)}%` +
+         ` <span class="pp">(${ppText(d.pp)})</span></span>`;
+};
 
 /* ============================================================
    TỔNG QUAN
@@ -779,8 +793,8 @@ function adcampRow(r, hienShop){
     <td class="r nw"><b class="${m.roas == null ? '' : tt ? (m.roas >= tt ? 'ok' : 'bad')
                                                          : (m.roas >= 3 ? 'ok' : m.roas < 1.5 ? 'bad' : '')}">${xText(m.roas)}</b>
       ${sub(tt ? 'ngưỡng ' + xText(tt) : dRoas != null ? deltaChip(dRoas, true) : null)}</td>
-    <td class="r nw">${pctText(m.ctr, 2)}${sub(dCtr != null ? deltaChip(dCtr, true) : num(m.clicks) + ' click')}</td>
-    <td class="r nw">${pctText(m.cvr, 2)}${sub(dCvr != null ? deltaChip(dCvr, true) : null)}</td>
+    <td class="r nw">${pctText(m.ctr, 2)}${sub(dCtr != null ? rateChip(m.ctr, pm.ctr, true) : num(m.clicks) + ' click')}</td>
+    <td class="r nw">${pctText(m.cvr, 2)}${sub(dCvr != null ? rateChip(m.cvr, pm.cvr, true) : null)}</td>
   </tr>`;
 }
 
@@ -818,8 +832,9 @@ const AD_SS = [
   /* CPC in đủ số, không rút gọn: 2.463 và 2.514 mà cùng ra "2k" thì cột này
      vô dụng — đúng chỗ cần nhìn từng trăm đồng một. */
   {k:'cpc',         l:'CPC',     p:'đồng mỗi click', tot:false, f: v => dem(Math.round(v || 0))},
-  {k:'ctr',         l:'CTR',     p:'view → click',   tot:true,  f: v => pctText(v, 2)},
-  {k:'cvr',         l:'CVR',     p:'click → đơn',    tot:true,  f: v => pctText(v, 2)},
+  /* ty: là tỉ lệ — chip chênh lệch ghi cả số điểm phần trăm (rateChip) */
+  {k:'ctr',         l:'CTR',     p:'view → click',   tot:true,  ty:true, f: v => pctText(v, 2)},
+  {k:'cvr',         l:'CVR',     p:'click → đơn',    tot:true,  ty:true, f: v => pctText(v, 2)},
   {k:'cost',        l:'Chi phí', p:'tiền đã tiêu',   tot:null,  f: moneyShort},
   {k:'gmv',         l:'GMV',     p:'doanh số',       tot:true,  f: moneyShort},
   {k:'roas',        l:'ROAS',    p:'gmv ÷ chi phí',  tot:true,  f: xText}
@@ -907,7 +922,7 @@ function adCompareBlock(rp, o){
       <tr><td class="nw"><b>${esc(o.nhanNay)}</b><div class="dim">${esc(o.phuNay || '')}</div></td>` +
       AD_SS.map(x => `<td class="r nw"><b>${x.f(nay[x.k])}</b></td>`).join('') + `</tr>
       <tr><td class="nw"><b>Chênh lệch</b><div class="dim">so với mức thường</div></td>` +
-      AD_SS.map(x => `<td class="r nw">${deltaChip(d(x.k), x.tot) || '—'}</td>`).join('') + `</tr>
+      AD_SS.map(x => `<td class="r nw">${(x.ty ? rateChip(nay[x.k], bau[x.k], x.tot) : deltaChip(d(x.k), x.tot)) || '—'}</td>`).join('') + `</tr>
     </tbody></table></div>`;
 
   /* Biểu đồ quy đổi. Bỏ chỉ số nào mức thường bằng 0 — chia cho 0 thì cột đó
@@ -1048,9 +1063,9 @@ function viewAdNow(shopId){
              deltaChip(rp.dRoas, true) + ' · thường ' + xText(rp.nen.total.roas),
              rp.sum.roas == null ? '' : rp.sum.roas >= 3 ? 'ok' : rp.sum.roas < 1.5 ? 'bad' : '')}
       ${tile('CTR', pctText(rp.sum.ctr, 2),
-             deltaChip(rp.dCtr, true) + ' · thường ' + pctText(rp.nen.total.ctr, 2))}
+             rateChip(rp.sum.ctr, rp.nen.total.ctr, true) + ' · thường ' + pctText(rp.nen.total.ctr, 2))}
       ${tile('CVR', pctText(rp.sum.cvr, 2),
-             deltaChip(rp.dCvr, true) + ' · thường ' + pctText(rp.nen.total.cvr, 2))}
+             rateChip(rp.sum.cvr, rp.nen.total.cvr, true) + ' · thường ' + pctText(rp.nen.total.cvr, 2))}
       ${tile('CPC — tiền mỗi click', dem(Math.round(rp.sum.cpc || 0)),
              deltaChip(rp.dCpc, false) + ' · thường ' + dem(Math.round(rp.nen.total.cpc || 0)))}
     </div>
@@ -1371,9 +1386,9 @@ function adDayRow(r){
     <td class="r nw"${tt(b ? dem(Math.round(b.impressions)) : null)}>${dem(m.impressions)}${
       sub(deltaChip(r.dImp, null))}</td>
     <td class="r nw"${tt(bm ? pctText(bm.ctr, 2) : null)}>${pctText(m.ctr, 2)}${
-      sub(deltaChip(r.dCtr, true))}</td>
+      sub(rateChip(m.ctr, bm && bm.ctr, true))}</td>
     <td class="r nw"${tt(bm ? pctText(bm.cvr, 2) : null)}>${pctText(m.cvr, 2)}${
-      sub(deltaChip(r.dCvr, true))}</td>
+      sub(rateChip(m.cvr, bm && bm.cvr, true))}</td>
     <td class="r nw">${moneyShort(m.cost)}${
       sub(deltaChip(r.dCost, null) || (b ? 'thường ' + moneyShort(b.cost) : null))}</td>
     <td class="r nw"${tt(b ? moneyShort(b.gmv) : null)}>${moneyShort(m.gmv)}${
@@ -1417,7 +1432,7 @@ function dayCmpTable(nay, nhan, phu, moc){
       AD_SS.map(x => `<td class="r nw"><b>${x.f(nay[x.k])}</b></td>`).join('') + `</tr>` +
     moc.map(m => `<tr><td class="nw">${esc(m.nhan)}<div class="dim">${esc(m.phu)}</div></td>` +
       AD_SS.map(x => `<td class="r nw"><span class="dim">${x.f(m.b[x.k])}</span>
-        <div>${deltaChip(dayDelta(nay[x.k], m.b[x.k]), x.tot) || '—'}</div></td>`).join('') +
+        <div>${(x.ty ? rateChip(nay[x.k], m.b[x.k], x.tot) : deltaChip(dayDelta(nay[x.k], m.b[x.k]), x.tot)) || '—'}</div></td>`).join('') +
       `</tr>`).join('') +
     `</tbody></table></div>
     <div class="dim" style="margin-top:6px">Mũi tên ở mỗi dòng là <b>${esc(nhan.toLowerCase())}</b>
@@ -1624,9 +1639,9 @@ function viewAdDay(shopId){
       ${tile('View — lượt hiển thị', dem(rp.sum.impressions),
              cham(rp.dImp) + ' · thường ' + dem(Math.round(rp.nen.total.impressions)))}
       ${tile('CTR', pctText(rp.sum.ctr, 2),
-             deltaChip(rp.dCtr, true) + ' · thường ' + pctText(rp.nen.total.ctr, 2))}
+             rateChip(rp.sum.ctr, rp.nen.total.ctr, true) + ' · thường ' + pctText(rp.nen.total.ctr, 2))}
       ${tile('CVR', pctText(rp.sum.cvr, 2),
-             deltaChip(rp.dCvr, true) + ' · thường ' + pctText(rp.nen.total.cvr, 2))}
+             rateChip(rp.sum.cvr, rp.nen.total.cvr, true) + ' · thường ' + pctText(rp.nen.total.cvr, 2))}
       ${tile('CPC — tiền mỗi click', dem(Math.round(rp.sum.cpc || 0)),
              deltaChip(rp.dCpc, false) + ' · thường ' + dem(Math.round(rp.nen.total.cpc || 0)))}
     </div>
@@ -1789,9 +1804,9 @@ function viewAdMonth(){
            cu ? deltaChip(dM(rp.sum.impressions, cu.impressions), null) + ' so ' + monthLabel(rp.prevYm)
               : dem(rp.sum.clicks) + ' lượt bấm')}
     ${tile('CTR', pctText(rp.sum.ctr, 2),
-           cu ? deltaChip(dM(rp.sum.ctr, cu.ctr), true) + ' so tháng trước' : dem(rp.sum.clicks) + ' lượt bấm')}
+           cu ? rateChip(rp.sum.ctr, cu.ctr, true) + ' so tháng trước' : dem(rp.sum.clicks) + ' lượt bấm')}
     ${tile('CVR', pctText(rp.sum.cvr, 2),
-           cu ? deltaChip(dM(rp.sum.cvr, cu.cvr), true) + ' so tháng trước' : dem(rp.sum.orders) + ' sản phẩm bán ra')}
+           cu ? rateChip(rp.sum.cvr, cu.cvr, true) + ' so tháng trước' : dem(rp.sum.orders) + ' sản phẩm bán ra')}
     ${tile('Đơn', dem(rp.sum.orders),
            cu ? deltaChip(dM(rp.sum.orders, cu.orders), true) + ' so tháng trước' : '&nbsp;')}
   </div>`;
@@ -1825,14 +1840,14 @@ function viewAdMonth(){
       <th class="r">Đơn</th></tr></thead><tbody>` +
       bang.map((x, i) => {
         const tr = i ? bang[i-1].t : null;
-        const o = (v, td, goodUp, f) => `<td class="r nw">${f(v)}${
-          tr ? `<div class="dim">${deltaChip(dM(v, td), goodUp)}</div>` : ''}</td>`;
+        const o = (v, td, goodUp, f, ty) => `<td class="r nw">${f(v)}${
+          tr ? `<div class="dim">${ty ? rateChip(v, td, goodUp) : deltaChip(dM(v, td), goodUp)}</div>` : ''}</td>`;
         return `<tr class="${x.m === ym ? 'rowon' : ''}" data-act="admonth" data-id="${x.m}">
           <td class="nw"><b>${esc(monthLabel(x.m))}</b>${
             tr ? '<div class="dim">so tháng trước</div>' : '<div class="dim">tháng đầu</div>'}</td>
           ${o(x.t.impressions, tr && tr.impressions, null, v => dem(v))}
-          ${o(x.t.ctr, tr && tr.ctr, true, v => pctText(v, 2))}
-          ${o(x.t.cvr, tr && tr.cvr, true, v => pctText(v, 2))}
+          ${o(x.t.ctr, tr && tr.ctr, true, v => pctText(v, 2), true)}
+          ${o(x.t.cvr, tr && tr.cvr, true, v => pctText(v, 2), true)}
           ${o(x.t.cost, tr && tr.cost, null, moneyShort)}
           ${o(x.t.gmv, tr && tr.gmv, true, moneyShort)}
           ${o(x.t.roas, tr && tr.roas, true, xText)}
@@ -2436,8 +2451,8 @@ function viewProduct(id){
     </div>
     <div class="tiles">
       ${tile('ROAS kỳ gần nhất', xText(tr.cur.roas), tr.d ? (deltaChip(tr.d.roas, true) || 'so kỳ trước') : 'kỳ đầu tiên')}
-      ${tile('CTR', pctText(tr.cur.ctr), tr.d ? (deltaChip(tr.d.ctr, true) || '&nbsp;') : '&nbsp;')}
-      ${tile('CVR', pctText(tr.cur.cvr), tr.d ? (deltaChip(tr.d.cvr, true) || '&nbsp;') : '&nbsp;')}
+      ${tile('CTR', pctText(tr.cur.ctr), tr.d ? (rateChip(tr.cur.ctr, tr.prev.ctr, true) || '&nbsp;') : '&nbsp;')}
+      ${tile('CVR', pctText(tr.cur.cvr), tr.d ? (rateChip(tr.cur.cvr, tr.prev.cvr, true) || '&nbsp;') : '&nbsp;')}
       ${tile('Chi phí / đơn', tr.cur.cpo ? moneyShort(tr.cur.cpo) : '—', tr.d ? (deltaChip(tr.d.cpo, false) || '&nbsp;') : '&nbsp;')}
     </div>`;
 
@@ -2572,7 +2587,7 @@ function funnelRow(x, pid){
     <div class="fn-l"><b>${esc(s.label)}</b>
       <div class="dim">${esc(s.what)}</div></div>
     <div class="fn-m"><div class="fn-v">${val}${
-      x.delta != null ? ' ' + deltaChip(x.delta, true) : ''}</div>${mid}</div>
+      x.delta != null ? ' ' + (s.unit !== 'n' && x.prev != null ? rateChip(x.value, x.prev, true) : deltaChip(x.delta, true)) : ''}</div>${mid}</div>
     <div class="fn-r">
       <div class="fn-fix">sửa bằng: ${esc(s.fix)}</div>
       <button class="btn sm" data-act="newimpact" data-id="${pid}" data-m="${s.id}">+ Ghi hành động</button>
@@ -2776,8 +2791,8 @@ function viewSp(id){
     ${tile('Lượt hiển thị', num(cur.impV),
       tr && tr.d ? (deltaChip(tr.d.impV, true) ||
         (tr.gap ? 'so tuần cách ' + tr.gap + ' ngày' : 'so tuần trước')) : 'tuần đầu tiên')}
-    ${tile('CTR', pctText(cur.ctr), tr && tr.d ? (deltaChip(tr.d.ctr, true) || '&nbsp;') : '&nbsp;')}
-    ${tile('CVR', pctText(cur.cvr), tr && tr.d ? (deltaChip(tr.d.cvr, true) || '&nbsp;') : '&nbsp;')}
+    ${tile('CTR', pctText(cur.ctr), tr && tr.d ? (rateChip(tr.cur.ctr, tr.prev.ctr, true) || '&nbsp;') : '&nbsp;')}
+    ${tile('CVR', pctText(cur.cvr), tr && tr.d ? (rateChip(tr.cur.cvr, tr.prev.cvr, true) || '&nbsp;') : '&nbsp;')}
     ${tile('Doanh thu', moneyShort(cur.gmv),
       tr && tr.d ? (deltaChip(tr.d.gmv, true) || '&nbsp;') : '&nbsp;')}
   </div>

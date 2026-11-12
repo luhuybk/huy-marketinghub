@@ -619,6 +619,21 @@ function pctText(v, digits){
   if (v == null || !isFinite(v)) return '—';
   return v.toFixed(digits == null ? 2 : digits).replace('.',',') + '%';
 }
+/* Một TỈ LỆ (CTR, CVR, tỉ lệ thêm giỏ…) đổi bao nhiêu — có hai cách nói và
+   phải nói cả hai, vì nói một cách là hiểu lầm:
+     5% → 6%  = tăng 1 ĐIỂM PHẦN TRĂM (hiệu hai tỉ lệ, tiếng Anh là pp)
+              = tăng 20% so với mức cũ (1 ÷ 5)
+   Chỉ thấy "+1%" thì tưởng nhỏ, mà thật ra cùng ngân sách đó giờ được nhiều
+   hơn 20% lượt bấm. Chỉ thấy "▲ 20%" cạnh con số 6% thì lại không biết là
+   lên 6% hay lên 26%. `rel` null khi mức cũ bằng 0 (chia không được). */
+function rateDelta(cur, prev){
+  if (cur == null || prev == null || !isFinite(cur) || !isFinite(prev)) return null;
+  return {pp: cur - prev, rel: prev ? (cur - prev) / prev * 100 : null};
+}
+function ppText(pp){
+  const a = Math.abs(pp);
+  return (pp < 0 ? '−' : '+') + a.toFixed(a >= 1 ? 1 : 2).replace('.', ',') + ' điểm';
+}
 function xText(v){
   if (v == null || !isFinite(v)) return '—';
   return v.toFixed(2).replace('.',',') + 'x';
@@ -1996,17 +2011,25 @@ const taskDone = t => t.doneSet ? applyTaskSet(t, t.doneSet) : false;
 const taskPush = (t, n) => t.dueField ? applyTaskSet(t, {[t.dueField]: addDays(today(), n)}) : false;
 
 /* Việc cần làm hôm nay, gom theo luồng. days = nhìn trước bao nhiêu ngày. */
+/* Việc MÁY CHỦ tự dựng — hiện là gợi ý nâng ROAS mục tiêu (adTgTasks() ở
+   api/lib.php). Máy chủ tính từ số quảng cáo tự động mà app không có (ROAS
+   mục tiêu thật của từng chiến dịch), nên app hỏi máy chủ (ensureAdTg ở
+   js/app.js) rồi giữ tạm ở đây. KHÔNG trộn vào reminderTasks(): danh sách đó
+   là thứ app đẩy lên cho Telegram, còn máy chủ tự cộng việc của nó lúc gửi —
+   trộn vào thì một việc đi Telegram hai lần. */
+const adTg = {tasks:null, luc:0, busy:false};
+const serverTasks = () => (may('adreport') || may('ads')) ? (adTg.tasks || []).filter(t => t && t.id && t.due) : [];
 function todayTasks(days){
   const limit = addDays(today(), Math.max(0, days || 0));
   const out = {};
   TG_FEED_IDS.forEach(f => { out[f] = []; });
-  reminderTasks().forEach(t => {
+  reminderTasks().concat(serverTasks()).forEach(t => {
     if (t.due > limit) return;
     (out[t.feed] || out.booking).push(t);
   });
   return out;
 }
-const todayCount = () => reminderTasks().filter(t => t.due <= today()).length;
+const todayCount = () => reminderTasks().concat(serverTasks()).filter(t => t.due <= today()).length;
 
 /* ---- danh bạ sản phẩm cho bot Telegram ----
    Bot cần khớp chữ bạn nhắn ("sunya") với một sản phẩm. Máy chủ không đọc
@@ -3769,10 +3792,12 @@ function judgePeriod(w){
 
   /* Chỉ ra chỗ hỏng nằm ở đâu trong phễu: không ai bấm, hay bấm mà không mua */
   const why = [];
-  if (d.ctr != null && d.ctr <= -10) why.push('ít người bấm vào hơn (CTR giảm ' + Math.round(-d.ctr) + '%)');
-  if (d.ctr != null && d.ctr >= 10)  why.push('nhiều người bấm hơn (CTR tăng ' + Math.round(d.ctr) + '%)');
-  if (d.cvr != null && d.cvr <= -10) why.push('bấm vào nhưng ít mua hơn (CVR giảm ' + Math.round(-d.cvr) + '%)');
-  if (d.cvr != null && d.cvr >= 10)  why.push('tỉ lệ chốt đơn tốt hơn (CVR tăng ' + Math.round(d.cvr) + '%)');
+  /* "CTR giảm 20%: 5,00% → 4,00%" — % là so với mức cũ, hai mốc để thấy đó là 1 điểm phần trăm */
+  const moc = (k, nhan) => nhan + ' ' + Math.round(Math.abs(d[k])) + '%: ' + pctText(pm[k], 2) + ' → ' + pctText(cur[k], 2);
+  if (d.ctr != null && d.ctr <= -10) why.push('ít người bấm vào hơn (' + moc('ctr', 'CTR giảm') + ')');
+  if (d.ctr != null && d.ctr >= 10)  why.push('nhiều người bấm hơn (' + moc('ctr', 'CTR tăng') + ')');
+  if (d.cvr != null && d.cvr <= -10) why.push('bấm vào nhưng ít mua hơn (' + moc('cvr', 'CVR giảm') + ')');
+  if (d.cvr != null && d.cvr >= 10)  why.push('tỉ lệ chốt đơn tốt hơn (' + moc('cvr', 'CVR tăng') + ')');
 
   const head = suggest === 'better' ? 'Tốt lên: ROAS tăng ' + Math.round(r) + '%'
              : suggest === 'worse'  ? 'Xấu đi: ROAS giảm ' + Math.round(-r) + '%'
@@ -4078,6 +4103,8 @@ function spDiagnose(pid){
       gain = cur.gmv * (Math.min(med / v, 3) - 1);
     return {
       stage: s, value: v, med, ratio: soVoiMoc, delta: doiTuanTruoc, gain,
+      /* mức tuần trước — để chip ghi được cả số điểm phần trăm (rateChip) */
+      prev: tr && tr.prev ? tr.prev[key] : null,
       usable: dungDuoc,
       /* Dưới trung vị 15% mới gọi là yếu. Với 4 sản phẩm thì hai cái nằm dưới
          trung vị là chuyện đương nhiên, nên gắn cờ ngay khi dưới mốc sẽ tô đỏ

@@ -125,6 +125,8 @@ td .sn{display:block;font-size:11px;color:var(--muted)}
 .callout{font-size:13px;padding:10px 12px;border-radius:8px;background:var(--accent-soft)}
 .ulink{font-size:12px;width:min(100%,340px);padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink)}
 .callout.open{line-height:1.9}
+.callout.tgup{line-height:1.6;margin-top:10px}
+.pp{opacity:.75;font-weight:500}
 .callout button{font:inherit;background:none;border:0;color:var(--accent);cursor:pointer;padding:0;text-decoration:underline}
 .dtbl{max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:8px}
 .dtbl th{position:sticky;top:0}
@@ -332,8 +334,13 @@ function start(DATA){
     const na = VOL.has(k)&&!SAME ? a/LA : a, nb = VOL.has(k)&&!SAME ? b/LB : b;
     if (!nb || (DEN[k]&&!n[DEN[k]])) return `<span class="c">Kỳ so sánh: ${b&&!(DEN[k]&&!p[DEN[k]])?f(b):'—'}</span>`;
     const pct=(na-nb)/nb*100, cls=Math.abs(pct)<3||dir===0?'flat':((pct>0)===(dir>0)?'up':'down');
-    return `<span class="c"><span class="${cls}">${pct>0?'▲':'▼'} ${Math.abs(pct).toFixed(0)}%</span> · kỳ so sánh ${VOL.has(k)&&!SAME?f(b/LB)+'/ngày':f(b)}</span>`;
+    /* Tỉ lệ (CTR, CVR, thêm giỏ): % là so với mức cũ, kèm số ĐIỂM phần trăm —
+       5% → 6% là "▲ 20% (+1.00 điểm)". Chỉ ghi một trong hai là hiểu lầm. */
+    const pp = RATE.has(k) ? ` <span class="pp">(${ppT(a-b)})</span>` : '';
+    return `<span class="c"><span class="${cls}" ${RATE.has(k)?`title="${f(b)} → ${f(a)}: ${a<b?'giảm':'tăng'} ${Math.abs(a-b).toFixed(2)} điểm phần trăm, tức ${a<b?'giảm':'tăng'} ${Math.abs(pct).toFixed(0)}% so với mức cũ"`:''}>${pct>0?'▲':'▼'} ${Math.abs(pct).toFixed(0)}%${pp}</span> · kỳ so sánh ${VOL.has(k)&&!SAME?f(b/LB)+'/ngày':f(b)}</span>`;
   }
+  const RATE = new Set(['ctr','atcr','cr']);
+  const ppT = d => (d<0?'−':'+') + Math.abs(d).toFixed(Math.abs(d)>=1?1:2) + ' điểm';
   const DEN={roas:'cost',ctr:'imp',cr:'clk',atcr:'clk',cpc:'clk',aov:'ord'};
   function modulesHTML(n,p){
     return MODS.map(([cls,title,keys])=>`<div class="mod ${cls}"><h3><i></i>${title}</h3><div class="cells">${keys.map(k=>`<div class="cell"><span class="l">${MET[k][0]}</span><span class="v num">${DEN[k]&&!n[DEN[k]]?'—':MET[k][1](n[k])}</span>${cmpLine(k,n,p)}</div>`).join('')}</div></div>`).join('');
@@ -350,16 +357,24 @@ function start(DATA){
       if (n.cost>=50000*k && n.ord===0) add('Đốt tiền',`Tiêu ${fmt(n.cost)}đ trong ${LA} ngày, 0 đơn`);
       if (n.cost>=50000*k && p.roas>0 && n.roas<0.7*p.roas) add('ROAS giảm',`ROAS ${n.roas.toFixed(1)} (kỳ so sánh ${p.roas.toFixed(1)})`);
       if (n.cost>=100000*k && n.ord>0 && n.roas<0.6*sr) add('ROAS thấp',`ROAS ${n.roas.toFixed(1)}, trung bình shop ${sr.toFixed(1)}`);
-      if (n.imp>=2000*k && p.ctr>0 && n.ctr<0.6*p.ctr) add('CTR giảm',`CTR ${n.ctr.toFixed(1)}% (kỳ so sánh ${p.ctr.toFixed(1)}%), hiển thị/ngày ${fmt(p.imp/LB)} → ${fmt(n.imp/LA)}`);
+      if (n.imp>=2000*k && p.ctr>0 && n.ctr<0.6*p.ctr) add('CTR giảm',`CTR ${p.ctr.toFixed(2)}% → ${n.ctr.toFixed(2)}% (${ppT(n.ctr-p.ctr)}, giảm ${((1-n.ctr/p.ctr)*100).toFixed(0)}%), hiển thị/ngày ${fmt(p.imp/LB)} → ${fmt(n.imp/LA)}`);
       if (n.cost>=150000*k && pdC>=2*Math.max(pdP,1) && (n.ord===0 || n.roas<sr)) add('Chi phí tăng vọt',`Chi phí/ngày ${fmt(pdP)} → ${fmt(pdC)}đ, ROAS ${n.roas.toFixed(1)}`);
       const gA=n.gmv/LA, gB=p.gmv/LB;
       if (gB>=100000 && gA<0.7*gB) { add('Doanh số giảm',`Doanh số/ngày ${fmt(gB)} → ${fmt(gA)}đ (−${((1-gA/gB)*100).toFixed(0)}%), ROAS ${n.cost?n.roas.toFixed(1):'—'} (kỳ so sánh ${p.roas.toFixed(1)})`); out[out.length-1].loss=(gB-gA)*LA; }
       if (c.b && last[0]>=0.9*c.b && n.roas>=sr && c.st==='ongoing') add('Hết ngân sách',`Ngày ${dlong(DATA.dates[lastI])} tiêu ${fmt(last[0])}/${fmt(c.b)}đ ngân sách, ROAS ${n.roas.toFixed(1)} tốt`);
     }
+    /* Nên nâng ROAS mục tiêu: máy chủ tính (adTgUp ở api/lib.php) trên 3 NGÀY
+       GẦN NHẤT có số, không theo kỳ đang chọn — luôn là chuyện của hiện tại. */
+    const chon = new Set(cs);
+    TGUP.forEach(x => { if (x.c && chon.has(x.c)) out.push({c:x.c, f:'Nên nâng ROAS mục tiêu', cost:x.cost,
+      m:`${dshort(x.from)}–${dshort(x.to)}: ROAS ${x.r3.toFixed(1)}, mục tiêu ${x.tg} (vượt ${((x.r3/x.tg-1)*100).toFixed(0)}%) · ${x.orders} đơn · chi ${fmt(x.cost)}đ → đề xuất nâng lên <b>${x.goi}</b>`}); });
     return out;
   }
-  const SEV={'Đốt tiền':'bad','ROAS giảm':'bad','Doanh số giảm':'bad','ROAS thấp':'warn','CTR giảm':'warn','Chi phí tăng vọt':'warn','Hết ngân sách':'info'};
-  const ORDER=['Đốt tiền','Doanh số giảm','ROAS giảm','ROAS thấp','Chi phí tăng vọt','CTR giảm','Hết ngân sách'];
+  /* gợi ý của máy chủ, gắn sẵn với chiến dịch trong DATA */
+  const TGUP = (DATA.tgUp || []).map(x => ({...x, c: DATA.camps.find(c => DATA.shops[c.s] === x.shop && String(c.id) === String(x.cid))}));
+  const tgUpOf = c => TGUP.find(x => x.c === c) || null;
+  const SEV={'Đốt tiền':'bad','ROAS giảm':'bad','Doanh số giảm':'bad','ROAS thấp':'warn','CTR giảm':'warn','Chi phí tăng vọt':'warn','Nên nâng ROAS mục tiêu':'info','Hết ngân sách':'info'};
+  const ORDER=['Đốt tiền','Doanh số giảm','ROAS giảm','ROAS thấp','Chi phí tăng vọt','CTR giảm','Nên nâng ROAS mục tiêu','Hết ngân sách'];
   let ALERTS=[];
 
   // ---------- render pieces ----------
@@ -380,7 +395,7 @@ function start(DATA){
     aSel.value=ST.a; bSel.value=ST.b;
   }
   function renderMods(cs){ document.getElementById('mods').innerHTML = modulesHTML(derive(sumAll(cs,A)), derive(sumAll(cs,B))); }
-  const DESC={'Đốt tiền':'Tiêu tiền nhưng không có đơn','Doanh số giảm':'Doanh số mỗi ngày giảm từ 30% trở lên','ROAS giảm':'ROAS giảm từ 30% trở lên','ROAS thấp':'ROAS dưới 60% mức trung bình của shop','Chi phí tăng vọt':'Chi phí mỗi ngày tăng gấp đôi nhưng hiệu quả kém','CTR giảm':'Tỉ lệ click giảm từ 40% trở lên','Hết ngân sách':'Quảng cáo tốt nhưng gần hết ngân sách ngày'};
+  const DESC={'Đốt tiền':'Tiêu tiền nhưng không có đơn','Doanh số giảm':'Doanh số mỗi ngày giảm từ 30% trở lên','ROAS giảm':'ROAS giảm từ 30% trở lên','ROAS thấp':'ROAS dưới 60% mức trung bình của shop','Chi phí tăng vọt':'Chi phí mỗi ngày tăng gấp đôi nhưng hiệu quả kém','CTR giảm':'Tỉ lệ click giảm từ 40% trở lên','Hết ngân sách':'Quảng cáo tốt nhưng gần hết ngân sách ngày','Nên nâng ROAS mục tiêu':'ROAS 3 ngày gần nhất vượt mục tiêu từ 15% — giữ mục tiêu cũ thì Shopee sẽ đẩy chi tiêu lên, nâng một nhịp để giữ phần lời'};
   let OPEN=new Set();
   function shopDrop(cs){
     const ids = ST.shop==='all' ? DATA.shops.map((_,i)=>i) : [+ST.shop], out=[];
@@ -468,7 +483,7 @@ function start(DATA){
     for(let i=f;i<=t;i++){rows.push(c.d[i]||[0,0,0,0,0,0,0,0]); ds.push(DATA.dates[i]);}
     const all=derive(agg(c,[D0,DL])), sib=siblings(c);
     const url=c.ty==='product_manual'?`https://banhang.shopee.vn/portal/marketing/pas/product/manual/${encodeURIComponent(c.id)}`:'https://banhang.shopee.vn/portal/marketing/pas/index';
-    const tgPct = c.tg&&n.cost ? n.roas/c.tg*100 : null;
+    const tgPct = c.tg&&n.cost ? n.roas/c.tg*100 : null, tgUp = tgUpOf(c);
     const dr=document.getElementById('drawer');
     dr.innerHTML=`
       <div class="dhead"><div><div class="note">${esc(DATA.shops[c.s])} · ${esc(TYPE[c.ty]||c.ty)}</div><h2 id="dTitle">${esc(c.t)}</h2></div>
@@ -486,6 +501,10 @@ function start(DATA){
         <input class="ulink num" id="dUrl" readonly value="${url}" aria-label="Link quảng cáo"> <button type="button" id="dCopy">Sao chép link</button> <span class="note" id="dCopied"></span><br>
         <a class="link" href="${url}" target="_blank" rel="noopener">Mở trong tab mới ↗</a>
       </div>
+      ${tgUp?`<div class="callout tgup"><b>Nên nâng ROAS mục tiêu ${c.tg} → ${tgUp.goi}.</b> ${dlong(tgUp.from)} – ${dlong(tgUp.to)}: ROAS ${tgUp.r3.toFixed(2)}, vượt mục tiêu ${((tgUp.r3/tgUp.tg-1)*100).toFixed(0)}% (${tgUp.orders} đơn, chi ${fmt(tgUp.cost)}đ, ${tgUp.dat}/3 ngày tự đạt mục tiêu).
+        Giữ mục tiêu cũ thì Shopee hiểu là còn dư địa và đẩy giá thầu, đẩy chi tiêu lên cho tới khi ROAS lùi về gần ${c.tg} — phần lời có được từ tối ưu sản phẩm thành tiền quảng cáo.
+        Nâng một nhịp (tối đa 15%, vẫn thấp hơn ROAS thực 10%) rồi chờ 3 ngày: Hub tự nhận mức mới vào sáng hôm sau và xét lại sau 3 ngày chạy theo mức đó.</div>`:''}
+      ${c.tgc&&c.tgc.length?`<div class="note">Đổi ROAS mục tiêu: ${c.tgc.slice().reverse().map(x=>`${x[1]||'—'} → <b>${x[2]||'—'}</b> (nhận ${dshort(x[0])})`).join(' · ')}</div>`:''}
       ${sib.length?`<div class="callout">Shop này còn ${sib.length} quảng cáo khác cho cùng sản phẩm: ${sib.map((x,i)=>`<button type="button" data-sib="${i}">ID ${esc(x.id)}</button>`).join(', ')}. Khi so với số trên Shopee, nhớ đối chiếu đúng ID.</div>`:''}
       <div class="cmpbar" aria-label="Chọn ngày xem và ngày so sánh">
         <div class="cmprow"><label for="dASel">Kỳ xem</label><div class="grp"><select id="dASel">${aSel.innerHTML}</select>
@@ -534,6 +553,15 @@ function start(DATA){
   document.getElementById('q').oninput=()=>renderTable(pick());
   document.getElementById('upd').textContent = `Số từ tác vụ mỗi sáng · đến hết ${dlong(DL)} · lưu từ ${dlong(D0)} (${ND} ngày) · ${DATA.shops.length} shop`;
 
+  /* App (trang Hôm nay → "Mở ›") gửi {shop, cid} qua sessionStorage rồi gọi
+     hàm này; khung chưa tải xong thì lần vẽ đầu tự gọi. Đọc xong là xoá. */
+  window.__radarMo = () => {
+    let v = null;
+    try { v = JSON.parse(sessionStorage.getItem('kolhub.radar.mo') || 'null'); sessionStorage.removeItem('kolhub.radar.mo'); } catch(e){}
+    if (!v) return;
+    const c = DATA.camps.find(x => DATA.shops[x.s] === v.shop && String(x.id) === String(v.cid));
+    if (c) openDetail(c);
+  };
   function render(){
     computeRanges(); renderShops(); renderRange();
     const cs=pick();
@@ -541,6 +569,7 @@ function start(DATA){
     if(openId!=null){ const c=DATA.camps.find(x=>String(x.id)===String(openId)); if(c) openDetail(c, true); }
   }
   render();
+  window.__radarMo();
 }
 napSo();
 </script>

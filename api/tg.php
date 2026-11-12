@@ -183,6 +183,13 @@ if ($op === 'undo') {
 $tasks = kvGet('reminders', []) ?: [];
 $task  = null;
 foreach ($tasks as $i => $t) if ((string)($t['id'] ?? '') === $taskId) { $task = $t; $tIdx = $i; break; }
+/* Việc máy chủ tự dựng (gợi ý nâng ROAS mục tiêu) không nằm trong danh sách
+   app đẩy lên. Chỉ hoãn được — không có doneSet/dueField nên hai nhánh ghi
+   lại danh sách bên dưới không bao giờ chạy tới với nó. */
+if ($task === null) {
+  try { foreach (adTgTasks() as $t) if ($t['id'] === $taskId) { $task = $t; $tIdx = -1; break; } }
+  catch (Throwable $e) {}
+}
 if ($task === null) {
   $answer('Việc này không còn trong danh sách — có lẽ đã xong rồi.');
   $stamp('việc này không còn nữa');

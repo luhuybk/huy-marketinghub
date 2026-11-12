@@ -228,6 +228,8 @@ const Server = (() => {
   /* Nhận số liệu quảng cáo tự động — chỉ chủ */
   const ingestList = ()        => call('ingest_list');
   const ingestSet  = (id, act) => call('ingest_set', {id, do: act});
+  /* Gợi ý nâng ROAS mục tiêu — máy chủ tự tính từ số quảng cáo tự động */
+  const adTgUp = () => call('ad_tg_up');
   /* Theo dõi đối thủ — dữ liệu ở máy chủ, chỉ chủ gọi được */
   const rivalState   = ()      => call('rival_state');
   const rivalScans   = kwId    => call('rival_scans', {kw_id: kwId});
@@ -244,7 +246,7 @@ const Server = (() => {
 
   return {probe, login, logout, logoutAll, pull, push, pushBeacon, stats,
           tgGet, tgSave, tgTest, tgReport, tgHook, remind, ingestList, ingestSet,
-          rivalState, rivalScans, rivalKwSave, rivalKwDel, rivalScanDel, rivalMine,
+          rivalState, rivalScans, rivalKwSave, rivalKwDel, rivalScanDel, rivalMine, adTgUp,
           users, userNames, userSave, userDel, takeWhoChanged, notePerms,
           available, authed, state, role, isOwner, name, perms, may, call};
 })();

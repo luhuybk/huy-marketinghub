@@ -124,6 +124,7 @@ h2{font-size:19px;margin:0 0 2px;letter-spacing:-.4px}
 .chip{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;
   background:var(--bg3);font-size:11.5px;font-weight:600;color:var(--tx2);white-space:nowrap}
 .chip.ok{background:color-mix(in srgb,var(--ok) 17%,transparent);color:var(--ok)}
+.chip .pp{opacity:.8;font-weight:500}       /* số điểm phần trăm cạnh % (rateChip) */
 .chip.warn{background:color-mix(in srgb,var(--warn) 17%,transparent);color:var(--warn)}
 .chip.bad{background:color-mix(in srgb,var(--bad) 17%,transparent);color:var(--bad)}
 .chip.acc{background:color-mix(in srgb,var(--acc) 17%,transparent);color:var(--acc)}

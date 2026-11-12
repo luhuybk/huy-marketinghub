@@ -642,11 +642,16 @@ function api(req, res, body){
       return send({ok:true});
     }
 
-    /* Số liệu cho Báo cáo Ads → Radar — ai có quyền Shopee Ads */
+    /* Số liệu cho Báo cáo Ads → Radar — quyền adreport, hoặc ads như trước khi tách */
     case 'ad_radar': {
       if (!need()) return;
-      if (!khMay(me, 'ads')) return fail('Tài khoản này chưa được xem Shopee Ads.', 403);
+      if (!khMay(me, 'adreport') && !khMay(me, 'ads')) return fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
       return send(Object.assign({ok:true}, adRadarData()));
+    }
+    case 'ad_tg_up': {
+      if (!need()) return;
+      if (!khMay(me, 'adreport') && !khMay(me, 'ads')) return fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
+      return send({ok:true, tasks:adTgTasks()});
     }
 
     /* ---- nhận số liệu quảng cáo tự động ---- */
@@ -812,7 +817,9 @@ async function cron(req, res){
   if (!c.token)   return txt('Chưa đặt mã bot.');
 
   const nowVn = vnNow(), force = q.get('force') === '1', nowIso = iso();
-  const tasks = kvGet('reminders', []) || [];
+  let tasks = kvGet('reminders', []) || [];
+  /* cộng gợi ý nâng ROAS mục tiêu — xem api/cron.php */
+  try { tasks = tasks.concat(adTgTasks()); } catch(e){}
   const last  = kvGet('tg_last', {}) || {};
   /* dọn các lệnh hoãn đã hết hạn cho bảng khỏi phình */
   const snooze = Object.fromEntries(
@@ -984,12 +991,15 @@ async function tgHook(req, res, body){
 
   const tasks = kvGet('reminders', []) || [];
   const tIdx = tasks.findIndex(t => String(t.id || '') === taskId);
-  if (tIdx < 0){
+  /* việc máy chủ tự dựng (gợi ý nâng ROAS mục tiêu) — chỉ hoãn được, xem api/tg.php */
+  let tuDung = null;
+  if (tIdx < 0){ try { tuDung = adTgTasks().find(t => t.id === taskId) || null; } catch(e){} }
+  if (tIdx < 0 && !tuDung){
     await answer('Việc này không còn trong danh sách — có lẽ đã xong rồi.');
     await stamp('việc này không còn nữa');
     return txt('ok');
   }
-  const task = tasks[tIdx], feed = task.feed || 'booking';
+  const task = tuDung || tasks[tIdx], feed = task.feed || 'booking';
   const unsend = () => {
     const last = kvGet('tg_last', {}) || {};
     if (!last[feed] || !last[feed].ids) return;
@@ -1127,7 +1137,9 @@ function adTables(D){
       cost INTEGER, gmv INTEGER, orders INTEGER, sold INTEGER, impr INTEGER, clicks INTEGER,
       PRIMARY KEY (shop, cid, date));
     CREATE TABLE IF NOT EXISTS ad_meta (shop TEXT NOT NULL, cid TEXT NOT NULL, title TEXT,
-      type TEXT, state TEXT, roas REAL, item TEXT, PRIMARY KEY (shop, cid))`);
+      type TEXT, state TEXT, roas REAL, item TEXT, PRIMARY KEY (shop, cid));
+    CREATE TABLE IF NOT EXISTS ad_tg_log (shop TEXT NOT NULL, cid TEXT NOT NULL, date TEXT NOT NULL,
+      old REAL, new REAL, PRIMARY KEY (shop, cid, date))`);
   const them = {ad_raw:{conv:'INTEGER', atc:'INTEGER'}, ad_meta:{budget:'INTEGER', start:'INTEGER'}};
   Object.entries(them).forEach(([bang, cot]) => {
     const co = D.prepare(`PRAGMA table_info(${bang})`).all().map(r => r.name);
@@ -1153,11 +1165,64 @@ function adRadarData(soNgay = 400){
       [r.cost, r.gmv, r.orders, r.conv, r.sold, r.impr, r.clicks, r.atc].map(v => Math.trunc(+v || 0));
   });
   const meta = Object.fromEntries(D.prepare('SELECT * FROM ad_meta').all().map(m => [m.shop + '\0' + m.cid, m]));
+  const doi = {};
+  D.prepare('SELECT * FROM ad_tg_log ORDER BY date').all().forEach(r =>
+    (doi[r.shop + '\0' + r.cid] = doi[r.shop + '\0' + r.cid] || []).push([String(r.date), +r.old || 0, +r.new || 0]));
+  out.tgUp = adTgUp();
   camp.forEach((c, k) => { const m = meta[k] || {};
+    if (doi[k]) c.tgc = doi[k].slice(-5);
     out.camps.push(Object.assign(c, {t:String(m.title || '').trim() || 'Chiến dịch ' + c.id,
       ty:String(m.type || ''), st:String(m.state || ''), b:Math.trunc(+m.budget || 0), tg:+m.roas || 0,
       item:String(m.item || ''), start:Math.trunc(+m.start || 0)})); });
   return out;
+}
+/* Gợi ý nâng ROAS mục tiêu — giống adTgUp() bên PHP, xem chú thích ở đó */
+const AD_TG_NGAY = 3, AD_TG_DAT = 2, AD_TG_VUOT = 1.15, AD_TG_CHI = 45000, AD_TG_DON = 3,
+      AD_TG_BUOC = 1.15, AD_TG_CHUA = 0.9, AD_TG_CU = 7;
+const ngayCong = (d, n) => new Date(Date.parse(d + 'T00:00:00Z') + n * 864e5).toISOString().slice(0, 10);
+const lam1 = v => Math.round(v * 10) / 10;
+function adTgUp(){
+  const D = db(); adTables(D);
+  const quaCu = ngayCong(vnNow().date, -AD_TG_CU);
+  const cuoi = Object.fromEntries(D.prepare('SELECT shop, MAX(date) d FROM ad_raw GROUP BY shop').all().map(r => [r.shop, String(r.d)]));
+  const doi = {};
+  D.prepare('SELECT * FROM ad_tg_log ORDER BY date').all().forEach(r => { doi[r.shop + '\0' + r.cid] = r; });
+  const q = D.prepare('SELECT cost, gmv, orders FROM ad_raw WHERE shop = ? AND cid = ? AND date BETWEEN ? AND ?');
+  const out = [];
+  D.prepare("SELECT * FROM ad_meta WHERE roas > 0 AND state = 'ongoing'").all().forEach(m => {
+    const shop = String(m.shop), cid = String(m.cid), tg = +m.roas, den = cuoi[shop] || '';
+    if (!den || den < quaCu) return;
+    const tu = ngayCong(den, -(AD_TG_NGAY - 1)), c = doi[shop + '\0' + cid] || null;
+    if (c && String(c.date) > tu) return;
+    let cost = 0, gmv = 0, don = 0, dat = 0;
+    q.all(shop, cid, tu, den).forEach(r => {
+      cost += Math.trunc(+r.cost || 0); gmv += Math.trunc(+r.gmv || 0); don += Math.trunc(+r.orders || 0);
+      if (+r.cost > 0 && +r.gmv / +r.cost >= tg) dat++;
+    });
+    if (cost < AD_TG_CHI || don < AD_TG_DON || dat < AD_TG_DAT) return;
+    const r3 = gmv / cost;
+    if (r3 < tg * AD_TG_VUOT) return;
+    out.push({shop, cid, t:String(m.title || '').trim() || 'Chiến dịch ' + cid, item:String(m.item || ''), tg,
+              r3:Math.round(r3 * 100) / 100, cost, gmv, orders:don, dat, from:tu, to:den,
+              goi:lam1(Math.max(tg + 0.1, Math.min(tg * AD_TG_BUOC, r3 * AD_TG_CHUA))),
+              doi: c ? [String(c.date), +c.old || 0, +c.new || 0] : null});
+  });
+  return out.sort((a, b) => b.cost - a.cost);
+}
+/* như adTgTasks() bên PHP */
+function adTgTasks(){
+  const nay = vnNow().date;
+  const so = v => { const t = (+v).toFixed(2).replace(/0+$/, '').replace(/\.$/, ''); const [a, b] = t.split('.');
+                    return a.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + (b ? ',' + b : ''); };
+  const ng = d => d.slice(8, 10) + '/' + d.slice(5, 7);
+  return adTgUp().map(x => ({
+    id:'tgup_' + crypto.createHash('sha1').update(x.shop + '|' + x.cid).digest('hex').slice(0, 12),
+    feed:'ads', due:nay, icon:'🎯', auto:true,
+    title:'Nâng ROAS mục tiêu ' + so(x.tg) + ' → ' + so(x.goi) + ': ' + x.t,
+    sub:x.shop + ' · ' + AD_TG_NGAY + ' ngày ' + ng(x.from) + '–' + ng(x.to) + ': ROAS ' + so(x.r3)
+       + ', vượt mục tiêu ' + Math.round((x.r3 / x.tg - 1) * 100) + '% · ' + x.orders + ' đơn · chi '
+       + so(x.cost) + 'đ. Giữ mục tiêu cũ thì Shopee sẽ đẩy chi tiêu lên.',
+    ref:{kind:'radar', shop:x.shop, cid:x.cid}, x}));
 }
 function adIngest(histCsv, campCsv){
   const D = db();
@@ -1171,8 +1236,14 @@ function adIngest(histCsv, campCsv){
   const insM = D.prepare(`INSERT INTO ad_meta (shop,cid,title,type,state,roas,item,budget,start) VALUES (?,?,?,?,?,?,?,?,?)
       ON CONFLICT(shop,cid) DO UPDATE SET title=excluded.title, type=excluded.type, state=excluded.state,
       roas=excluded.roas, item=excluded.item, budget=excluded.budget, start=excluded.start`);
+  /* mục tiêu đang lưu — xem chú thích ở adIngest() bên PHP */
+  const tgCu = Object.fromEntries(D.prepare('SELECT shop, cid, roas FROM ad_meta').all().map(r => [r.shop + '\0' + r.cid, +r.roas || 0]));
+  const insL = D.prepare(`INSERT INTO ad_tg_log (shop, cid, date, old, new) VALUES (?,?,?,?,?)
+      ON CONFLICT(shop, cid, date) DO UPDATE SET new = excluded.new`);
   meta.forEach(m => {
     const shop = String(m.shop || '').trim(), cid = ingId(m.campaign_id);
+    const k = shop + '\0' + cid, tgMoi = +m.roas_target || 0;
+    if (shop && cid && k in tgCu && Math.abs(tgCu[k] - tgMoi) > 0.001) insL.run(shop, cid, homNay, tgCu[k], tgMoi);
     if (shop && cid) insM.run(shop, cid, String(m.title || '').trim(), String(m.type || ''), String(m.state || ''),
                               +m.roas_target || 0, ingId(m.item_id), Math.round(+m.budget || 0), Math.round(+m.start_time || 0));
   });
