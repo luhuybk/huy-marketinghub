@@ -81,22 +81,34 @@ function db(){
       disabled INTEGER NOT NULL DEFAULT 0, created_at TEXT, updated_at TEXT,
       last_seen TEXT)`);
   seedUsers(store);
+  khTachAds(store);
   return store;
+}
+/* Một lần: ai có Shopee Ads được thêm Báo cáo Ads + Đánh từ khoá — xem khTachAds() bên PHP */
+function khTachAds(store){
+  if (store.prepare("SELECT 1 FROM kv WHERE k = 'perm_tach_ads'").get()) return;
+  store.prepare('SELECT id, perms FROM users').all().forEach(u => {
+    let p; try { p = JSON.parse(u.perms || '[]'); } catch(e){ return; }
+    if (!Array.isArray(p) || !p.includes('ads')) return;
+    store.prepare('UPDATE users SET perms = ? WHERE id = ?').run(JSON.stringify([...new Set([...p, 'adreport', 'keywords'])]), u.id);
+  });
+  store.prepare("INSERT OR REPLACE INTO kv (k, v) VALUES ('perm_tach_ads', ?)").run(JSON.stringify(iso()));
 }
 
 /* ---------------- người dùng & quyền: bản Node của api/lib.php ----------------
    Hai bản phải giống nhau từng luật một. Lệch một chỗ thì bản chạy thử ở máy
    nói "được" còn máy chủ thật nói "không" — hoặc tệ hơn, ngược lại. */
 const KH_PERMS = ['dash','pipeline','kols','clips','postfb','posttt','ads',
-                  'improve','newprod','compare','resources','cost','launch'];
+                  'improve','newprod','compare','resources','cost','launch',
+                  'adreport','keywords','rival'];
 const KH_KIND_PERM = {
   kols:['kols','pipeline'], statuses:['kols','pipeline'], templates:['kols','pipeline'],
   bookings:['pipeline','kols','clips'], clips:['clips','pipeline','kols'],
-  adperiods:['ads'], actions:['ads'], adcamps:['ads'], addays:['ads'],
+  adperiods:['ads','adreport'], actions:['ads','adreport'], adcamps:['ads','adreport'], addays:['ads','adreport'],
   /* shops mang cả bảng phí, nên bên Tính chi phí cũng phải đọc được */
-  shops:['ads','cost'], costs:['cost'], costlogs:['cost'], projects:['cost'],
-  orderstats:['ads'], adfixes:['ads'], keywords:['ads'], kwranks:['ads'],
-  spweeks:['improve','ads'],
+  shops:['ads','cost','adreport','keywords'], costs:['cost'], costlogs:['cost'], projects:['cost'],
+  orderstats:['ads','adreport'], adfixes:['ads','adreport'], keywords:['ads','keywords'], kwranks:['ads','keywords'],
+  spweeks:['improve','ads','adreport'],
   impacts:['improve'], ideas:['newprod'],
   launches:['launch'], lsteps:['launch'], lmarks:['launch']
 };
@@ -371,6 +383,12 @@ function api(req, res, body){
     if (role() !== 'owner'){ fail('Tài khoản nhân viên không mở được phần cài đặt.', 403); return false; }
     return true;
   };
+  /* xem requirePerm() bên PHP */
+  const perm = p => {
+    if (!need()) return false;
+    if (!khMay(me, p)){ fail('Tài khoản này chưa được cấp quyền xem mục này.', 403); return false; }
+    return true;
+  };
   const ip = req.socket.remoteAddress || '?';
 
   switch (inp.action){
@@ -570,12 +588,12 @@ function api(req, res, body){
 
     /* ---- Theo dõi đối thủ — chỉ chủ ---- */
     case 'rival_state': {
-      if (!owner()) return;
+      if (!perm('rival')) return;
       const D = db(); rvTables(D);
       return send({ok:true, kws:rvKwList(true), mine:D.prepare('SELECT shop_id id, name FROM rv_mine').all()});
     }
     case 'rival_scans': {
-      if (!owner()) return;
+      if (!perm('rival')) return;
       const scans = rvScans(String(inp.kw_id || ''));
       return send({ok:true, scans, vols:rvVols(String(inp.kw_id || '')), sp:rvSps(rvScanIds(scans))});
     }

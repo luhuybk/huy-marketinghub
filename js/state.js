@@ -753,12 +753,18 @@ const PERMS = [
   {id:'clips',     label:'Clip',         hint:'clip KOC đã lên và lượt xem'},
   {id:'postfb',    label:'Bài Facebook', hint:'chỉ luồng Facebook → Google'},
   {id:'posttt',    label:'Bài TikTok',   hint:'chỉ luồng TikTok → Shopee'},
-  {id:'ads',       label:'Shopee Ads',   hint:'chi phí và doanh thu quảng cáo'},
+  {id:'ads',       label:'Shopee Ads',   hint:'chi phí và doanh thu quảng cáo, chiến dịch, sản phẩm'},
+  {id:'adreport',  label:'Báo cáo Ads',  hint:'Radar, số hôm nay / hôm qua / theo tháng / khung giờ'},
+  {id:'keywords',  label:'Đánh từ khoá', hint:'dự án đẩy từ khoá và thứ hạng'},
   {id:'improve',   label:'Cải thiện SP', hint:'phễu và số liệu tuần trên Shopee'},
   {id:'newprod',   label:'Sản phẩm mới', hint:'ý tưởng sản phẩm đang dựng'},
   {id:'launch',    label:'Hàng mới về',  hint:'đợt hàng về: tính ROAS, up sản phẩm, chạy quảng cáo'},
   {id:'compare',   label:'So sánh kênh', hint:'đối chiếu KOC với Shopee Ads'},
   {id:'resources', label:'Tài nguyên',   hint:'thương hiệu, sản phẩm, mẫu tin nhắn'},
+  /* Chỉ XEM. Thêm/sửa/xoá từ khoá, xoá lần quét, đánh dấu shop của mình vẫn
+     chỉ chủ — máy chủ chặn ở requireOwner(). Dữ liệu này không đồng bộ qua
+     items nên máy chủ kiểm quyền ở rival_state / rival_scans (requirePerm). */
+  {id:'rival',     label:'Theo dõi đối thủ', hint:'top sản phẩm theo từ khoá, giá, voucher của đối thủ'},
   /* Quyền riêng, KHÔNG gộp vào `ads`: giá vốn là thứ nhạy nhất trong app.
      Người chạy quảng cáo cần biết chi bao nhiêu, không cần biết mua vào bao
      nhiêu. Bộ `costs` cũng vì thế mà tách khỏi `products` — `products` không
@@ -767,7 +773,7 @@ const PERMS = [
 ];
 const PERM_IDS = PERMS.map(p => p.id);
 const PERM = Object.fromEntries(PERMS.map(p => [p.id, p]));
-/* Bộ quyền dựng sẵn, để thêm một người không phải tick mười một ô */
+/* Bộ quyền dựng sẵn, để thêm một người không phải tick từng ô */
 const PERM_PRESETS = [
   {id:'fb',   label:'Bạn đăng Facebook', perms:['postfb']},
   {id:'tt',   label:'Bạn đăng TikTok',   perms:['posttt']},
@@ -4479,18 +4485,19 @@ function alerts(){
   /* 12. chiến dịch quảng cáo cần xem lại, và tháng còn thiếu file.
      Gộp một dòng cho cả tháng chứ không mỗi camp một dòng: hơn 150 chiến
      dịch mà mỗi con một cảnh báo thì trang Hôm nay chỉ còn là danh sách ads. */
-  if (may('ads')){
+  /* Báo cáo Ads và Đánh từ khoá là hai quyền riêng (tách khỏi Shopee Ads 12/11/2026) */
+  if (may('adreport') || may('keywords')){
     const nhieuShop = adcampShopIds().length > 1;
     const ten = id => nhieuShop ? shopName(id) + ': ' : '';
 
-    adcampMissingShops().forEach(x => {
+    if (may('adreport')) adcampMissingShops().forEach(x => {
       out.push({level:'warn', kind:'adload', page:'adreport', tab:'month',
         title: ten(x.shopId) + 'chưa nạp file quảng cáo ' + monthLabel(x.ym),
         sub: 'tháng đã khép sổ mà chưa có số — không nạp thì không biết con nào đang hỏng',
         sort: 190});
     });
 
-    adDayMissingShops().forEach(x => {
+    if (may('adreport')) adDayMissingShops().forEach(x => {
       const tre = -dayDiff(x.cuoi) - 1;
       out.push({level: tre > 2 ? 'warn' : 'info', kind:'adday', page:'adreport', tab:'day',
         title: ten(x.shopId) + 'chưa nạp file quảng cáo ngày ' + fmtDate(x.date),
@@ -4504,7 +4511,7 @@ function alerts(){
        vì đây là việc đã hẹn với một người cụ thể — bỏ qua thì lần sửa vừa
        rồi không bao giờ được chấm là ăn hay không ăn, và lần sau lại dò lại
        từ đầu đúng cái đã dò rồi. */
-    adFixDue().forEach(f => {
+    if (may('adreport')) adFixDue().forEach(f => {
       const tre = -dayDiff(f.reviewAt);
       const c = adFixCamp(f);
       out.push({level: tre > 2 ? 'warn' : 'info', kind:'adfix', page:'adreport', tab:'day',
@@ -4519,7 +4526,7 @@ function alerts(){
     /* Dự án từ khoá tới hạn việc kế tiếp. Một dự án không có ngày hẹn thì
        không bao giờ vào đây — đó là chủ ý: chỗ này chỉ nhắc việc đã hẹn với
        một người, không nhắc "còn mấy từ khoá chưa làm gì". */
-    kwDue().forEach(k => {
+    if (may('keywords')) kwDue().forEach(k => {
       const tre = -dayDiff(k.nextAt);
       out.push({level: tre > 7 ? 'warn' : 'info', kind:'kw', page:'keywords', kwId:k.id,
         title: (k.whoName ? k.whoName + ' — ' : '') + 'từ khoá "' + k.name + '": ' +
@@ -4528,7 +4535,7 @@ function alerts(){
         sort: 160 + tre});
     });
 
-    adcampShopIds().forEach(id => {
+    if (may('adreport')) adcampShopIds().forEach(id => {
       const ym = adcampMonths(id)[0];
       if (!ym) return;
       const rp = adcampReport(ym, id);

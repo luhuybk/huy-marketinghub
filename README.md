@@ -1059,6 +1059,23 @@ trong `api/lib.php`, và `KH_PERMS` trong `serve.js`. Lệch một dòng thì gi
 diện mở một mục mà máy chủ không trả dữ liệu — người dùng thấy trang trống mà
 không hiểu vì sao.
 
+**Ba quyền thêm ngày 12/11/2026:**
+
+- **Báo cáo Ads** (`adreport`) và **Đánh từ khoá** (`keywords`) tách khỏi
+  Shopee Ads. Trước đó ba trang đi chung quyền `ads`. Số quảng cáo (`adcamps`,
+  `addays`, `adfixes`, `orderstats`, `adperiods`, `actions`, `spweeks`) đọc được
+  bằng `ads` hoặc `adreport`; `keywords`/`kwranks` bằng `ads` hoặc `keywords`;
+  `shops` bằng bất kỳ quyền nào trong bốn quyền. Trang chiến dịch (`adcamp`) mở
+  được bằng `ads` hoặc `adreport` (`PAGE_PERM` nhận mảng).
+  Lần đầu chạy bản mới, `khTachAds()` thêm hai quyền này cho **mọi tài khoản
+  đang có `ads`** — một lần duy nhất (cờ `perm_tach_ads` trong `kv`), để không
+  ai mất trang đang dùng; sau đó chủ gỡ tuỳ ý, không bị thêm lại.
+- **Theo dõi đối thủ** (`rival`) — chỉ **xem**. Dữ liệu này nằm ở bảng `rv_*`
+  chứ không qua `items`, nên `khMayRow` không chặn hộ: `rival_state` và
+  `rival_scans` kiểm bằng `requirePerm('rival')`. Thêm/sửa/xoá từ khoá, xoá lần
+  quét, đánh dấu shop của mình vẫn `requireOwner()`; giao diện ẩn các nút đó
+  với nhân viên.
+
 ---
 
 ## Tab Báo cáo Ads
