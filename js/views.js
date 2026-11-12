@@ -5365,18 +5365,21 @@ function viewRival(){
   const ks = rvKws();
   if (!ks.length)
     return emptyBox('Chưa theo dõi từ khoá nào',
-      'Thêm các từ khoá chính ("gôm xịt tóc") và từ khoá sản phẩm ("sáp vuốt tóc nam Roug"). Mỗi tuần tác vụ quét sẽ lấy top sản phẩm của từng từ khoá trên Metric.',
+      'Thêm các từ khoá chính ("gôm xịt tóc") và từ khoá sản phẩm ("sáp vuốt tóc nam Roug"). Mỗi tuần tác vụ quét sẽ lấy top sản phẩm của từng từ khoá trên Metric — từ khoá nào ít biến động thì đặt quét 2 tuần hoặc mỗi tháng một lần cho đỡ tốn lượt.',
       'rvnew', 'Thêm từ khoá');
 
   const {kw, ds, cur, cmp, vol, volPrev} = rvView();
 
   /* ---- 1. hàng từ khoá ---- */
   const nut = k => `<button class="btn sm ${k.id === kw.id ? 'pri' : ''} ${k.off ? 'rv-off' : ''}" data-act="rvkw" data-id="${esc(k.id)}"
-      title="${esc(k.off ? 'tạm ngừng quét' : k.last ? 'quét gần nhất ' + fmtDate(k.last) : 'chưa quét lần nào')}">${
-      esc(k.kw)}${k.n ? '' : ' <span class="rv-chua">chưa quét</span>'}</button>`;
+      title="${esc(k.off ? 'tạm ngừng quét' : RV_TAN[rvEvery(k)] + ' · ' + (k.last ? 'quét gần nhất ' + fmtDate(k.last) +
+        (k.due ? ' · tới hạn ở đợt quét tới' : ' · lần tới khoảng ' + fmtDate(k.next)) : 'chưa quét lần nào'))}">${
+      esc(k.kw)}${!k.n ? ' <span class="rv-chua">chưa quét</span>' : !k.off && RV_TAN_NGAN[rvEvery(k)] ? ` <span class="rv-chua">${RV_TAN_NGAN[rvEvery(k)]}</span>` : ''}</button>`;
   const nhom = id => ks.filter(k => k.kind === id);
+  const bat = ks.filter(k => !k.off), toi = bat.filter(k => k.due);
   let h = `<div class="toolbar">
-      <div class="dim grow">${ks.filter(k => !k.off).length} từ khoá đang quét · mỗi lần quét tốn ${ks.filter(k => !k.off).length} lượt phân tích Metric</div>
+      <div class="dim grow">${bat.length} từ khoá đang theo dõi · đợt quét tới quét <b>${toi.length}</b> từ khoá đã tới hạn
+        (tốn ${toi.length} lượt Metric) · khoảng <b>${rvLuotThang(ks)}</b> lượt mỗi tháng</div>
       <button class="btn sm" data-act="rvreload">↻ Tải lại</button>
       <button class="btn pri" data-act="rvnew">+ Từ khoá</button>
     </div>`;
@@ -5387,7 +5390,9 @@ function viewRival(){
 
   /* ---- 2. đầu mục của từ khoá đang xem + chọn lần quét ---- */
   h += `<div class="rv-hd"><div class="grow"><h2>${esc(kw.kw)}</h2>
-      <div class="dim">${esc(RV_KINDS[kw.kind])}${kw.off ? ' · đang tạm ngừng quét' : ''}${kw.note ? ' · ' + esc(kw.note) : ''}</div></div>
+      <div class="dim">${esc(RV_KINDS[kw.kind])}${kw.off ? ' · đang tạm ngừng quét'
+        : ' · quét ' + esc(RV_TAN[rvEvery(kw)].toLowerCase()) + (!kw.last ? '' : kw.due ? ' · tới hạn ở đợt quét tới' : ' · lần tới khoảng ' + esc(fmtDate(kw.next)))}${
+        kw.note ? ' · ' + esc(kw.note) : ''}</div></div>
       <button class="btn sm" data-act="rvedit" data-id="${esc(kw.id)}">✎ Sửa</button></div>`;
 
   if (!rv.scans[kw.id]) return h + `<div class="dim" style="padding:20px 4px">Đang tải các lần quét…</div>`;
@@ -5499,7 +5504,7 @@ function viewRival(){
   const giaCuoi = r => {
     const g = r.spSum && r.spSum.re;
     if (!g) return '<span class="dim">chưa đọc</span>';
-    const cu = r.spPrev ? rvSpSum(r.spPrev).re : null;
+    const cu = r.spPrevSum ? r.spPrevSum.re : null;
     return `<b>${r.spSum.nhieuGia ? '<span class="dim rv-tu">từ</span> ' : ''}${money(g.f)}</b>${
       cu && cu.f !== g.f ? `<div class="${g.f < cu.f ? 'rv-dn' : 'rv-up'}">${g.f < cu.f ? '▼' : '▲'} từ ${moneyShort(cu.f)}</div>` : ''}
       <div class="dim">−${g.giam.toFixed(0)}% so với gốc ${moneyShort(g.pb)}</div>${
@@ -5527,7 +5532,7 @@ function viewRival(){
     const mv = r.isNew ? '<span class="chip acc">MỚI</span>'
              : r.move > 0 ? `<span class="rv-up">▲${r.move}</span>` : r.move < 0 ? `<span class="rv-dn">▼${-r.move}</span>`
              : cmp.prev ? '<span class="dim">–</span>' : '';
-    const giaDoi = r.prev && r.prev.p && r.prev.p !== r.p;
+    const giaDoi = r.pCu && r.pCu !== r.p;
     h += `<tr class="${r.mine ? 'rv-me' : ''}" data-act="rvprod" data-id="${esc(r.id)}">
       <td class="c rv-rk"><b>${r.rank}</b>${mv ? '<div>' + mv + '</div>' : ''}</td>
       <td><div class="rv-sp">${r.img ? `<img src="${esc(rvThumb(r.img))}" alt="" referrerpolicy="no-referrer" loading="lazy">` : '<span class="rv-noimg"></span>'}
@@ -5536,7 +5541,7 @@ function viewRival(){
             r.spSum ? ` <span class="chip">${r.spSum.n} phân loại</span>` : ''}${
             r.imgNew ? ' <span class="chip acc">🖼 ảnh bìa mới</span>' : ''}${r.nameNew ? ' <span class="chip">✏️ đổi tên</span>' : ''}${
             ((r.sp && r.sp.tags) || []).slice(0, 2).map(t => ` <span class="chip warn">${esc(t)}</span>`).join('')}</div></div></div></td>
-      <td class="r nw"><b>${money(r.p)}</b>${giaDoi ? `<div class="${r.p < r.prev.p ? 'rv-dn' : 'rv-up'}">${r.p < r.prev.p ? '▼' : '▲'} từ ${moneyShort(r.prev.p)}</div>` : ''}
+      <td class="r nw"><b>${money(r.p)}</b>${giaDoi ? `<div class="${r.p < r.pCu ? 'rv-dn' : 'rv-up'}">${r.p < r.pCu ? '▼' : '▲'} từ ${moneyShort(r.pCu)}</div>` : ''}
         ${r.pmin && r.pmin !== r.pmax ? `<div class="dim">${moneyShort(r.pmin)} – ${moneyShort(r.pmax)}</div>` : ''}</td>
       <td class="r nw rv-gc">${giaCuoi(r)}</td>
       <td class="r nw"><b>${moneyShort(r.r)}</b><div>${pct(r.gR)}</div></td>
@@ -5575,4 +5580,4 @@ function viewRival(){
   return h;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "534e9336"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "cf15e246"]);

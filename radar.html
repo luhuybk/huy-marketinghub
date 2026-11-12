@@ -265,7 +265,7 @@ function start(DATA){
   const dshort = d => { const p=d.split('-'); return p[2]+'/'+p[1]; };
   const dlong = d => d.split('-').reverse().join('/');
   const esc = s => String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-  const IDS = c => (c.item?`Mã SP ${c.item} · `:'')+`ID QC ${c.id}`;
+  const IDS = c => (c.item?`Mã SP ${esc(c.item)} · `:'')+`ID QC ${esc(c.id)}`;
   const TYPE = {product_manual:'QC sản phẩm thủ công', product_mpd:'QC nhóm sản phẩm', product_gms:'QC tự động chọn sản phẩm (cấp shop)'};
   const STATE = {ongoing:['Đang chạy','good'], paused:['Tạm dừng','warn'], ended:['Đã kết thúc','mut'], closed:['Đã đóng','mut'], deleted:['Đã xoá','mut']};
 
@@ -296,7 +296,13 @@ function start(DATA){
   // ---------- state ----------
   let ST={shop:'all',a:'7',b:'prev',af:null,at:null,bf:null,bt:null};
   try{ Object.assign(ST, JSON.parse(localStorage.getItem('kolhub.radar')||'{}')); }catch(e){}
-  if (ST.shop!=='all' && !DATA.shops[ST.shop]) ST.shop='all';
+  /* Shop đã chọn nhớ theo TÊN: thứ tự shop trong DATA theo ngày có số đầu tiên
+     trong cửa sổ 400 ngày, cửa sổ trượt đi thì thứ tự có thể đổi và chỉ số cũ
+     trỏ nhầm sang shop khác. (ST.shop cũ không kèm tên thì vẫn đọc theo số.) */
+  if (ST.shop!=='all'){
+    const i = ST.shopN ? DATA.shops.indexOf(ST.shopN) : (DATA.shops[ST.shop] != null ? +ST.shop : -1);
+    ST.shop = i >= 0 ? i : 'all';
+  }
   const save=()=>{ try{localStorage.setItem('kolhub.radar',JSON.stringify(ST))}catch(e){} };
   let A,B,LA,LB,SAME, sortKey='cost', sortDir=-1, openId=null, showAllA=false, showAllT=false;
   function computeRanges(){
@@ -360,7 +366,7 @@ function start(DATA){
   function renderShops(){
     const sh=document.getElementById('shops');
     sh.innerHTML=[['all','Tất cả shop'],...DATA.shops.map((s,i)=>[String(i),s])].map(([v,l])=>`<button type="button" aria-pressed="${String(ST.shop)===v}" data-v="${v}">${esc(l)}</button>`).join('');
-    sh.querySelectorAll('button').forEach(b=>b.onclick=()=>{ST.shop=b.dataset.v==='all'?'all':+b.dataset.v; showAllA=showAllT=false; save(); render();});
+    sh.querySelectorAll('button').forEach(b=>b.onclick=()=>{ST.shop=b.dataset.v==='all'?'all':+b.dataset.v; ST.shopN=ST.shop==='all'?'':DATA.shops[ST.shop]; showAllA=showAllT=false; save(); render();});
   }
   function renderRange(){
     const out = r => `${dlong(r[0])} – ${dlong(r[1])}`;
@@ -442,7 +448,7 @@ function start(DATA){
       else if(r.roasP&&r.roas<0.7*r.roasP) chip='<span class="chip bad">giảm</span>';
       else if(r.roasP&&r.roas>1.2*r.roasP) chip='<span class="chip good">tăng</span>';
       const st=STATE[r.c.st]||[r.c.st,'mut'];
-      return `<tr tabindex="0" data-i="${i}"><td>${esc(r.name)}<span class="sn">${ST.shop==='all'?esc(DATA.shops[r.c.s])+' · ':''}${IDS(r.c)} · ${st[0]}</span></td>
+      return `<tr tabindex="0" data-i="${i}"><td>${esc(r.name)}<span class="sn">${ST.shop==='all'?esc(DATA.shops[r.c.s])+' · ':''}${IDS(r.c)} · ${esc(st[0])}</span></td>
         <td class="num">${fmt(r.cost)}</td><td class="num">${fmt(r.gmv)}</td><td class="num">${r.ord}</td>
         <td class="num">${r.cost?r.roas.toFixed(1):'—'} ${chip}</td><td class="num">${r.costP?r.roasP.toFixed(1):'—'}</td>
         <td class="num">${r.imp?r.ctr.toFixed(1)+'%':'—'}</td><td class="num">${r.clk?fmt(r.cpc):'—'}</td><td class="num">${r.clk?r.atcr.toFixed(1)+'%':'—'}</td><td class="num">${r.clk?r.cr.toFixed(1)+'%':'—'}</td><td class="num">${r.tg||'—'}</td></tr>`;}).join('')
@@ -461,26 +467,26 @@ function start(DATA){
     const [f,t]=chartSpan(first), rows=[], ds=[];
     for(let i=f;i<=t;i++){rows.push(c.d[i]||[0,0,0,0,0,0,0,0]); ds.push(DATA.dates[i]);}
     const all=derive(agg(c,[D0,DL])), sib=siblings(c);
-    const url=c.ty==='product_manual'?`https://banhang.shopee.vn/portal/marketing/pas/product/manual/${c.id}`:'https://banhang.shopee.vn/portal/marketing/pas/index';
+    const url=c.ty==='product_manual'?`https://banhang.shopee.vn/portal/marketing/pas/product/manual/${encodeURIComponent(c.id)}`:'https://banhang.shopee.vn/portal/marketing/pas/index';
     const tgPct = c.tg&&n.cost ? n.roas/c.tg*100 : null;
     const dr=document.getElementById('drawer');
     dr.innerHTML=`
-      <div class="dhead"><div><div class="note">${esc(DATA.shops[c.s])} · ${TYPE[c.ty]||c.ty}</div><h2 id="dTitle">${esc(c.t)}</h2></div>
+      <div class="dhead"><div><div class="note">${esc(DATA.shops[c.s])} · ${esc(TYPE[c.ty]||c.ty)}</div><h2 id="dTitle">${esc(c.t)}</h2></div>
         <button type="button" class="close" id="dClose" aria-label="Đóng">×</button></div>
       <div class="meta">
-        <div><span>Trạng thái</span><span><span class="chip ${st[1]}">${st[0]}</span></span></div>
-        <div><span>ID chiến dịch</span><span class="num">${c.id}</span></div>
+        <div><span>Trạng thái</span><span><span class="chip ${st[1]}">${esc(st[0])}</span></span></div>
+        <div><span>ID chiến dịch</span><span class="num">${esc(c.id)}</span></div>
         <div><span>Ngân sách/ngày</span><span class="num">${c.b?fmt(c.b)+'đ':'Không giới hạn'}</span></div>
         <div><span>ROAS mục tiêu</span><span class="num">${c.tg||'—'}${tgPct!=null?` <span class="chip ${tgPct>=90?'good':tgPct>=60?'warn':'bad'}">đạt ${tgPct.toFixed(0)}%</span>`:''}</span></div>
         <div><span>Bắt đầu chạy</span><span class="num">${c.start?new Date(c.start*1000).toLocaleDateString('vi-VN'):'—'}</span></div>
-        <div><span>Mã sản phẩm</span><span class="num">${c.item||'—'}</span></div>
+        <div><span>Mã sản phẩm</span><span class="num">${esc(c.item||'—')}</span></div>
       </div>
       <div class="callout open">
         <b>Mở quảng cáo này trên Shopee</b> — nhớ chọn đúng shop <b>${esc(DATA.shops[c.s])}</b> trước khi mở link.<br>
         <input class="ulink num" id="dUrl" readonly value="${url}" aria-label="Link quảng cáo"> <button type="button" id="dCopy">Sao chép link</button> <span class="note" id="dCopied"></span><br>
         <a class="link" href="${url}" target="_blank" rel="noopener">Mở trong tab mới ↗</a>
       </div>
-      ${sib.length?`<div class="callout">Shop này còn ${sib.length} quảng cáo khác cho cùng sản phẩm: ${sib.map((x,i)=>`<button type="button" data-sib="${i}">ID ${x.id}</button>`).join(', ')}. Khi so với số trên Shopee, nhớ đối chiếu đúng ID.</div>`:''}
+      ${sib.length?`<div class="callout">Shop này còn ${sib.length} quảng cáo khác cho cùng sản phẩm: ${sib.map((x,i)=>`<button type="button" data-sib="${i}">ID ${esc(x.id)}</button>`).join(', ')}. Khi so với số trên Shopee, nhớ đối chiếu đúng ID.</div>`:''}
       <div class="cmpbar" aria-label="Chọn ngày xem và ngày so sánh">
         <div class="cmprow"><label for="dASel">Kỳ xem</label><div class="grp"><select id="dASel">${aSel.innerHTML}</select>
           <span id="dACustom" ${ST.a==='c'?'':'hidden'}><input type="date" id="dAFrom" aria-label="Kỳ xem từ ngày" min="${D0}" max="${DL}" value="${A[0]}"> – <input type="date" id="dATo" aria-label="Kỳ xem đến ngày" min="${D0}" max="${DL}" value="${A[1]}"></span></div></div>

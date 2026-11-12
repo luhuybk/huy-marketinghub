@@ -315,6 +315,37 @@ switch ($action) {
   case 'pull': {
     requireAuth();
     $u = currentUser();
+    /* Kéo theo số thứ tự máy chủ cấp — xem itemsSeq() trong lib.php */
+    if (isset($in['after'])) {
+      $after = max(0, (int)$in['after']);
+      /* Máy đang giữ số lớn hơn mọi thứ máy chủ có: cơ sở dữ liệu vừa được
+         dựng lại hay khôi phục từ bản sao lưu. Giữ nguyên số đó thì máy ấy im
+         lặng không nhận gì nữa — kéo lại từ đầu, và báo để nó đẩy lại những gì
+         nó có mà máy chủ vừa mất. (Máy chủ không bao giờ xoá hẳn dòng nào
+         trong items, chỉ đánh dấu deleted — nên số lớn nhất không lùi.) */
+      $top = (int)db()->query('SELECT IFNULL(MAX(seq), 0) m FROM items')->fetch()['m'];
+      $reset = $after > $top;
+      if ($reset) $after = 0;
+      $st = db()->prepare('SELECT kind, item_id, data, updated_at, deleted, seq FROM items
+                           WHERE seq > ? ORDER BY seq ASC LIMIT ' . PULL_LIMIT);
+      $st->execute([$after]);
+      $raw = $st->fetchAll();
+      /* Con trỏ đi theo dòng ĐÃ ĐỌC, kể cả dòng bị lọc vì quyền — trang lọc
+         sạch vẫn tiến được. */
+      $cursor = $after; $rows = [];
+      foreach ($raw as $r) {
+        $cursor = max($cursor, (int)$r['seq']);
+        $data = json_decode($r['data'], true);
+        if (!khMayRow($u, (string)$r['kind'], $data)) continue;
+        $rows[] = ['kind' => $r['kind'], 'item_id' => $r['item_id'], 'data' => $data,
+                   'updated_at' => $r['updated_at'], 'deleted' => (bool)$r['deleted']];
+      }
+      out(['ok' => true, 'rows' => $rows, 'cursor' => $cursor, 'reset' => $reset,
+           'more' => count($raw) >= PULL_LIMIT, 'now' => gmdate('c'), 'checked' => count($raw),
+           'role' => roleOf(), 'name' => $u['name'] ?? '', 'perms' => khPerms($u)]);
+    }
+    /* Đường cũ theo mốc giờ — chỉ còn cho bản app cũ đang nằm trong bộ nhớ
+       đệm của máy nào đó; lần mở sau nó tự lên bản mới. */
     $since = (string)($in['since'] ?? '');
     $st = db()->prepare('SELECT kind, item_id, data, updated_at, deleted FROM items
                          WHERE updated_at >= ? ORDER BY updated_at ASC LIMIT ' . PULL_LIMIT);
@@ -470,14 +501,15 @@ switch ($action) {
     $kind = ($in['kind'] ?? '') === 'sp' ? 'sp' : 'main';
     $note = mb_substr(trim((string)($in['note'] ?? '')), 0, 300, 'UTF-8');
     $off = !empty($in['off']) ? 1 : 0;
+    $every = rvTan($in['every'] ?? 7);
     if ($id !== '') {
-      $st = $pdo->prepare('UPDATE rv_kw SET kw = ?, kind = ?, note = ?, off = ? WHERE id = ?');
-      $st->execute([$kw, $kind, $note, $off, $id]);
+      $st = $pdo->prepare('UPDATE rv_kw SET kw = ?, kind = ?, note = ?, off = ?, every = ? WHERE id = ?');
+      $st->execute([$kw, $kind, $note, $off, $every, $id]);
       if (!$st->rowCount()) fail('Không thấy từ khoá này.', 404);
     } else {
       $id = 'rk' . bin2hex(random_bytes(6));
-      $pdo->prepare('INSERT INTO rv_kw (id, kw, kind, note, off, created) VALUES (?,?,?,?,?,?)')
-          ->execute([$id, $kw, $kind, $note, $off, gmdate('c')]);
+      $pdo->prepare('INSERT INTO rv_kw (id, kw, kind, note, off, every, created) VALUES (?,?,?,?,?,?,?)')
+          ->execute([$id, $kw, $kind, $note, $off, $every, gmdate('c')]);
     }
     out(['ok' => true, 'id' => $id]);
   }

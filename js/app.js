@@ -1383,19 +1383,26 @@ function rvCurKw(){
   const ks = rvKws();
   return ks.find(k => k.id === ui.rvKw) || ks.find(k => !k.off && k.n) || ks.find(k => !k.off) || ks[0] || null;
 }
+const RV_CU_PHUT = 10;      // mở lại trang sau chừng này phút thì hỏi lại máy chủ
 function ensureRival(){
   if (!window.Server || !Server.authed() || !isOwner()) return;
+  /* Tác vụ quét gửi số vào máy chủ lúc app đang mở — số trong `rv` cũ dần mà
+     không ai hay. Quá RV_CU_PHUT phút thì hỏi lại; vẫn vẽ số cũ trong lúc chờ. */
+  if (rv.asked && !rv.busy && rv.luc && Date.now() - rv.luc > RV_CU_PHUT * 6e4) return void loadRival(true);
   if (!rv.asked) return void loadRival();
   const k = rvCurKw();
   if (k && !rv.scans[k.id] && !rv.busy) loadRivalScans(k.id);
 }
-async function loadRival(){
-  rv.asked = true; rv.busy = true;
+async function loadRival(lamMoi){
+  rv.asked = true; rv.busy = true; rv.luc = Date.now();
   try { rv.state = await Server.rivalState(); rv.err = ''; }
   catch(e){ rv.err = e.message || 'lỗi không rõ'; }
   rv.busy = false;
   const k = rvCurKw();
-  if (k && !rv.scans[k.id]) await loadRivalScans(k.id, true);
+  /* làm mới: từ khoá đang xem hỏi lại ngay (số cũ vẫn hiện tới khi có số mới),
+     các từ khoá khác bỏ bản đã giữ để lần mở tới hỏi lại */
+  if (lamMoi) Object.keys(rv.scans).forEach(id => { if (!k || id !== k.id){ delete rv.scans[id]; delete rv.vols[id]; } });
+  if (k && (lamMoi || !rv.scans[k.id])) await loadRivalScans(k.id, true);
   if (route.page === 'rival') render();
 }
 async function loadRivalScans(kwId, im){
@@ -1423,18 +1430,21 @@ function rvKwForm(id, goiY){
   const cu = id ? rvKwOf(id) : null;
   formModal({
     title: cu ? 'Sửa từ khoá theo dõi' : 'Thêm từ khoá theo dõi',
-    values: cu || {kw: goiY || '', kind:'main', note:'', off:false},
+    values: cu ? Object.assign({}, cu, {every: String(rvEvery(cu))}) : {kw: goiY || '', kind:'main', note:'', off:false, every:'7'},
     fields: [
       {k:'kw', l:'Từ khoá', t:'text', req:true, ph:'vd gôm xịt tóc · sáp vuốt tóc nam Roug'},
       {k:'kind', l:'Loại', t:'select', half:true, opts: Object.entries(RV_KINDS)},
+      {k:'every', l:'Quét', t:'select', half:true, opts: Object.entries(RV_TAN)},
       {k:'off', l:'Trạng thái', t:'check', half:true, ph:'Tạm ngừng quét'},
       {k:'note', l:'Ghi chú', t:'text', ph:'vd sản phẩm của mình ứng với từ khoá này'}
     ],
-    extra: cu ? '' : `<div class="dim" style="margin-top:10px">Gõ đúng như bạn sẽ tìm trên Metric. Mỗi từ khoá tốn
-      1 lượt phân tích Metric cho mỗi lần quét.</div>`,
+    extra: `<div class="dim" style="margin-top:10px">${cu ? '' : 'Gõ đúng như bạn sẽ tìm trên Metric. '}Mỗi lần quét một từ khoá tốn
+      1 lượt phân tích Metric. Tác vụ quét chạy mỗi tuần nhưng chỉ quét từ khoá đã tới hạn: "Mỗi tháng" thì cứ 4 đợt
+      mới quét một lần, đỡ 3 lượt so với "Mỗi tuần". Từ khoá ít biến động (từ khoá sản phẩm, từ khoá ngách) nên để
+      thưa.</div>`,
     async onSave(v){
       if (!String(v.kw || '').trim()){ toast('Gõ từ khoá'); return false; }
-      const r = await Server.rivalKwSave({id: cu ? cu.id : '', kw: v.kw, kind: v.kind, note: v.note, off: !!v.off});
+      const r = await Server.rivalKwSave({id: cu ? cu.id : '', kw: v.kw, kind: v.kind, note: v.note, off: !!v.off, every: +v.every || 7});
       if (!cu) ui.rvKw = r.id;
       await loadRival();
       toast(cu ? 'Đã lưu' : 'Đã thêm — lần quét tới sẽ có số');
@@ -1442,7 +1452,7 @@ function rvKwForm(id, goiY){
     onDelete: cu ? async () => {
       if (!confirm('Xoá từ khoá "' + cu.kw + '" cùng ' + cu.n + ' lần quét đã lưu? Không lấy lại được.')) return false;
       await Server.rivalKwDel(cu.id);
-      delete rv.scans[cu.id]; ui.rvKw = '';
+      delete rv.scans[cu.id]; delete rv.vols[cu.id]; ui.rvKw = '';
       await loadRival(); toast('Đã xoá');
     } : null
   });
@@ -1451,7 +1461,9 @@ function rvKwForm(id, goiY){
 function rvProdOpen(id){
   const {kw, ds} = rvView();
   if (!kw) return;
-  const his = ds.map(s => { const i = s.items.findIndex(x => x.id === id); return i < 0 ? null : Object.assign({date:s.date, rank:i + 1}, s.items[i]); })
+  /* bu: lần quét bù — giá, ảnh bìa, tổng đã bán của nó là số hôm quét bù,
+     không phải hồi đó, nên không đem so (xem rvLaBu) */
+  const his = ds.map(s => { const i = s.items.findIndex(x => x.id === id); return i < 0 ? null : Object.assign({date:s.date, rank:i + 1, bu:rvLaBu(s)}, s.items[i]); })
                 .filter(Boolean);
   const x = his[0];
   if (!x) return;
@@ -1486,7 +1498,7 @@ function rvProdOpen(id){
         </div>
       </div></div>`;
 
-  if (!sp) h += `<div class="dim" style="margin-top:14px">Chưa có bảng giá chi tiết, voucher và phân loại: tác vụ quét chưa đọc trang Shopee của sản phẩm này
+  if (!sp || !g) h += `<div class="dim" style="margin-top:14px">Chưa có bảng giá chi tiết, voucher và phân loại: tác vụ quét chưa đọc trang Shopee của sản phẩm này
       (mỗi lần quét đọc ${RV_SHOW} sản phẩm đứng đầu của từng từ khoá).</div>`;
   else {
     /* ---- bảng "Chi tiết giá" của phân loại rẻ nhất — xếp y như hộp của Shopee ---- */
@@ -1520,11 +1532,12 @@ function rvProdOpen(id){
     const vs = sp.vouchers || [];
     if (vs.length)
       h += `<div class="sec sm">${vs.length} voucher shop đang phát<span class="ln"></span></div>
-        <div class="rv-vs">${vs.map(v => `<div class="rv-v"><b>${v.coin ? 'Hoàn ' + (+v.pct) + '% xu' + (v.cap ? ' tối đa ' + moneyShort(v.cap) : '')
-              : v.val ? 'Giảm ' + money(v.val) : 'Giảm ' + (+v.pct) + '%' + (v.cap ? ' tối đa ' + moneyShort(v.cap) : '')}</b>
+        <div class="rv-vs">${vs.map(v => `<div class="rv-v"><b>${v.coin ? 'Hoàn ' + rvPctTen(v.pct) + ' xu' + (v.cap ? ' tối đa ' + moneyShort(v.cap) : '')
+              : v.val ? 'Giảm ' + money(v.val) : 'Giảm ' + rvPctTen(v.pct) + (v.cap ? ' tối đa ' + moneyShort(v.cap) : '')}</b>
             <span>${v.min ? 'đơn từ ' + money(v.min) : 'không cần đơn tối thiểu'}${
               !v.coin && v.val && v.min ? ' · bằng ' + pc(v.val / v.min * 100) + ' đơn tối thiểu' : ''}</span>
-            <span class="dim">${v.code ? '<code>' + esc(v.code) + '</code> · ' : ''}${v.lab ? esc(v.lab) + ' · ' : ''}đã dùng ${v.used}%${
+            <span class="dim">${v.code ? '<code>' + esc(v.code) + '</code> · ' : ''}${v.lab ? esc(v.lab) + ' · ' : ''}${
+              v.coin || rvVoucherDung(v, sp) ? '' : '<b class="warn">chưa tính vào giá cuối: ' + (v.used >= 100 ? 'đã hết lượt' : 'chưa tới ngày dùng') + '</b> · '}đã dùng ${v.used}%${
               v.end ? ' · hết hạn ' + esc(fmtDate(new Date(v.end * 1000 + 7 * 36e5).toISOString().slice(0, 10))) : ''}</span></div>`).join('')}</div>`;
 
     /* ---- giá trên Shopee qua các lần đọc ---- */
@@ -1545,7 +1558,7 @@ function rvProdOpen(id){
 
   /* ---- ảnh bìa qua các lần quét: chỉ hiện khi đã từng đổi ---- */
   const biaCu = [];
-  his.slice().reverse().forEach(r => { if (r.img && (!biaCu.length || biaCu[biaCu.length - 1].img !== r.img)) biaCu.push({img:r.img, date:r.date}); });
+  his.filter(r => !r.bu).reverse().forEach(r => { if (r.img && (!biaCu.length || biaCu[biaCu.length - 1].img !== r.img)) biaCu.push({img:r.img, date:r.date}); });
   if (biaCu.length > 1)
     h += `<div class="sec sm">Ảnh bìa đã đổi ${biaCu.length - 1} lần<span class="ln"></span></div>
       <div class="rv-bias">${biaCu.reverse().map((b, i) => `<a href="${esc(rvImg(b.img))}" target="_blank" rel="noopener noreferrer">
@@ -1556,14 +1569,15 @@ function rvProdOpen(id){
       <th class="r">Phân loại</th><th class="r">Doanh số kỳ</th><th class="r">Lượt bán kỳ</th><th class="r">Tổng đã bán</th><th>Ảnh bìa</th></tr></thead><tbody>`;
   his.forEach((r, i) => {
     const sau = his[i + 1];                    // lần quét cũ hơn
-    const doi = (a, b) => sau && a !== b ? ' class="r rv-doi"' : ' class="r"';
-    h += `<tr><td>${esc(fmtDate(r.date))}</td><td class="c"><b>${r.rank}</b></td>
+    const soDuoc = sau && !r.bu && !sau.bu;    // giá / ảnh / tổng đã bán chỉ so giữa hai lần quét thật
+    const doi = (a, b) => soDuoc && a !== b ? ' class="r rv-doi"' : ' class="r"';
+    h += `<tr><td>${esc(fmtDate(r.date))}${r.bu ? ' <span class="rv-chua">bù</span>' : ''}</td><td class="c"><b>${r.rank}</b></td>
       <td${doi(r.p, sau && sau.p)}>${money(r.p)}</td>
       <td${doi(r.pmin + '-' + r.pmax, sau && sau.pmin + '-' + sau.pmax)}>${moneyShort(r.pmin)} – ${moneyShort(r.pmax)}</td>
       <td class="r">${moneyShort(r.r)}</td><td class="r">${r.o.toLocaleString('vi-VN')}</td>
-      <td class="r">${r.sold.toLocaleString('vi-VN')}${sau && r.sold >= sau.sold ? ` <span class="dim">+${(r.sold - sau.sold).toLocaleString('vi-VN')}</span>` : ''}</td>
-      <td>${r.img && (!sau || sau.img !== r.img) ? `<img class="rv-tn" src="${esc(rvThumb(r.img))}" alt="" referrerpolicy="no-referrer" loading="lazy">${
-        sau ? ' <span class="chip acc">ảnh mới</span>' : ''}` : '<span class="dim">như cũ</span>'}</td></tr>`;
+      <td class="r">${r.sold.toLocaleString('vi-VN')}${soDuoc && r.sold >= sau.sold ? ` <span class="dim">+${(r.sold - sau.sold).toLocaleString('vi-VN')}</span>` : ''}</td>
+      <td>${r.img && (!soDuoc || sau.img !== r.img) ? `<img class="rv-tn" src="${esc(rvThumb(r.img))}" alt="" referrerpolicy="no-referrer" loading="lazy">${
+        soDuoc ? ' <span class="chip acc">ảnh mới</span>' : ''}` : '<span class="dim">như cũ</span>'}</td></tr>`;
   });
   h += `</tbody></table></div>
     <div class="dim" style="margin-top:8px">Ô tô vàng là chỗ vừa đổi so với lần quét trước đó. Số nhỏ cạnh "Tổng đã bán" là phần bán thêm giữa hai lần quét.</div>`;
@@ -5502,4 +5516,4 @@ function checkBuild(){
   }
 })();
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "534e9336"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "cf15e246"]);

@@ -80,6 +80,36 @@ $KH_DB_IN_WEB = str_starts_with(realpath(dirname($DB_FILE)) ?: dirname($DB_FILE)
                                 realpath(dirname(__DIR__)) ?: dirname(__DIR__));
 
 /* ---------------- kết nối ---------------- */
+/* Số thứ tự máy chủ cấp cho MỖI LẦN GHI vào items — app kéo về theo số này
+   (action pull, tham số `after`), không theo updated_at nữa. Kéo theo
+   updated_at có ba lỗ:
+     · updated_at là giờ của máy đã sửa, không phải giờ tới máy chủ. Sửa lúc
+       mất sóng 10:00, có sóng lại đẩy lên 10:05, trong khi máy kia đã kéo tới
+       mốc 10:03 — bản sửa nằm sau lưng mốc, máy kia không bao giờ thấy nó.
+     · máy chủ PHP ghi giờ chỉ tới GIÂY (gmdate không có mili giây). Nhận số
+       quảng cáo tự động ghi hàng trăm dòng trong một giây; hơn 500 dòng trùng
+       một mốc là lượt kéo đứng nguyên một chỗ mãi mãi.
+     · nhân viên không có quyền xem 500 dòng liền nhau thì lượt kéo trả về
+       rỗng, máy gọi không có mốc mới để đi tiếp.
+   Số thứ tự thì không trùng, chỉ tăng, và máy chủ biết dòng cuối mình đã đọc
+   kể cả khi lọc bỏ nó. Cấp bằng trigger để mọi đường ghi — đồng bộ, nhận số
+   tự động, nút Telegram — đều được đánh số mà không phải nhớ sửa từng chỗ.
+   (Cùng cách với Life Hub.) */
+function itemsSeq(PDO $pdo): void {
+  $cols = array_column($pdo->query('PRAGMA table_info(items)')->fetchAll(), 'name');
+  if (!in_array('seq', $cols, true)) {
+    try {
+      $pdo->exec('ALTER TABLE items ADD COLUMN seq INTEGER NOT NULL DEFAULT 0');
+      $pdo->exec('UPDATE items SET seq = rowid');
+    } catch (Throwable $e) { /* yêu cầu khác vừa thêm cột trước — không sao */ }
+  }
+  $pdo->exec('CREATE INDEX IF NOT EXISTS items_seq ON items(seq)');
+  $pdo->exec('CREATE TRIGGER IF NOT EXISTS items_seq_ins AFTER INSERT ON items BEGIN
+      UPDATE items SET seq = (SELECT IFNULL(MAX(seq), 0) + 1 FROM items) WHERE rowid = NEW.rowid; END');
+  $pdo->exec('CREATE TRIGGER IF NOT EXISTS items_seq_upd AFTER UPDATE OF data, updated_at, deleted ON items BEGIN
+      UPDATE items SET seq = (SELECT IFNULL(MAX(seq), 0) + 1 FROM items) WHERE rowid = NEW.rowid; END');
+}
+
 function db(): PDO {
   static $pdo = null;
   if ($pdo) return $pdo;
@@ -110,6 +140,7 @@ function db(): PDO {
       updated_at TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (kind, item_id))');
   $pdo->exec('CREATE INDEX IF NOT EXISTS items_upd ON items(updated_at)');
+  itemsSeq($pdo);
   $pdo->exec('CREATE TABLE IF NOT EXISTS sessions (
       token_hash TEXT PRIMARY KEY, created_at TEXT, expires_at TEXT, label TEXT)');
   /* Cột vai trò thêm sau, nên bảng cũ chưa có. SQLite không có
@@ -922,8 +953,18 @@ function adRadarData(int $soNgay = 400): array {
 const RV_TOP = 20;            // Metric trả 20 sản phẩm đầu cho mỗi lần phân tích
 const RV_TICKET_GIO = 6;      // vé quét sống bao lâu
 const RV_SP_TOP = 10;          // mỗi từ khoá đọc trang Shopee của mấy sản phẩm đứng đầu
+const RV_SP_GIU = 400;         // bản chụp trang Shopee giữ bao nhiêu ngày
+/* Bao lâu quét một từ khoá (ngày). Từ khoá ít biến động quét thưa để đỡ tốn
+   lượt Metric. Tới hạn sớm hơn RV_HAN_SOM ngày cho đợt quét xê dịch một hai
+   hôm vẫn bắt kịp: đợt hằng tuần quét từ khoá "mỗi tháng" ở đợt thứ tư (28 ngày). */
+const RV_TAN = [7, 14, 30];
+const RV_HAN_SOM = 2;
 
 function rvTables(PDO $pdo): void {
+  /* Mỗi yêu cầu gọi hàm này 4–6 lần (mỗi hàm rv… một lần) — làm một lần là đủ */
+  static $xong = false;
+  if ($xong) return;
+  $xong = true;
   $pdo->exec('CREATE TABLE IF NOT EXISTS rv_kw (id TEXT PRIMARY KEY, kw TEXT NOT NULL, kind TEXT,
       note TEXT, off INTEGER DEFAULT 0, created TEXT)');
   $pdo->exec('CREATE TABLE IF NOT EXISTS rv_scan (kw_id TEXT NOT NULL, date TEXT NOT NULL, src TEXT NOT NULL,
@@ -942,6 +983,22 @@ function rvTables(PDO $pdo): void {
      khoá: một sản phẩm đứng top ở ba từ khoá vẫn chỉ đọc một lần. */
   $pdo->exec('CREATE TABLE IF NOT EXISTS rv_sp (item_id TEXT NOT NULL, date TEXT NOT NULL, at TEXT, data TEXT,
       PRIMARY KEY (item_id, date))');
+  /* every (thêm sau): bao nhiêu ngày quét một lần — xem RV_TAN */
+  if (!in_array('every', array_column($pdo->query('PRAGMA table_info(rv_kw)')->fetchAll(), 'name'), true))
+    $pdo->exec('ALTER TABLE rv_kw ADD COLUMN every INTEGER DEFAULT 7');
+}
+function rvTan($v): int {
+  return in_array((int)$v, RV_TAN, true) ? (int)$v : 7;
+}
+/* Từ khoá có tới hạn quét ở đợt này chưa: [tới hạn?, ngày lần tới theo lịch].
+   Chưa quét lần nào thì tới hạn ngay. `last` là ngày của lần quét mới nhất
+   (lần quét bù mang ngày cũ nên không đẩy lịch đi). */
+function rvKwHan(string $last, int $every, bool $off, string $nay): array {
+  if ($last === '') return [!$off, ''];
+  $d = new DateTime($last);
+  $next = (clone $d)->modify('+' . $every . ' days')->format('Y-m-d');
+  $han = $d->modify('+' . ($every - RV_HAN_SOM) . ' days')->format('Y-m-d');
+  return [!$off && $han <= $nay, $next];
 }
 function rvNorm(string $s): string {
   return (string)preg_replace('/\s+/u', ' ', mb_strtolower(trim($s), 'UTF-8'));
@@ -979,12 +1036,17 @@ function rvKwList(bool $caTat = true): array {
   $pdo = db(); rvTables($pdo);
   $rows = $pdo->query('SELECT k.*, (SELECT MAX(date) FROM rv_scan s WHERE s.kw_id = k.id) last,
       (SELECT COUNT(*) FROM rv_scan s WHERE s.kw_id = k.id) n FROM rv_kw k ORDER BY k.created')->fetchAll();
+  $nay = (new DateTime('now', new DateTimeZone(KH_TZ)))->format('Y-m-d');
   $out = [];
   foreach ($rows as $r) {
-    if (!$caTat && (int)$r['off'] === 1) continue;
+    $off = (int)$r['off'] === 1;
+    if (!$caTat && $off) continue;
+    $every = rvTan($r['every'] ?? 7);
+    $last = (string)($r['last'] ?? '');
+    [$due, $next] = rvKwHan($last, $every, $off, $nay);
     $out[] = ['id' => (string)$r['id'], 'kw' => (string)$r['kw'], 'kind' => $r['kind'] === 'sp' ? 'sp' : 'main',
-              'note' => (string)$r['note'], 'off' => (int)$r['off'] === 1,
-              'last' => (string)($r['last'] ?? ''), 'n' => (int)$r['n']];
+              'note' => (string)$r['note'], 'off' => $off, 'every' => $every, 'due' => $due, 'next' => $next,
+              'last' => $last, 'n' => (int)$r['n']];
   }
   return $out;
 }
@@ -1156,7 +1218,9 @@ function rvScans(string $kwId, int $max = 60): array {
             {k: sp|shop|platform|ads|other, lab, amt, min, pct, val, cap, code}
      models từng phân loại: {n, p (giá bán), pb (giá gốc), ok (còn hàng)}
      tiers  nhóm phân loại: {n, o:[…]}
-     vouchers  voucher shop đang phát: {code, min, val, pct, cap, coin, end, used, lab}
+     vouchers  voucher shop đang phát: {code, min, val, pct, cap, coin, start, end, used, lab}
+               (start/end là giây Unix — voucher chưa tới ngày hoặc đã dùng hết thì
+               app không tính vào giá cuối)
      tags   nhãn khuyến mãi ("Mua để nhận quà", "Flash Sale"…) */
 function rvSpClean(array $x): ?array {
   $id = preg_replace('/\D/', '', (string)($x['id'] ?? ''));
@@ -1183,6 +1247,7 @@ function rvSpClean(array $x): ?array {
     $vs[] = ['code' => $chu($v['code'] ?? '', 40), 'min' => $tien($v['min'] ?? 0), 'val' => $tien($v['val'] ?? 0),
              'pct' => max(0, min(100, round((float)(is_numeric($v['pct'] ?? null) ? $v['pct'] : 0), 1))),
              'cap' => $tien($v['cap'] ?? 0), 'coin' => !empty($v['coin']),
+             'start' => max(0, (int)($v['start'] ?? 0)),
              'end' => max(0, (int)($v['end'] ?? 0)), 'used' => max(0, min(100, (int)($v['used'] ?? 0))),
              'lab' => $chu($v['lab'] ?? '', 60)];
   $def = is_array($x['def'] ?? null) ? $x['def'] : [];
@@ -1203,11 +1268,16 @@ function rvSpSave(array $in): array {
   $pdo = db(); rvTables($pdo);
   $x = is_array($in['item'] ?? null) ? rvSpClean($in['item']) : null;
   if (!$x) return ['error' => 'Gói gửi lên không có sản phẩm.'];
-  if (!$x['models'] && !$x['def']['f']) return ['error' => 'Sản phẩm ' . $x['id'] . ' không có giá lẫn phân loại — trang chưa tải xong?'];
+  if ($x['n'] === '' || (!$x['models'] && !$x['def']['f']))
+    return ['error' => 'Sản phẩm ' . $x['id'] . ' không có tên, hoặc không có giá lẫn phân loại — trang chưa tải xong?'];
   $date = rvNgayQuet($in);
   $pdo->prepare('INSERT INTO rv_sp (item_id, date, at, data) VALUES (?,?,?,?)
       ON CONFLICT(item_id, date) DO UPDATE SET at=excluded.at, data=excluded.data')
       ->execute([$x['id'], $date, gmdate('c'), json_encode($x, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]);
+  /* Dọn bản chụp quá cũ của chính sản phẩm này — không thì bảng cứ phình mãi
+     (vài trăm sản phẩm × mỗi tuần một lần × cả các ngày sale). */
+  $pdo->prepare('DELETE FROM rv_sp WHERE item_id = ? AND date < ?')
+      ->execute([$x['id'], (new DateTime($date))->modify('-' . RV_SP_GIU . ' days')->format('Y-m-d')]);
   return ['ok' => true, 'id' => $x['id'], 'date' => $date, 'models' => count($x['models']),
           'lines' => count($x['lines']), 'f' => $x['def']['f']];
 }
@@ -1248,12 +1318,14 @@ function rvSps(array $ids, int $max = 8): array {
   $ids = array_values(array_unique(array_filter(array_map(fn($i) => preg_replace('/\D/', '', (string)$i), $ids))));
   $out = [];
   foreach (array_chunk($ids, 200) as $lo) {
+    /* Chỉ lấy $max bản mới nhất của MỖI sản phẩm ngay trong câu hỏi — không
+       kéo cả năm bản chụp lên rồi mới bỏ bớt. */
     $st = $pdo->prepare('SELECT item_id, date, data FROM rv_sp WHERE item_id IN (' . implode(',', array_fill(0, count($lo), '?')) .
+                        ') AND date IN (SELECT s2.date FROM rv_sp s2 WHERE s2.item_id = rv_sp.item_id ORDER BY s2.date DESC LIMIT ' . (int)$max .
                         ') ORDER BY date DESC');
     $st->execute($lo);
     foreach ($st->fetchAll() as $r) {
       $id = (string)$r['item_id'];
-      if (count($out[$id] ?? []) >= $max) continue;
       $d = json_decode((string)$r['data'], true);
       if (is_array($d)) $out[$id][] = ['date' => (string)$r['date']] + $d;
     }

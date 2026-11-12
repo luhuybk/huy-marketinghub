@@ -62,18 +62,35 @@ const Sync = (() => {
     return 0;
   }
 
+  /* Mốc đẩy không được vượt quá giờ của CHÍNH máy này lúc bắt đầu đẩy.
+     Trong đống vừa đẩy có cả bản ghi kéo từ nơi khác về, mang giờ của nơi đó
+     — máy khác hay máy chủ (số quảng cáo tự động) chạy nhanh hơn vài giây là
+     mốc nhảy lên trước giờ của máy này, và việc mình sửa ngay sau đó mang giờ
+     "cũ hơn mốc", không bao giờ được đẩy lên. Chặn trần ở giờ bắt đầu thì
+     cùng lắm đẩy thừa vài bản mà máy chủ bỏ qua. (Cùng cách với Life Hub.) */
+  const capAt = (rows, since, started) => {
+    const max = rows.reduce((m,r) => r.updated_at > m ? r.updated_at : m, since);
+    return max > started ? started : max;
+  };
   async function doPush(){
-    const since = db.meta.srvPush || '';
+    /* Lần đầu chạy bản có capAt: đẩy lại toàn bộ một lần. Máy chủ bỏ qua bản
+       nào không mới hơn bản nó giữ, nên chỉ những bản sửa từng bị kẹt lại trên
+       máy này mới thật sự được ghi. Máy chủ báo vừa được khôi phục (pull
+       trả reset) cũng đặt lại cờ này để đẩy bù những gì máy chủ vừa mất. */
+    const since = db.meta.srvHealed ? (db.meta.srvPush || '') : '';
+    const started = now();
     const rows = localRows(since);
-    if (!rows.length) return 0;
-    /* chia lô để không vượt giới hạn kích thước yêu cầu */
-    let blocked = [];
-    for (let i = 0; i < rows.length; i += 400){
-      const r = await Server.push(rows.slice(i, i + 400));
-      if (r && Array.isArray(r.blocked) && r.blocked.length) blocked = blocked.concat(r.blocked);
+    if (rows.length){
+      /* chia lô để không vượt giới hạn kích thước yêu cầu */
+      let blocked = [];
+      for (let i = 0; i < rows.length; i += 400){
+        const r = await Server.push(rows.slice(i, i + 400));
+        if (r && Array.isArray(r.blocked) && r.blocked.length) blocked = blocked.concat(r.blocked);
+      }
+      db.meta.srvPush = capAt(rows, since, started);
+      if (blocked.length) undoBlocked(blocked);
     }
-    db.meta.srvPush = rows.reduce((m,r) => r.updated_at > m ? r.updated_at : m, since);
-    if (blocked.length) undoBlocked(blocked);
+    db.meta.srvHealed = true;
     return rows.length;
   }
 
@@ -90,11 +107,40 @@ const Sync = (() => {
       if (i >= 0){ arr.splice(i, 1); n++; }
     });
     if (!n) return;
-    db.meta.srvPull = '';          // kéo lại từ đầu để lấy về bản thật
+    db.meta.srvPull = ''; db.meta.srvSeq = 0;      // kéo lại từ đầu để lấy về bản thật
     persist();
     if (window.toast) toast('Tài khoản nhân viên không xoá được — đã lấy lại ' + n + ' bản ghi.');
   }
+  /* Kéo theo số thứ tự máy chủ cấp cho mỗi lần ghi (xem itemsSeq trong
+     api/lib.php), không theo updated_at. Theo mốc giờ thì: bản sửa lúc mất
+     sóng đẩy lên muộn mang giờ cũ hơn mốc và bị lọt mất; hơn 500 dòng trùng
+     một mốc giờ là đứng yên mãi; nhân viên gặp 500 dòng không có quyền xem
+     liền nhau thì không có mốc mới để đi tiếp. Lần đầu (chưa có số) kéo lại
+     từ đầu — cũng là lúc nhặt lại những bản đã lọt theo cách cũ. */
   async function doPull(){
+    let after = typeof db.meta.srvSeq === 'number' ? db.meta.srvSeq : 0;
+    let changed = 0, guard = 0;
+    while (guard++ < 400){
+      const d = await Server.pull(db.meta.srvPull || '', after);
+      if (typeof d.cursor !== 'number') return doPullOld();      /* máy chủ còn bản cũ */
+      Server.notePerms(d);
+      if (Server.takeWhoChanged()) return 'reset';
+      /* máy chủ vừa dựng lại / khôi phục từ sao lưu: lượt sau đẩy lại toàn bộ */
+      if (d.reset) db.meta.srvHealed = false;
+      d.rows.forEach(r => { changed += absorb(r); });
+      /* Con trỏ đi theo dòng máy chủ ĐÃ ĐỌC, kể cả dòng bị lọc vì quyền,
+         nên một trang rỗng vẫn tiến. Không tiến được nữa thì dừng, đừng gọi
+         lại mãi một chỗ. */
+      const tien = d.cursor > after || d.reset;
+      after = d.cursor;
+      if (!d.more || !tien) break;
+    }
+    db.meta.srvSeq = after;
+    db.meta.lastPull = now();
+    return changed;
+  }
+  /* Đường cũ theo mốc giờ — chỉ dùng khi api/ trên máy chủ còn là bản cũ */
+  async function doPullOld(){
     let cursor = db.meta.srvPull || '';
     let changed = 0, guard = 0;
     while (guard++ < 200){
@@ -229,7 +275,7 @@ const Sync = (() => {
 
   /* Máy này vừa đăng nhập lần đầu: quên mốc cũ để kéo lại từ đầu */
   function resetCursor(){
-    db.meta.srvPull = ''; db.meta.srvPush = '';
+    db.meta.srvPull = ''; db.meta.srvPush = ''; db.meta.srvSeq = null; db.meta.srvHealed = false;
     db.meta.lastPull = null; db.meta.lastPush = null;
   }
 
@@ -237,4 +283,4 @@ const Sync = (() => {
 })();
 window.Sync = Sync;
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/sync.js", "534e9336"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/sync.js", "cf15e246"]);

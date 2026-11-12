@@ -817,7 +817,9 @@ function blank(){
       postTargets: Object.assign({}, DEFAULT_POST_TARGETS),
       adRules:     Object.assign({}, DEFAULT_AD_RULES)
     },
-    meta:{ lastPull:null, lastPush:null, srvPull:'', srvPush:'' }
+    /* srvSeq: số thứ tự máy chủ đã kéo tới (xem doPull trong sync.js) ·
+       srvHealed: đã đẩy lại toàn bộ một lần sau khi có capAt */
+    meta:{ lastPull:null, lastPush:null, srvPull:'', srvPush:'', srvSeq:null, srvHealed:false }
   };
 }
 let db = blank();
@@ -4869,6 +4871,13 @@ function launchAutoMarks(){
 const rv = {state:null, scans:{}, vols:{}, sp:{}, err:'', asked:false, busy:false};
 const RV_KINDS = {main:'Từ khoá chính', sp:'Từ khoá sản phẩm'};
 const RV_SHOW = 10;                       // bảng mặc định hiện top mấy
+/* Bao lâu quét một từ khoá (ngày) — máy chủ quyết định tới hạn (rvKwHan ở
+   api/lib.php), app chỉ hiện. Ngắn là tên gắn cạnh nút từ khoá. */
+const RV_TAN = {7:'Mỗi tuần', 14:'2 tuần một lần', 30:'Mỗi tháng'};
+const RV_TAN_NGAN = {14:'2 tuần', 30:'tháng'};
+const rvEvery = k => RV_TAN[k && k.every] ? +k.every : 7;
+/* Một tháng (30 ngày) tốn khoảng bao nhiêu lượt Metric với các từ khoá đang bật */
+const rvLuotThang = ks => Math.round(ks.filter(k => !k.off).reduce((a, k) => a + 30 / rvEvery(k), 0));
 
 const rvKws   = () => (rv.state && rv.state.kws) || [];
 const rvKwOf  = id => rvKws().find(k => k.id === id) || null;
@@ -4909,11 +4918,22 @@ function rvVoucherGiam(v, p){
   const d = Math.round(p * v.pct / 100);
   return v.cap ? Math.min(d, v.cap) : d;
 }
+/* Voucher shop có tính được vào giá của ngày đọc không: không phải voucher
+   hoàn xu, chưa dùng hết lượt, đã tới ngày bắt đầu và chưa hết hạn. Shopee
+   liệt kê cả voucher "sắp diễn ra" — tính nó vào thì giá cuối thấp hơn thật.
+   (Bản chụp cũ không có `start` → coi như đã bắt đầu.) */
+function rvVoucherDung(v, sp){
+  if (!v || v.coin || v.used >= 100) return false;
+  if (!sp || !sp.date) return true;
+  const dau = Date.parse(sp.date + 'T00:00:00+07:00') / 1000;      // 0 giờ ngày đọc, giờ VN
+  if (isNaN(dau)) return true;
+  return !(v.start && v.start >= dau + 86400) && !(v.end && v.end < dau);
+}
 function rvSpFinal(sp, m){
   const p = m.p || 0, parts = [];
   /* voucher shop: gom dòng "Voucher của Shop" trong bảng giá với danh sách voucher shop đang phát */
   const shopLine = (sp.lines || []).find(l => l.k === 'shop');
-  const ung = (sp.vouchers || []).filter(v => !v.coin).slice();
+  const ung = (sp.vouchers || []).filter(v => rvVoucherDung(v, sp));
   if (shopLine && !ung.some(v => v.code && v.code === shopLine.code)) ung.push(shopLine);
   let tot = null, giam = 0;
   ung.forEach(v => { const d = rvVoucherGiam(v, p); if (d > giam){ giam = d; tot = v; } });
@@ -4958,14 +4978,15 @@ function rvSpAt(id, next){
   const i = ds.findIndex(s => !next || s.date < next.date);
   return i < 0 ? [null, null] : [ds[i], ds[i + 1] || null];
 }
-const rvVoucherTen = v => (v.val ? 'giảm ' + moneyShort(v.val) : 'giảm ' + (+v.pct) + '%' + (v.cap ? ' tối đa ' + moneyShort(v.cap) : '')) +
+const rvPctTen = x => String(+x).replace('.', ',') + '%';
+const rvVoucherTen = v => (v.val ? 'giảm ' + moneyShort(v.val) : 'giảm ' + rvPctTen(v.pct) + (v.cap ? ' tối đa ' + moneyShort(v.cap) : '')) +
                           (v.min ? ' cho đơn từ ' + moneyShort(v.min) : '');
 /* Trang Shopee của một sản phẩm đổi gì giữa hai lần đọc.
    Mỗi dòng: {w, icon, cls, t} — `t` chưa kèm tên shop. */
-function rvSpDiff(cur, prev){
+function rvSpDiff(cur, prev, a, b){
   const out = [];
   if (!cur || !prev) return out;
-  const a = rvSpSum(cur), b = rvSpSum(prev);
+  a = a || rvSpSum(cur); b = b || rvSpSum(prev);
   if (a.re && b.re && a.re.f !== b.re.f){
     const pc = rvPct(a.re.f, b.re.f);
     out.push({w: 75 + Math.min(20, Math.abs(pc)), icon:'🎟', cls: a.re.f < b.re.f ? 'bad' : 'ok',
@@ -5006,22 +5027,27 @@ function rvSpDiff(cur, prev){
    Metric để có cái mà so). Thứ hạng và doanh số trong kỳ của nó là thật, nhưng
    giá, ảnh bìa và TỔNG đã bán là số của hôm quét bù chứ không phải hồi đó —
    nên không lấy hiệu tổng đã bán với một lần quét bù. `at` là giờ UTC. */
-const rvLaBu = s => !!(s && s.at && s.date &&
-  new Date(new Date(s.at).getTime() + 7 * 36e5).toISOString().slice(0, 10) > s.date);
+const rvLaBu = s => {
+  const t = s && s.at && s.date ? Date.parse(s.at) : NaN;     // `at` hỏng thì coi như không phải bù, đừng làm sập trang
+  return !isNaN(t) && new Date(t + 7 * 36e5).toISOString().slice(0, 10) > s.date;
+};
 function rvCompare(cur, prev, next){
   const bu = rvLaBu(prev) || rvLaBu(cur);
   const cu = new Map(((prev && prev.items) || []).map((x, i) => [x.id, Object.assign({rank:i + 1}, x)]));
   const rows = (cur.items || []).map((x, i) => {
     const o = cu.get(x.id) || null;
     const [sp, spPrev] = rvSpAt(x.id, next || null);
+    const spSum = rvSpSum(sp), spPrevSum = rvSpSum(spPrev);
     return Object.assign({}, x, {
-      sp, spPrev, spSum: rvSpSum(sp), spCh: rvSpDiff(sp, spPrev),
+      sp, spPrev, spSum, spPrevSum, spCh: rvSpDiff(sp, spPrev, spSum, spPrevSum),
       rank: i + 1, prev: o, isNew: !!prev && !o, mine: rvIsMine(x),
       move: o ? o.rank - (i + 1) : 0,
       dSold: !bu && o && x.sold >= o.sold ? x.sold - o.sold : null,
       dRev:  !bu && o && x.rev  >= o.rev  ? x.rev  - o.rev  : null,
-      imgNew:  !!(o && o.img && x.img && o.img !== x.img),
-      nameNew: !!(o && o.n && o.n !== x.n),
+      imgNew:  !bu && !!(o && o.img && x.img && o.img !== x.img),
+      nameNew: !bu && !!(o && o.n && o.n !== x.n),
+      /* giá của lần trước — null khi dính lần quét bù (giá khi đó là giá hôm quét bù) */
+      pCu: !bu && o && o.p ? o.p : null,
       gR: rvPct(x.r, x.rp), gO: rvPct(x.o, x.op)
     });
   });
@@ -5037,8 +5063,13 @@ function rvChanges(cmp){
   const out = [], ten = r => (r.shop || 'shop ?') + ' — ' + cut(r.n, 46);
   /* Trang Shopee đọc dày hơn Metric (cả ngày sale), nên thay đổi ở đó vẫn
      báo dù chưa có lần quét Metric trước để so. */
+  /* Lần đọc Shopee trước đó có thể khác ngày với lần quét Metric đem so
+     (đọc thêm ngày sale) — khác thì ghi rõ là so với hôm nào. */
+  const spDong = r => (r.spCh || []).forEach(c => out.push({w:c.w, icon:c.icon, cls:c.cls, id:r.id,
+    text: ten(r) + ': ' + c.t + (r.spPrev && (!cmp.prev || r.spPrev.date !== cmp.prev.date)
+            ? ' (so với lần đọc Shopee ' + fmtDate(r.spPrev.date).slice(0, 5) + ')' : '')}));
   if (!cmp.prev){
-    cmp.rows.forEach(r => (r.spCh || []).forEach(c => out.push({w:c.w, icon:c.icon, cls:c.cls, id:r.id, text: ten(r) + ': ' + c.t})));
+    cmp.rows.forEach(spDong);
     return out.sort((a, b) => b.w - a.w);
   }
   cmp.rows.forEach(r => {
@@ -5047,19 +5078,19 @@ function rvChanges(cmp){
     if (r.prev && Math.abs(r.move) >= 2 && (r.rank <= 10 || r.prev.rank <= 10))
       out.push({w: 60 + Math.abs(r.move), icon: r.move > 0 ? '⬆️' : '⬇️', cls: r.move > 0 ? 'warn' : 'ok', id:r.id,
         text: ten(r) + (r.move > 0 ? ' lên ' : ' tụt ') + Math.abs(r.move) + ' hạng (' + r.prev.rank + ' → ' + r.rank + ')'});
-    if (r.prev && r.prev.p && r.p !== r.prev.p){
-      const pc = rvPct(r.p, r.prev.p);
-      out.push({w: 70 + Math.min(20, Math.abs(pc)), icon:'💰', cls: r.p < r.prev.p ? 'bad' : 'ok', id:r.id,
-        text: ten(r) + (r.p < r.prev.p ? ' hạ giá ' : ' tăng giá ') + money(r.prev.p) + ' → ' + money(r.p) +
+    if (r.pCu && r.p !== r.pCu){
+      const pc = rvPct(r.p, r.pCu);
+      out.push({w: 70 + Math.min(20, Math.abs(pc)), icon:'💰', cls: r.p < r.pCu ? 'bad' : 'ok', id:r.id,
+        text: ten(r) + (r.p < r.pCu ? ' hạ giá ' : ' tăng giá ') + money(r.pCu) + ' → ' + money(r.p) +
               ' (' + (pc > 0 ? '+' : '') + pc.toFixed(0) + '%)'});
     }
-    if (r.prev && r.prev.pmin && r.pmin !== r.prev.pmin)
+    if (!cmp.bu && r.prev && r.prev.pmin && r.pmin !== r.prev.pmin)
       out.push({w: 50, icon:'🏷', cls:'', id:r.id,
         text: ten(r) + ': phân loại rẻ nhất ' + money(r.prev.pmin) + ' → ' + money(r.pmin)});
-    if (r.prev && r.prev.pmax && r.pmax !== r.prev.pmax)
+    if (!cmp.bu && r.prev && r.prev.pmax && r.pmax !== r.prev.pmax)
       out.push({w: 30, icon:'🏷', cls:'', id:r.id,
         text: ten(r) + ': phân loại đắt nhất ' + money(r.prev.pmax) + ' → ' + money(r.pmax)});
-    (r.spCh || []).forEach(c => out.push({w:c.w, icon:c.icon, cls:c.cls, id:r.id, text: ten(r) + ': ' + c.t}));
+    spDong(r);
     if (r.imgNew)  out.push({w: 65, icon:'🖼', cls:'acc', id:r.id, text: ten(r) + ' đổi ảnh bìa'});
     if (r.nameNew) out.push({w: 45, icon:'✏️', cls:'', id:r.id, text: ten(r) + ' đổi tên sản phẩm'});
   });
@@ -5121,4 +5152,4 @@ function rvReportText(kw, cur, cmp, vol){
   return L.join('\n');
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "534e9336"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "cf15e246"]);
