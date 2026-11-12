@@ -8,7 +8,21 @@ nếu không cần. Sắp xếp lại bảng thì không tốn lượt.
 
 ## 0. Cần có
 
-- Trình duyệt của tác vụ đã đăng nhập https://metric.vn (tài khoản của chủ).
+- **Dùng Chrome thật, hồ sơ "Quét đối thủ"** (thư mục hồ sơ `Quet doi thu`,
+  tạo 12/11/2026) qua tiện ích Claude in Chrome — KHÔNG dùng khung trình duyệt
+  trong app Claude: khung đó mất đăng nhập mỗi lần app khởi động lại. Hồ sơ này
+  đã đăng nhập sẵn Metric (tài khoản của chủ) và Shopee (tài khoản mua hàng phụ),
+  giữ được nhiều tuần.
+  - Đầu buổi: `list_connected_browsers` → chọn đúng trình duyệt của hồ sơ này
+    (`select_browser`). Không chắc cái nào thì mở `https://metric.vn/profile`
+    thử: hồ sơ đúng đọc được "Số lượt phân tích còn lại".
+  - Không thấy kết nối nào của hồ sơ này: nhờ chủ mở Chrome với hồ sơ "Quét đối
+    thủ" (`open -na "Google Chrome" --args --profile-directory="Quet doi thu"`).
+  - Bị đăng xuất: dừng, nhờ chủ đăng nhập lại trong cửa sổ hồ sơ đó. Không tự gõ
+    mật khẩu.
+  - Mở trang Shopee xong thì gọi `javascript_tool` ở lượt sau — gọi ngay lúc
+    trang còn đang chuyển hướng thì tiện ích từ chối ("navigated to a different
+    domain").
 - `tools/.hub_token` — token thiết bị (không nằm trong git). Lần đầu gọi bước 1
   Hub trả `pending`: báo chủ vào **Cài đặt → Nhận số liệu quảng cáo tự động →
   Cho phép**, rồi gọi lại.
@@ -102,9 +116,13 @@ sản phẩm cần đọc: 10 sản phẩm đứng đầu ở lần quét Metric
 khoá, cộng sản phẩm của shop mình trong top. Làm **sau** bước 2 để danh sách
 là top mới nhất.
 
-1. Mở một tab `https://shopee.vn` — phải đang đăng nhập **tài khoản mua hàng
-   phụ** (không đăng nhập thì Shopee không cho xem trang sản phẩm). Chưa đăng
-   nhập: dừng, báo chủ đăng nhập trong khung trình duyệt. Không tự gõ mật khẩu.
+1. Mở một tab `https://shopee.vn` trong hồ sơ "Quét đối thủ" — phải đang đăng
+   nhập **tài khoản mua hàng phụ** (không đăng nhập thì Shopee không cho xem
+   trang sản phẩm). Chưa đăng nhập: dừng, báo chủ đăng nhập trong cửa sổ hồ sơ
+   đó. Không tự gõ mật khẩu.
+   Chỉ quét vài từ khoá (từ khoá mới, từ khoá tới hạn lệch đợt): lấy
+   `do:"splist"`, lọc những sản phẩm có `kws` chứa các từ khoá vừa quét rồi
+   truyền vào `items` — khỏi đọc lại top của từ khoá khác (đỡ bị đòi xác minh).
 2. Đọc nguyên file `tools/shopee-quet.js` và chạy nó bằng javascript_tool trong
    tab đó. Trả `đã gắn (bản N)`. Tải lại trang thì phải gắn lại.
 3. Chạy (thay `VE` bằng vé của bước 1):
