@@ -954,6 +954,11 @@ const RV_TOP = 20;            // Metric trả 20 sản phẩm đầu cho mỗi l
 const RV_TICKET_GIO = 6;      // vé quét sống bao lâu
 const RV_SP_TOP = 10;          // mỗi từ khoá đọc trang Shopee của mấy sản phẩm đứng đầu
 const RV_SP_GIU = 400;         // bản chụp trang Shopee giữ bao nhiêu ngày
+/* Bao lâu quét một từ khoá (ngày). Từ khoá ít biến động quét thưa để đỡ tốn
+   lượt Metric. Tới hạn sớm hơn RV_HAN_SOM ngày cho đợt quét xê dịch một hai
+   hôm vẫn bắt kịp: đợt hằng tuần quét từ khoá "mỗi tháng" ở đợt thứ tư (28 ngày). */
+const RV_TAN = [7, 14, 30];
+const RV_HAN_SOM = 2;
 
 function rvTables(PDO $pdo): void {
   /* Mỗi yêu cầu gọi hàm này 4–6 lần (mỗi hàm rv… một lần) — làm một lần là đủ */
@@ -978,6 +983,22 @@ function rvTables(PDO $pdo): void {
      khoá: một sản phẩm đứng top ở ba từ khoá vẫn chỉ đọc một lần. */
   $pdo->exec('CREATE TABLE IF NOT EXISTS rv_sp (item_id TEXT NOT NULL, date TEXT NOT NULL, at TEXT, data TEXT,
       PRIMARY KEY (item_id, date))');
+  /* every (thêm sau): bao nhiêu ngày quét một lần — xem RV_TAN */
+  if (!in_array('every', array_column($pdo->query('PRAGMA table_info(rv_kw)')->fetchAll(), 'name'), true))
+    $pdo->exec('ALTER TABLE rv_kw ADD COLUMN every INTEGER DEFAULT 7');
+}
+function rvTan($v): int {
+  return in_array((int)$v, RV_TAN, true) ? (int)$v : 7;
+}
+/* Từ khoá có tới hạn quét ở đợt này chưa: [tới hạn?, ngày lần tới theo lịch].
+   Chưa quét lần nào thì tới hạn ngay. `last` là ngày của lần quét mới nhất
+   (lần quét bù mang ngày cũ nên không đẩy lịch đi). */
+function rvKwHan(string $last, int $every, bool $off, string $nay): array {
+  if ($last === '') return [!$off, ''];
+  $d = new DateTime($last);
+  $next = (clone $d)->modify('+' . $every . ' days')->format('Y-m-d');
+  $han = $d->modify('+' . ($every - RV_HAN_SOM) . ' days')->format('Y-m-d');
+  return [!$off && $han <= $nay, $next];
 }
 function rvNorm(string $s): string {
   return (string)preg_replace('/\s+/u', ' ', mb_strtolower(trim($s), 'UTF-8'));
@@ -1015,12 +1036,17 @@ function rvKwList(bool $caTat = true): array {
   $pdo = db(); rvTables($pdo);
   $rows = $pdo->query('SELECT k.*, (SELECT MAX(date) FROM rv_scan s WHERE s.kw_id = k.id) last,
       (SELECT COUNT(*) FROM rv_scan s WHERE s.kw_id = k.id) n FROM rv_kw k ORDER BY k.created')->fetchAll();
+  $nay = (new DateTime('now', new DateTimeZone(KH_TZ)))->format('Y-m-d');
   $out = [];
   foreach ($rows as $r) {
-    if (!$caTat && (int)$r['off'] === 1) continue;
+    $off = (int)$r['off'] === 1;
+    if (!$caTat && $off) continue;
+    $every = rvTan($r['every'] ?? 7);
+    $last = (string)($r['last'] ?? '');
+    [$due, $next] = rvKwHan($last, $every, $off, $nay);
     $out[] = ['id' => (string)$r['id'], 'kw' => (string)$r['kw'], 'kind' => $r['kind'] === 'sp' ? 'sp' : 'main',
-              'note' => (string)$r['note'], 'off' => (int)$r['off'] === 1,
-              'last' => (string)($r['last'] ?? ''), 'n' => (int)$r['n']];
+              'note' => (string)$r['note'], 'off' => $off, 'every' => $every, 'due' => $due, 'next' => $next,
+              'last' => $last, 'n' => (int)$r['n']];
   }
   return $out;
 }

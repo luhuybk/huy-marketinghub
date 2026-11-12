@@ -1430,18 +1430,21 @@ function rvKwForm(id, goiY){
   const cu = id ? rvKwOf(id) : null;
   formModal({
     title: cu ? 'Sửa từ khoá theo dõi' : 'Thêm từ khoá theo dõi',
-    values: cu || {kw: goiY || '', kind:'main', note:'', off:false},
+    values: cu ? Object.assign({}, cu, {every: String(rvEvery(cu))}) : {kw: goiY || '', kind:'main', note:'', off:false, every:'7'},
     fields: [
       {k:'kw', l:'Từ khoá', t:'text', req:true, ph:'vd gôm xịt tóc · sáp vuốt tóc nam Roug'},
       {k:'kind', l:'Loại', t:'select', half:true, opts: Object.entries(RV_KINDS)},
+      {k:'every', l:'Quét', t:'select', half:true, opts: Object.entries(RV_TAN)},
       {k:'off', l:'Trạng thái', t:'check', half:true, ph:'Tạm ngừng quét'},
       {k:'note', l:'Ghi chú', t:'text', ph:'vd sản phẩm của mình ứng với từ khoá này'}
     ],
-    extra: cu ? '' : `<div class="dim" style="margin-top:10px">Gõ đúng như bạn sẽ tìm trên Metric. Mỗi từ khoá tốn
-      1 lượt phân tích Metric cho mỗi lần quét.</div>`,
+    extra: `<div class="dim" style="margin-top:10px">${cu ? '' : 'Gõ đúng như bạn sẽ tìm trên Metric. '}Mỗi lần quét một từ khoá tốn
+      1 lượt phân tích Metric. Tác vụ quét chạy mỗi tuần nhưng chỉ quét từ khoá đã tới hạn: "Mỗi tháng" thì cứ 4 đợt
+      mới quét một lần, đỡ 3 lượt so với "Mỗi tuần". Từ khoá ít biến động (từ khoá sản phẩm, từ khoá ngách) nên để
+      thưa.</div>`,
     async onSave(v){
       if (!String(v.kw || '').trim()){ toast('Gõ từ khoá'); return false; }
-      const r = await Server.rivalKwSave({id: cu ? cu.id : '', kw: v.kw, kind: v.kind, note: v.note, off: !!v.off});
+      const r = await Server.rivalKwSave({id: cu ? cu.id : '', kw: v.kw, kind: v.kind, note: v.note, off: !!v.off, every: +v.every || 7});
       if (!cu) ui.rvKw = r.id;
       await loadRival();
       toast(cu ? 'Đã lưu' : 'Đã thêm — lần quét tới sẽ có số');

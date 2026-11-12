@@ -892,6 +892,12 @@ mới vào hay rớt top, ai đổi giá, đổi ảnh bìa, đổi tên.
   `serve.js`). Metric đổi tên trường thì sửa đúng hàm đó.
 - "Từ lần quét trước" = hiệu của **tổng** lượt bán / doanh số giữa hai bản chụp
   (số cộng dồn), không phải hiệu của hai kỳ 30 ngày trượt.
+- **Tần suất quét theo từng từ khoá** (`rv_kw.every`: 7 / 14 / 30 ngày, mặc
+  định 7). Tác vụ vẫn chạy mỗi tuần nhưng chỉ quét từ khoá `due` — máy chủ tính
+  ở `rvKwHan()`: tới hạn khi đã qua `every − 2` ngày kể từ lần quét mới nhất (để
+  đợt quét xê dịch một hai hôm vẫn bắt kịp; đợt hằng tuần quét từ khoá "mỗi
+  tháng" ở đợt thứ tư). Trang hiện số từ khoá tới hạn ở đợt tới và ước tính số
+  lượt mỗi tháng. Đọc Shopee không theo lịch này.
 - Giới hạn cần nhớ: mỗi từ khoá tốn 1 lượt phân tích Metric cho mỗi lần quét;
   số Metric trễ ~9 ngày; Metric không có voucher và tên phân loại — hai thứ đó
   đọc từ trang Shopee (dưới đây).

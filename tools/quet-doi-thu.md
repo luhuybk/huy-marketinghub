@@ -21,8 +21,17 @@ curl -s -H 'Content-Type: application/json' \
   https://darkblue-bat-395619.hostingersite.com/api/rival.php
 ```
 
-Trả về `ticket` (vé, sống 6 giờ), `url`, `today` và `kws: [{id, kw, last}]`.
-Từ khoá có `last == today` là hôm nay đã quét — **bỏ qua**, khỏi tốn lượt.
+Trả về `ticket` (vé, sống 6 giờ), `url`, `today` và
+`kws: [{id, kw, last, every, due, next}]`.
+
+- **Chỉ quét từ khoá có `due: true`** (bước 2 và bước 3). Chủ chọn cho từng từ
+  khoá quét mỗi tuần / 2 tuần / mỗi tháng (`every` = 7 / 14 / 30 ngày); Hub tính
+  sẵn từ khoá nào đã tới hạn (tới hạn sớm hơn 2 ngày để đợt quét xê dịch vẫn bắt
+  kịp). Từ khoá `due: false` thì bỏ qua — chính là chỗ tiết kiệm lượt.
+  Ngoại lệ: chủ dặn quét một từ khoá cụ thể ngay thì quét, dù chưa tới hạn.
+- Từ khoá có `last == today` là hôm nay đã quét — **bỏ qua**, khỏi tốn lượt.
+- Bước 4 (Shopee) không theo lịch này: vẫn đọc top của mọi từ khoá đang bật
+  (không tốn lượt Metric).
 
 ## 2. Với từng từ khoá — phân tích thị trường (1 lượt)
 
@@ -147,7 +156,7 @@ mỗi từ khoá.
 
 ## 5. Báo lại
 
-Tóm tắt: quét được mấy từ khoá, từ khoá nào lỗi và vì sao, còn bao nhiêu lượt và
+Tóm tắt: quét được mấy từ khoá (và mấy từ khoá chưa tới hạn nên bỏ qua), từ khoá nào lỗi và vì sao, còn bao nhiêu lượt và
 điểm Metric (mở `https://metric.vn/profile` ở **tab khác**: *Số lượt phân tích
 còn lại*, *Điểm phân tích còn lại*); Shopee đọc được mấy / mấy sản phẩm, có bị
 dừng giữa chừng không.

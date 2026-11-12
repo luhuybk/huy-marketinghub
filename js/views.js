@@ -5365,18 +5365,21 @@ function viewRival(){
   const ks = rvKws();
   if (!ks.length)
     return emptyBox('Chưa theo dõi từ khoá nào',
-      'Thêm các từ khoá chính ("gôm xịt tóc") và từ khoá sản phẩm ("sáp vuốt tóc nam Roug"). Mỗi tuần tác vụ quét sẽ lấy top sản phẩm của từng từ khoá trên Metric.',
+      'Thêm các từ khoá chính ("gôm xịt tóc") và từ khoá sản phẩm ("sáp vuốt tóc nam Roug"). Mỗi tuần tác vụ quét sẽ lấy top sản phẩm của từng từ khoá trên Metric — từ khoá nào ít biến động thì đặt quét 2 tuần hoặc mỗi tháng một lần cho đỡ tốn lượt.',
       'rvnew', 'Thêm từ khoá');
 
   const {kw, ds, cur, cmp, vol, volPrev} = rvView();
 
   /* ---- 1. hàng từ khoá ---- */
   const nut = k => `<button class="btn sm ${k.id === kw.id ? 'pri' : ''} ${k.off ? 'rv-off' : ''}" data-act="rvkw" data-id="${esc(k.id)}"
-      title="${esc(k.off ? 'tạm ngừng quét' : k.last ? 'quét gần nhất ' + fmtDate(k.last) : 'chưa quét lần nào')}">${
-      esc(k.kw)}${k.n ? '' : ' <span class="rv-chua">chưa quét</span>'}</button>`;
+      title="${esc(k.off ? 'tạm ngừng quét' : RV_TAN[rvEvery(k)] + ' · ' + (k.last ? 'quét gần nhất ' + fmtDate(k.last) +
+        (k.due ? ' · tới hạn ở đợt quét tới' : ' · lần tới khoảng ' + fmtDate(k.next)) : 'chưa quét lần nào'))}">${
+      esc(k.kw)}${!k.n ? ' <span class="rv-chua">chưa quét</span>' : !k.off && RV_TAN_NGAN[rvEvery(k)] ? ` <span class="rv-chua">${RV_TAN_NGAN[rvEvery(k)]}</span>` : ''}</button>`;
   const nhom = id => ks.filter(k => k.kind === id);
+  const bat = ks.filter(k => !k.off), toi = bat.filter(k => k.due);
   let h = `<div class="toolbar">
-      <div class="dim grow">${ks.filter(k => !k.off).length} từ khoá đang quét · mỗi lần quét tốn ${ks.filter(k => !k.off).length} lượt phân tích Metric</div>
+      <div class="dim grow">${bat.length} từ khoá đang theo dõi · đợt quét tới quét <b>${toi.length}</b> từ khoá đã tới hạn
+        (tốn ${toi.length} lượt Metric) · khoảng <b>${rvLuotThang(ks)}</b> lượt mỗi tháng</div>
       <button class="btn sm" data-act="rvreload">↻ Tải lại</button>
       <button class="btn pri" data-act="rvnew">+ Từ khoá</button>
     </div>`;
@@ -5387,7 +5390,9 @@ function viewRival(){
 
   /* ---- 2. đầu mục của từ khoá đang xem + chọn lần quét ---- */
   h += `<div class="rv-hd"><div class="grow"><h2>${esc(kw.kw)}</h2>
-      <div class="dim">${esc(RV_KINDS[kw.kind])}${kw.off ? ' · đang tạm ngừng quét' : ''}${kw.note ? ' · ' + esc(kw.note) : ''}</div></div>
+      <div class="dim">${esc(RV_KINDS[kw.kind])}${kw.off ? ' · đang tạm ngừng quét'
+        : ' · quét ' + esc(RV_TAN[rvEvery(kw)].toLowerCase()) + (!kw.last ? '' : kw.due ? ' · tới hạn ở đợt quét tới' : ' · lần tới khoảng ' + esc(fmtDate(kw.next)))}${
+        kw.note ? ' · ' + esc(kw.note) : ''}</div></div>
       <button class="btn sm" data-act="rvedit" data-id="${esc(kw.id)}">✎ Sửa</button></div>`;
 
   if (!rv.scans[kw.id]) return h + `<div class="dim" style="padding:20px 4px">Đang tải các lần quét…</div>`;

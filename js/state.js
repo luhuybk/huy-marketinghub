@@ -4871,6 +4871,13 @@ function launchAutoMarks(){
 const rv = {state:null, scans:{}, vols:{}, sp:{}, err:'', asked:false, busy:false};
 const RV_KINDS = {main:'Từ khoá chính', sp:'Từ khoá sản phẩm'};
 const RV_SHOW = 10;                       // bảng mặc định hiện top mấy
+/* Bao lâu quét một từ khoá (ngày) — máy chủ quyết định tới hạn (rvKwHan ở
+   api/lib.php), app chỉ hiện. Ngắn là tên gắn cạnh nút từ khoá. */
+const RV_TAN = {7:'Mỗi tuần', 14:'2 tuần một lần', 30:'Mỗi tháng'};
+const RV_TAN_NGAN = {14:'2 tuần', 30:'tháng'};
+const rvEvery = k => RV_TAN[k && k.every] ? +k.every : 7;
+/* Một tháng (30 ngày) tốn khoảng bao nhiêu lượt Metric với các từ khoá đang bật */
+const rvLuotThang = ks => Math.round(ks.filter(k => !k.off).reduce((a, k) => a + 30 / rvEvery(k), 0));
 
 const rvKws   = () => (rv.state && rv.state.kws) || [];
 const rvKwOf  = id => rvKws().find(k => k.id === id) || null;
@@ -5020,8 +5027,10 @@ function rvSpDiff(cur, prev, a, b){
    Metric để có cái mà so). Thứ hạng và doanh số trong kỳ của nó là thật, nhưng
    giá, ảnh bìa và TỔNG đã bán là số của hôm quét bù chứ không phải hồi đó —
    nên không lấy hiệu tổng đã bán với một lần quét bù. `at` là giờ UTC. */
-const rvLaBu = s => !!(s && s.at && s.date &&
-  new Date(new Date(s.at).getTime() + 7 * 36e5).toISOString().slice(0, 10) > s.date);
+const rvLaBu = s => {
+  const t = s && s.at && s.date ? Date.parse(s.at) : NaN;     // `at` hỏng thì coi như không phải bù, đừng làm sập trang
+  return !isNaN(t) && new Date(t + 7 * 36e5).toISOString().slice(0, 10) > s.date;
+};
 function rvCompare(cur, prev, next){
   const bu = rvLaBu(prev) || rvLaBu(cur);
   const cu = new Map(((prev && prev.items) || []).map((x, i) => [x.id, Object.assign({rank:i + 1}, x)]));

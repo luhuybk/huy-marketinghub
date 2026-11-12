@@ -501,14 +501,15 @@ switch ($action) {
     $kind = ($in['kind'] ?? '') === 'sp' ? 'sp' : 'main';
     $note = mb_substr(trim((string)($in['note'] ?? '')), 0, 300, 'UTF-8');
     $off = !empty($in['off']) ? 1 : 0;
+    $every = rvTan($in['every'] ?? 7);
     if ($id !== '') {
-      $st = $pdo->prepare('UPDATE rv_kw SET kw = ?, kind = ?, note = ?, off = ? WHERE id = ?');
-      $st->execute([$kw, $kind, $note, $off, $id]);
+      $st = $pdo->prepare('UPDATE rv_kw SET kw = ?, kind = ?, note = ?, off = ?, every = ? WHERE id = ?');
+      $st->execute([$kw, $kind, $note, $off, $every, $id]);
       if (!$st->rowCount()) fail('Không thấy từ khoá này.', 404);
     } else {
       $id = 'rk' . bin2hex(random_bytes(6));
-      $pdo->prepare('INSERT INTO rv_kw (id, kw, kind, note, off, created) VALUES (?,?,?,?,?,?)')
-          ->execute([$id, $kw, $kind, $note, $off, gmdate('c')]);
+      $pdo->prepare('INSERT INTO rv_kw (id, kw, kind, note, off, every, created) VALUES (?,?,?,?,?,?,?)')
+          ->execute([$id, $kw, $kind, $note, $off, $every, gmdate('c')]);
     }
     out(['ok' => true, 'id' => $id]);
   }

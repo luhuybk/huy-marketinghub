@@ -587,12 +587,13 @@ function api(req, res, body){
       let id = String(inp.id || '');
       if (rvKwList(true).some(k => k.id !== id && rvNorm(k.kw) === rvNorm(kw))) return fail('Từ khoá này đã có trong danh sách.');
       const kind = inp.kind === 'sp' ? 'sp' : 'main', note = [...String(inp.note || '').trim()].slice(0, 300).join(''), off = inp.off ? 1 : 0;
+      const every = rvTan(inp.every);
       if (id){
-        const r = D.prepare('UPDATE rv_kw SET kw = ?, kind = ?, note = ?, off = ? WHERE id = ?').run(kw, kind, note, off, id);
+        const r = D.prepare('UPDATE rv_kw SET kw = ?, kind = ?, note = ?, off = ?, every = ? WHERE id = ?').run(kw, kind, note, off, every, id);
         if (!r.changes) return fail('Không thấy từ khoá này.', 404);
       } else {
         id = 'rk' + crypto.randomBytes(6).toString('hex');
-        D.prepare('INSERT INTO rv_kw (id, kw, kind, note, off, created) VALUES (?,?,?,?,?,?)').run(id, kw, kind, note, off, iso());
+        D.prepare('INSERT INTO rv_kw (id, kw, kind, note, off, every, created) VALUES (?,?,?,?,?,?,?)').run(id, kw, kind, note, off, every, iso());
       }
       return send({ok:true, id});
     }
@@ -1266,6 +1267,7 @@ function ingestRoute(req, res, body){
 
 /* ---------------- Theo dõi đối thủ: bản Node của các hàm rv… trong api/lib.php ---------------- */
 const RV_TOP = 20, RV_TICKET_GIO = 6, RV_SP_TOP = 10, RV_SP_GIU = 400;
+const RV_TAN = [7, 14, 30], RV_HAN_SOM = 2;      // xem RV_TAN bên api/lib.php
 const rvDaTao = new WeakSet();          // kho nào đã dựng bảng rv… rồi
 function rvTables(D){
   if (rvDaTao.has(D)) return;
@@ -1280,6 +1282,14 @@ function rvTables(D){
     CREATE TABLE IF NOT EXISTS rv_sp (item_id TEXT NOT NULL, date TEXT NOT NULL, at TEXT, data TEXT,
       PRIMARY KEY (item_id, date))`);
   if (!D.prepare('PRAGMA table_info(rv_scan)').all().some(r => r.name === 'extra')) D.exec('ALTER TABLE rv_scan ADD COLUMN extra TEXT');
+  if (!D.prepare('PRAGMA table_info(rv_kw)').all().some(r => r.name === 'every')) D.exec('ALTER TABLE rv_kw ADD COLUMN every INTEGER DEFAULT 7');
+}
+const rvTan = v => RV_TAN.includes(Math.trunc(+v)) ? Math.trunc(+v) : 7;
+const rvCong = (d, n) => new Date(Date.parse(d + 'T00:00:00Z') + n * 864e5).toISOString().slice(0, 10);
+/* [tới hạn?, ngày lần tới theo lịch] — xem rvKwHan() bên PHP */
+function rvKwHan(last, every, off, nay){
+  if (!last) return [!off, ''];
+  return [!off && rvCong(last, every - RV_HAN_SOM) <= nay, rvCong(last, every)];
 }
 const rvNorm = s => String(s || '').trim().toLowerCase().replace(/\s+/gu, ' ');
 const rvNgay = s => { s = String(s || '').replace(/\D/g, ''); return s.length === 8 ? `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}` : ''; };
@@ -1305,8 +1315,11 @@ function rvKwList(caTat = true){
   return D.prepare(`SELECT k.*, (SELECT MAX(date) FROM rv_scan s WHERE s.kw_id = k.id) last,
       (SELECT COUNT(*) FROM rv_scan s WHERE s.kw_id = k.id) n FROM rv_kw k ORDER BY k.created`).all()
     .filter(r => caTat || r.off !== 1)
-    .map(r => ({id:String(r.id), kw:String(r.kw), kind:r.kind === 'sp' ? 'sp' : 'main', note:String(r.note || ''),
-                off:r.off === 1, last:String(r.last || ''), n:r.n}));
+    .map(r => {
+      const every = rvTan(r.every), last = String(r.last || ''), [due, next] = rvKwHan(last, every, r.off === 1, vnNow().date);
+      return {id:String(r.id), kw:String(r.kw), kind:r.kind === 'sp' ? 'sp' : 'main', note:String(r.note || ''),
+              off:r.off === 1, every, due, next, last, n:r.n};
+    });
 }
 function rvKwCheck(D, inp){
   let kw = D.prepare('SELECT * FROM rv_kw WHERE id = ?').get(String(inp.kw_id || ''));
