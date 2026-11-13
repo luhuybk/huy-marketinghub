@@ -812,7 +812,10 @@ Quyền riêng **Xây dựng SP** (`build`).
     Mỗi phân loại **đặt cạnh** một dòng đối thủ (chọn trong Sửa giá & phân loại);
     không chọn thì Hub tự đoán theo tên phân loại ("Combo 2 hộp" ↔ combo 2 hộp của
     đối thủ), đoán không ra mới so với dòng rẻ nhất. **Thang giá** xếp mọi mức giá
-    cuối của các đối thủ đã ghim và giá của mình từ rẻ tới đắt. Người có quyền
+    cuối của các đối thủ đã ghim và giá của mình từ rẻ tới đắt; bấm **Theo shop** để
+    tách thành từng nhóm shop (nhóm của mình đứng đầu, mỗi nhóm ghi khoảng giá và giá
+    rẻ nhất của mình đắt/rẻ hơn bao nhiêu %, vạch màu trên thanh đối thủ là giá các
+    phân loại của mình; chế độ nhớ theo máy), có nút ẩn phân loại hết hàng. Người có quyền
     **Tính chi phí** điền thêm giá vốn và thấy lời/đơn + ROAS hoà vốn (bảng phí của
     sản phẩm đã gắn, không gắn thì bảng phí mặc định), cùng khung
     **🧮 Thử giá với ROAS thực tế**. Mỗi bảng có **gian hàng chính** (chọn ở ✎ Sửa)

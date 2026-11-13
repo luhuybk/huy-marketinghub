@@ -1041,6 +1041,15 @@ tr.rv-dang{background:var(--bg3)}
 .bd-lr.me{background:color-mix(in srgb,var(--acc) 12%,transparent);font-weight:600}
 .bd-lr.me .bd-lb i{background:var(--acc)}
 .bd-lr.het{opacity:.5}
+.bd-lr .bd-lb{position:relative;overflow:visible}
+.bd-lr .bd-lb em{position:absolute;top:-4px;bottom:-4px;width:3px;margin-left:-1.5px;border-radius:2px;background:var(--acc);box-shadow:0 0 0 1px var(--bg2)}
+.bd-ladsw{margin:0 0 8px}
+.bd-ladg{border:1px solid var(--line);border-radius:10px;padding:6px 8px;margin:6px 0;background:var(--bg2)}
+.bd-ladg.me{border-color:color-mix(in srgb,var(--acc) 45%,var(--line))}
+.bd-ladg summary,.bd-ladh{cursor:pointer;font-size:13px;margin-bottom:4px}
+.bd-ladh{cursor:default}
+.bd-ladp{font-size:12px;color:var(--tx2);margin:6px 6px 2px;font-weight:600}
+.bd-ladnote{font-size:11.5px;margin:4px 6px 0}
 .bd-pk{display:grid;gap:4px;max-height:52vh;overflow-y:auto;margin-top:8px}
 .bd-pkr{display:flex;gap:10px;align-items:center;padding:6px 8px;border:1px solid var(--line);border-radius:10px;cursor:pointer;font-size:12.5px;min-width:0}
 .bd-pkr.on{border-color:var(--acc);background:color-mix(in srgb,var(--acc) 9%,transparent)}

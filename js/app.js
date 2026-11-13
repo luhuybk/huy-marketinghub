@@ -4996,6 +4996,8 @@ const ACTIONS = {
   bpinto:   id => bPinTo(id),
   bpinadd:  id => may('rival') ? bPinMany(id) : bPinAdd(id),
   bimgref:  id => { ui.bImgRef = id; render(); },
+  blad:     k => { ui.bLad = k === 'shop' ? 'shop' : ''; try { localStorage.setItem('kolhub.bLad', ui.bLad); } catch(e){} render(); },
+  bladhet:  () => { ui.bLadHet = !ui.bLadHet; render(); },
   bthukhop: id => bThuKhop(id),
   bthuapply: id => bThuApply(id),
   bthureset: id => { delete ui.bThu[id]; render(); },
