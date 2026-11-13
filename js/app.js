@@ -24,6 +24,7 @@ const NAV = [
   {id:'cost',     icon:'🧮',label:'Tính chi phí',  perm:'cost'},
   {id:'improve',  icon:'🔻',label:'Cải thiện SP', perm:'improve'},
   {id:'newprod',  icon:'💡',label:'Sản phẩm mới', perm:'newprod'},
+  {id:'build',    icon:'🛠',label:'Xây dựng SP',  perm:'build'},
   {id:'compare',  icon:'⇄', label:'So sánh kênh', perm:'compare'},
   {id:'resources',icon:'▤', label:'Tài nguyên',   perm:'resources'},
   {id:'review',   icon:'⚑', label:'Cần bạn duyệt', ownerOnly:true},
@@ -37,7 +38,7 @@ const TITLES = {today:'Hôm nay', dash:'Tổng quan', pipeline:'Booking', kols:'
                 sp:'Sức khoẻ trên Shopee', adreport:'Báo cáo quảng cáo',
                 adcamp:'Chiến dịch', keywords:'Đánh top từ khoá', kw:'Dự án từ khoá',
                 cost:'Tính chi phí', costsp:'Chi phí sản phẩm', pj:'Dự án',
-                launch:'Hàng mới về', rival:'Theo dõi đối thủ'};
+                launch:'Hàng mới về', rival:'Theo dõi đối thủ', build:'Bảng xây dựng sản phẩm'};
 /* Trang chỉ chủ mở được. Nhân viên gõ thẳng đường dẫn cũng bị đưa về Hôm nay. */
 const OWNER_PAGES = ['settings', 'review'];
 /* Trang con mở từ một trang chính — quyền đi theo trang cha. Mảng = có MỘT
@@ -111,6 +112,7 @@ function render(){
       case 'ads':      html = viewAds(); break;
       case 'improve':  html = viewImprove(); break;
       case 'newprod':  html = viewNewProd(); break;
+      case 'build':    html = viewBuild(route.id); break;
       case 'launch':   html = viewLaunch(route.id); break;
       case 'sp':       html = viewSp(route.id); break;
       case 'compare':  html = viewCompare(); break;
@@ -235,12 +237,13 @@ function renderSide(){
     ads: products().filter(p => ['due','overdue'].includes(trackState(p.id).key)).length,
     improve: openImpacts().filter(im => dayDiff(im.reviewAt) <= 0).length,
     newprod: dueIdeas().length,
+    build: myBtasks().filter(t => t.due && t.due <= today()).length,
     launch: reminderTasks().filter(t => t.id.startsWith('ln_') && t.due <= today()).length,
     dash: alerts().filter(a => a.level === 'bad').length,
     today: todayCount(),
     review: reviewCount()
   };
-  const hot = {dash:1, ads:1, today:1, improve:1, postfb:1, posttt:1, launch:1};
+  const hot = {dash:1, ads:1, today:1, improve:1, postfb:1, posttt:1, launch:1, build:1};
   const active = route.page === 'kol' ? 'kols' : route.page === 'product' ? 'ads'
                : route.page === 'sp' ? 'improve' : route.page === 'kw' ? 'keywords'
                : route.page === 'costsp' || route.page === 'pj' ? 'cost' : route.page;
@@ -1514,10 +1517,18 @@ function rvProdOpen(id){
      nhóm bán chạy (có hạng) rồi tới nhóm mới lên kệ (không có hạng). */
   let ds, ten;
   if (ui.rvTab === 'shop'){
-    const sh = rvShops().find(x => x.scans.some(c => c.top.concat(c.new).some(y => y.id === id)));
+    const sh = rvShops().find(x => x.scans.some(c => c.top.concat(c.new).some(y => y.id === id)) ||
+                                   (x.deep || []).some(d => d.items.some(y => y.id === id)));
     if (!sh) return;
-    ds = sh.scans.map(c => { const co = new Set(c.top.map(y => y.id));
-      return {date:c.date, at:c.at, nTop:c.top.length, items:c.top.concat(c.new.filter(y => !co.has(y.id)))}; });
+    /* Mỗi ngày quét: danh sách có hạng (lần quét sâu ngày đó nếu có, không thì
+       5 sản phẩm của trang Theo dõi), rồi tới các sản phẩm mới lên kệ (không hạng). */
+    const sau = new Map((sh.deep || []).map(d => [d.date, d]));
+    const theo = new Map(sh.scans.map(c => [c.date, c]));
+    ds = [...new Set([...sau.keys(), ...theo.keys()])].sort().reverse().map(d => {
+      const c = theo.get(d), dp = sau.get(d);
+      const top = dp ? dp.items : c ? c.top : [], co = new Set(top.map(y => y.id));
+      return {date:d, at:(dp || c).at, nTop:top.length, items:top.concat(c ? c.new.filter(y => !co.has(y.id)) : [])};
+    });
     ten = 'gian hàng ' + sh.name;
   } else {
     const v = rvView();
@@ -1537,6 +1548,8 @@ function rvProdOpen(id){
   const bia = sp && sp.img ? sp.img : x.img;
   const g = sum && sum.re;
   const pc = v => v.toFixed(v < 10 && v % 1 ? 1 : 0).replace('.', ',') + '%';
+  /* Ảnh chụp sản phẩm này để ghim vào bảng xây dựng (nút 📌 bên dưới) */
+  rvPinSnap = bRefFrom(x, sp, sum);
 
   let h = `<div class="rv-ph">
       <div class="rv-big">${bia ? `<a href="${esc(rvImg(bia))}" target="_blank" rel="noopener noreferrer" title="Mở ảnh gốc">
@@ -1557,6 +1570,7 @@ function rvProdOpen(id){
         ${sp && sp.tags && sp.tags.length ? `<div class="chips" style="margin-top:8px">${sp.tags.map(t => `<span class="chip warn">${esc(t)}</span>`).join('')}</div>` : ''}
         <div class="btns" style="margin-top:10px">
           ${x.url ? `<a class="btn sm" href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">Mở trên Shopee ↗</a>` : ''}
+          ${may('build') ? `<button class="btn sm pri" data-act="bpin">📌 Ghim vào bảng xây dựng</button>` : ''}
           ${x.sid && isOwner() ? `<button class="btn sm" data-act="rvmine" data-id="${esc(x.sid)}" data-name="${esc(x.shop)}" data-on="${danhDau ? '' : '1'}">${
             danhDau ? 'Bỏ đánh dấu shop của mình' : mine ? '⭐ Shop của mình (trùng tên gian hàng)' : '⭐ Đây là shop của mình'}</button>` : ''}
         </div>
@@ -4963,11 +4977,39 @@ const ACTIONS = {
   rvedit:   id => isOwner() && rvKwForm(id),
   rvprod:   id => rvProdOpen(id),
   rvreload: () => { rv.asked = false; rv.scans = {}; rv.vols = {}; rv.sp = {}; rv.state = null; rv.shops = null; rv.shLuc = 0; render(); },
+  /* ---- Bảng xây dựng sản phẩm ---- */
+  bnew:     () => buildForm(null),
+  bopen:    id => { ui.bTab = 'all'; ui.bLog = ''; go('build', id); },
+  bedit:    id => buildForm(buildOf(id)),
+  btab:     id => { ui.bTab = id; render(); },
+  blog:     id => { ui.bLog = id; render(); },
+  bshowall: () => { ui.bShowAll = true; render(); },
+  btask:    id => btaskModal(id),
+  btasknew: id => { const [bid, sec] = id.split('|'); btaskForm(bid, sec, null); },
+  bprice:   id => bPriceEdit(id),
+  bpol:     id => bPolEdit(id),
+  bimg:     id => bImgModal(id),
+  bimgpick: () => { const f = document.getElementById('bdFile'); if (f) f.click(); },
+  bcmt:     id => bComment(id),
+  bref:     id => { const [bid, rid] = id.split('|'); bRefModal(bid, rid); },
+  bpin:     () => bPinPick(),
+  bpinto:   id => bPinTo(id),
+  bpinadd:  id => bPinAdd(id),
+  bunpin:   id => { const [bid, rid] = id.split('|'); bUnpin(bid, rid); },
+  btst:     (id, el) => { const [tid, st] = id.split('|'); btaskSet(tid, st); },
+  bist:     id => { const [iid, st] = id.split('|'); bImgSet(iid, st); },
   /* ---- thẻ Gian hàng đối thủ ---- */
   rvtab:    id => { ui.rvTab = id === 'shop' ? 'shop' : 'kw'; render(); },
   rvshop:   id => { ui.rvShop = ui.rvShop === id ? '' : id; render(); },
   rvshdate: id => { ui.rvShDate = id; render(); },
   rvshall:  () => { ui.rvShAll = !ui.rvShAll; render(); },
+  /* tần suất quét sâu của một gian hàng */
+  rvshtan:  async (id, el) => {
+    if (!isOwner()) return;
+    try { await Server.rivalShopSave(id, +el.value); }
+    catch(e){ toast('Không lưu được: ' + (e.message || e)); return render(); }
+    await loadRivalShops(); toast(+el.value ? 'Đã lưu — ' + RV_SH_SAU_TAN[+el.value].toLowerCase() : 'Đã tắt quét sâu cho gian hàng này');
+  },
   rvshopdel: async id => {
     if (!isOwner()) return;
     const sh = rvShops().find(x => x.id === id);
@@ -5317,6 +5359,7 @@ const ACTIONS = {
     else if (p === 'sp') spImportModal(route.id);
     else if (p === 'improve') spImportModal('');
     else if (p === 'newprod') ideaForm(null);
+    else if (p === 'build') { if (route.id && buildOf(route.id)) btaskForm(route.id, BUILD_SECS[ui.bTab] ? ui.bTab : 'other', null); else buildForm(null); }
     else if (p === 'launch') ACTIONS.newlaunch();
     else if (p === 'rival') { if (isOwner()) rvKwForm(null); }
     else if (p === 'keywords' || p === 'kw') kwForm(null);
@@ -5406,6 +5449,9 @@ document.addEventListener('input', e => {
   }, 260);
 });
 document.addEventListener('change', e => {
+  /* Ô chọn gọi thẳng một ACTION: <select data-chact="ten" data-id="…"> → ACTIONS.ten(id, el) */
+  const ca = e.target.closest('[data-chact]');
+  if (ca && ACTIONS[ca.dataset.chact]){ ACTIONS[ca.dataset.chact](ca.dataset.id || '', ca); return; }
   const el = e.target.closest('[data-inp]');
   if (el){
     ui[el.dataset.inp] = el.value;
@@ -5606,4 +5652,466 @@ function checkBuild(){
   }
 })();
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "5bae086d"]);
+/* ============================================================
+   BẢNG XÂY DỰNG SẢN PHẨM — thao tác
+   Mọi thay đổi có ý nghĩa (giá, phân loại, chính sách, trạng thái việc, duyệt
+   ảnh, ghim đối thủ) ghi một dòng `hist` vào nhật ký, kèm tên người làm. Giá
+   vốn thì KHÔNG ghi vào nhật ký: nhật ký ai có quyền Xây dựng SP cũng đọc
+   được, còn giá vốn chỉ người có quyền Tính chi phí mới được thấy.
+   ============================================================ */
+let rvPinSnap = null;                 // sản phẩm đối thủ đang mở trong hộp chi tiết — để ghim
+const bWho = () => myName() || (whoAmI() === 'owner' ? 'Chủ' : 'Nhân viên');
+function bNote(bid, kind, text, extra){
+  const n = stamp(Object.assign({buildId: bid, kind, text: String(text || '').slice(0, 4000), byName: bWho(),
+                                 at: now(), taskId: '', sec: ''}, extra || {}));
+  db.bnotes.push(n);
+  return n;
+}
+const bHist = (bid, text, extra) => bNote(bid, 'hist', text, extra);
+const bTien = v => v ? money(v) : '—';
+const bNhay = s => '“' + cut(String(s || '').replace(/\s+/g, ' ').trim() || '(trống)', 120) + '”';
+
+/* Chụp lại một sản phẩm đối thủ lúc ghim: số Metric + bảng giá Shopee nếu có.
+   Chụp chứ không trỏ: dữ liệu đối thủ nằm ở máy chủ, không đồng bộ về máy,
+   nhân viên không có quyền Theo dõi đối thủ vẫn phải xem được mốc so. */
+function bRefFrom(x, sp, sum){
+  if (!x) return null;
+  const g = sum && sum.re;
+  return {id: String(x.id), sid: x.sid || '', n: x.n || '', shop: x.shop || '', img: (sp && sp.img) || x.img || '', url: x.url || '',
+    p: x.p || 0, pmin: x.pmin || 0, pmax: x.pmax || 0, r: x.r || 0, o: x.o || 0, sold: x.sold || 0, ra: x.ra || 0, rc: x.rc || 0,
+    created: x.created || '', mall: !!x.mall, gc: g ? g.f : 0, gpb: g ? g.pb : 0,
+    models: sum ? sum.rows.slice(0, 40).map(r => ({n: r.n, p: r.p, pb: r.pb, f: r.f, ok: r.ok})) : [],
+    imgs: sp && sp.imgs ? sp.imgs.slice(0, 12) : [],
+    vouchers: sp ? (sp.vouchers || []).filter(v => !v.coin).slice(0, 8).map(rvVoucherTen) : [],
+    tags: sp ? (sp.tags || []).slice(0, 6) : [], spDate: sp ? sp.date || '' : '', at: today()};
+}
+
+/* ---- tạo / sửa một bảng ---- */
+async function buildForm(b, preset){
+  const isNew = !b;
+  await loadNames();
+  const v0 = b ? Object.assign({}, b) : Object.assign({mode:'new', st:'dang', name:'', goal:'', productId:'', ideaId:''}, preset || {});
+  if (isNew && !v0.who){ const u = (nameCfg || []).find(x => x.name === myName()); if (u) v0.who = u.id; }
+  formModal({
+    title: isNew ? 'Bảng xây dựng sản phẩm mới' : 'Sửa bảng', values: v0, wide: true,
+    saveLabel: isNew ? 'Tạo bảng' : 'Lưu',
+    extra: isNew && preset && preset.refs ? `<div class="explain">Bảng mới sẽ ghim sẵn đối thủ <b>${esc(preset.refs[0].shop)}</b> — ${esc(cut(preset.refs[0].n, 80))}.</div>` : '',
+    fields: [
+      {k:'name', l:'Tên bảng', t:'text', req:true, ph:'Sáp vuốt tóc mờ 90g — dựng theo Roug Matte'},
+      {k:'mode', l:'Loại', t:'select', half:true, opts: Object.entries(BUILD_MODE)},
+      {k:'st', l:'Trạng thái', t:'select', half:true, opts: Object.entries(BUILD_ST)},
+      {k:'productId', l:'Gắn sản phẩm đang bán', t:'select', half:true,
+       opts: [['', '— không gắn —']].concat(products().filter(p => !p.archived).map(p => [p.id, p.name]))},
+      may('newprod') ? {k:'ideaId', l:'Gắn ý tưởng (Sản phẩm mới)', t:'select', half:true,
+       opts: [['', '— không gắn —']].concat(ideas().map(i => [i.id, i.name]))} : null,
+      whoField('who', 'Ai phụ trách chính'),
+      {k:'goal', l:'Định hướng / mục tiêu', t:'textarea', rows:3,
+       ph:'Đánh vào phân khúc 150–200k, ảnh bìa nền trắng chữ to, phân loại 90g + combo 2 hộp…'}
+    ],
+    async onSave(v){
+      if (!String(v.name || '').trim()){ toast('Đặt tên cho bảng'); return false; }
+      const rec = isNew ? stamp({refs: (preset && preset.refs) || [], vars: [], vPct: 0, pol: {}, created: today()}) : db.builds.find(x => x.id === b.id);
+      if (!rec) return;
+      const cu = Object.assign({}, rec);
+      const w = whoRead(v, 'who');
+      Object.assign(rec, {name: v.name.trim(), mode: v.mode, st: v.st, productId: v.productId || '', goal: v.goal || '',
+                          who: w.who, whoName: w.whoName});
+      if (v.ideaId !== undefined) rec.ideaId = v.ideaId || '';
+      stamp(rec);
+      if (isNew){
+        db.builds.push(rec);
+        bHist(rec.id, 'Tạo bảng' + (rec.refs.length ? ', ghim đối thủ ' + rec.refs[0].shop + ' — ' + cut(rec.refs[0].n, 60) : ''));
+      } else {
+        const doi = [];
+        if (cu.name !== rec.name) doi.push('đổi tên ' + bNhay(cu.name) + ' → ' + bNhay(rec.name));
+        if (cu.st !== rec.st) doi.push('trạng thái ' + BUILD_ST[cu.st] + ' → ' + BUILD_ST[rec.st]);
+        if ((cu.whoName || '') !== (rec.whoName || '')) doi.push('phụ trách ' + (cu.whoName || 'chưa ai') + ' → ' + (rec.whoName || 'chưa ai'));
+        if ((cu.goal || '') !== (rec.goal || '')) doi.push('định hướng ' + bNhay(cu.goal) + ' → ' + bNhay(rec.goal));
+        if (doi.length) bHist(rec.id, 'Sửa bảng: ' + doi.join(' · '));
+      }
+      ensure(); save();
+      if (isNew){ ui.bTab = 'all'; go('build', rec.id); }
+      toast(isNew ? 'Đã tạo bảng' : 'Đã lưu');
+    },
+    onDelete: isNew ? null : async () => {
+      const im = bimgsOf(b.id);
+      if (!confirm('Xoá bảng "' + b.name + '" cùng ' + btasksOf(b.id).length + ' việc, ' + im.length + ' ảnh và cả nhật ký? Không lấy lại được.')) return false;
+      for (const i of im){ try { await Server.bimgDel(i.id); } catch(e){} }
+      [db.btasks, db.bnotes, db.bimgs, db.bcosts].forEach(arr => arr.forEach(x => { if (x.buildId === b.id && !x.deleted){ x.deleted = true; stamp(x); } }));
+      const rec = db.builds.find(x => x.id === b.id); rec.deleted = true; stamp(rec);
+      save(); go('build'); toast('Đã xoá bảng');
+    }
+  });
+}
+
+/* ---- việc ---- */
+async function btaskForm(bid, sec, t){
+  const isNew = !t;
+  await loadNames();
+  formModal({
+    title: isNew ? 'Giao việc' : 'Sửa việc',
+    values: t ? Object.assign({}, t) : {sec: BUILD_SECS[sec] ? sec : 'other', st: 'todo', due: addDays(today(), 3)},
+    fields: [
+      {k:'title', l:'Việc gì', t:'text', req:true, ph:'Chụp lại ảnh bìa nền trắng, chữ "Giữ nếp 12h" to bằng nửa ảnh'},
+      {k:'sec', l:'Thuộc mục', t:'select', half:true, opts: Object.entries(BUILD_SECS).map(([k, x]) => [k, x.icon + ' ' + x.label])},
+      {k:'due', l:'Hạn', t:'date', half:true},
+      whoField('who', 'Giao cho ai'),
+      {k:'st', l:'Trạng thái', t:'select', half:true, opts: Object.entries(BTASK_ST)},
+      {k:'note', l:'Chi tiết / yêu cầu', t:'textarea', rows:3}
+    ],
+    onSave(v){
+      if (!String(v.title || '').trim()){ toast('Ghi việc cần làm'); return false; }
+      const rec = isNew ? stamp({buildId: bid, byName: bWho()}) : db.btasks.find(x => x.id === t.id);
+      if (!rec) return;
+      const cu = Object.assign({}, rec), w = whoRead(v, 'who');
+      Object.assign(rec, {title: v.title.trim(), sec: v.sec, due: v.due || '', st: v.st, note: v.note || '', who: w.who, whoName: w.whoName});
+      if (rec.st === 'done' && !rec.doneAt) rec.doneAt = today();
+      if (rec.st !== 'done') rec.doneAt = '';
+      stamp(rec);
+      if (isNew){
+        db.btasks.push(rec);
+        bHist(bid, 'Giao việc ' + bNhay(rec.title) + (rec.whoName ? ' cho ' + rec.whoName : '') + (rec.due ? ', hạn ' + fmtDate(rec.due) : ''), {taskId: rec.id, sec: rec.sec});
+      } else {
+        const doi = [];
+        if (cu.title !== rec.title) doi.push('tên ' + bNhay(cu.title) + ' → ' + bNhay(rec.title));
+        if ((cu.whoName || '') !== (rec.whoName || '')) doi.push('giao ' + (cu.whoName || 'chưa ai') + ' → ' + (rec.whoName || 'chưa ai'));
+        if ((cu.due || '') !== (rec.due || '')) doi.push('hạn ' + (cu.due ? fmtDate(cu.due) : 'không') + ' → ' + (rec.due ? fmtDate(rec.due) : 'không'));
+        if (cu.st !== rec.st) doi.push(BTASK_ST[cu.st] + ' → ' + BTASK_ST[rec.st]);
+        if ((cu.note || '') !== (rec.note || '')) doi.push('sửa chi tiết');
+        if (doi.length) bHist(bid, 'Việc ' + bNhay(rec.title) + ': ' + doi.join(' · '), {taskId: rec.id, sec: rec.sec});
+      }
+      save();
+      toast(isNew ? 'Đã giao việc' : 'Đã lưu');
+      if (!isNew) setTimeout(() => btaskModal(rec.id), 200);
+    },
+    onDelete: isNew ? null : () => {
+      if (!confirm('Xoá việc ' + bNhay(t.title) + '?')) return false;
+      const rec = db.btasks.find(x => x.id === t.id); rec.deleted = true; stamp(rec);
+      bHist(bid, 'Xoá việc ' + bNhay(t.title), {sec: t.sec});
+      save(); closeAllModals(); render(); toast('Đã xoá việc');
+    }
+  });
+}
+/* Hộp một việc: trạng thái, chi tiết, trao đổi riêng của việc đó */
+function btaskModal(id){
+  const t = alive(db.btasks).find(x => x.id === id);
+  if (!t) return;
+  $$('#modals .modal[data-btask]').forEach(m => m.remove());
+  const b = buildOf(t.buildId);
+  const cm = alive(db.bnotes).filter(n => n.taskId === t.id).sort((a, c) => (a.at || '').localeCompare(c.at || ''));
+  const tre = t.due && btaskOpen(t) ? -dayDiff(t.due) : 0;
+  const body = `<div class="dim">${b ? esc(b.name) + ' · ' : ''}${BUILD_SECS[t.sec].icon} ${esc(BUILD_SECS[t.sec].label)}</div>
+    <h3 style="margin:6px 0 4px">${esc(t.title)}</h3>
+    <div class="dim">${t.whoName ? 'Giao cho <b>' + esc(t.whoName) + '</b>' : 'Chưa giao cho ai'}${t.due ? ' · hạn ' + esc(fmtDate(t.due)) + (tre > 0 ? ` <b class="bad">· trễ ${tre} ngày</b>` : '') : ''}${
+      t.byName ? ' · ' + esc(t.byName) + ' tạo' : ''}</div>
+    ${t.note ? `<div class="explain" style="margin-top:10px">${esc(t.note).replace(/\n/g, '<br>')}</div>` : ''}
+    <div class="chips" style="margin:12px 0">${Object.entries(BTASK_ST).map(([k, l]) =>
+      `<button class="btn sm ${t.st === k ? 'pri' : ''}" data-act="btst" data-id="${t.id}|${k}">${k === 'done' ? '✅ ' : k === 'review' ? '👀 ' : ''}${esc(l)}</button>`).join('')}</div>
+    <div class="sec sm">Trao đổi về việc này<span class="ln"></span></div>
+    ${bNoteList(cm.slice().reverse())}
+    <div class="bd-cmt" style="margin-top:10px"><textarea class="inp" id="bdTCmt" rows="2" placeholder="Hỏi, báo xong, gửi link ảnh…"></textarea>
+      <button class="btn pri sm" data-act="bcmt" data-id="${t.buildId}|${t.id}">Gửi</button></div>`;
+  const el = openModal('Việc', body, `<div class="btns end"><button class="btn sm" data-act="btaskedit" data-id="${t.id}">✎ Sửa việc</button>
+      <div class="grow"></div><button class="btn sm" data-act="closem">Đóng</button></div>`, true);
+  el.dataset.btask = t.id;
+}
+ACTIONS.bgorival = () => { closeAllModals(); go('rival'); };
+ACTIONS.btaskedit = id => { const t = alive(db.btasks).find(x => x.id === id); if (t){ closeAllModals(); btaskForm(t.buildId, t.sec, t); } };
+function btaskSet(tid, st){
+  const t = db.btasks.find(x => x.id === tid && !x.deleted);
+  if (!t || t.st === st) return;
+  const cu = t.st;
+  t.st = st; t.doneAt = st === 'done' ? today() : '';
+  stamp(t);
+  bHist(t.buildId, 'Việc ' + bNhay(t.title) + ': ' + BTASK_ST[cu] + ' → ' + BTASK_ST[st], {taskId: t.id, sec: t.sec});
+  save(); render(); btaskModal(tid);
+}
+function bComment(id){
+  const [bid, tid] = id.split('|');
+  const el = document.getElementById(tid ? 'bdTCmt' : 'bdCmt');
+  const text = el ? el.value.trim() : '';
+  if (!text){ toast('Gõ nội dung trước đã'); return; }
+  const t = tid ? alive(db.btasks).find(x => x.id === tid) : null;
+  bNote(bid, 'cmt', text, {taskId: tid || '', sec: t ? t.sec : ''});
+  save(); render();
+  if (tid) btaskModal(tid);
+}
+
+/* ---- giá & phân loại ---- */
+function bPriceEdit(bid){
+  const b = buildOf(bid);
+  if (!b) return;
+  const coVon = may('cost'), von = (bcostOf(bid) || {}).von || {};
+  const dong = v => `<tr data-vk="${esc(v.vk || '')}">
+      <td><input class="inp sm" data-f="n" value="${esc(v.n || '')}" placeholder="90g · Combo 2 hộp"></td>
+      <td><input class="inp sm" data-f="pb" data-sep="money" value="${v.pb ? v.pb.toLocaleString('vi-VN') : ''}" placeholder="giá gốc"></td>
+      <td><input class="inp sm" data-f="p" data-sep="money" value="${v.p ? v.p.toLocaleString('vi-VN') : ''}" placeholder="giá bán"></td>
+      ${coVon ? `<td><input class="inp sm" data-f="von" data-sep="money" value="${von[v.vk] ? (+von[v.vk]).toLocaleString('vi-VN') : ''}" placeholder="giá vốn"></td>` : ''}
+      <td><button class="btn sm" data-x title="Bỏ phân loại này">×</button></td></tr>`;
+  const min = bRefMin(b);
+  const body = `<div class="explain">Giá gốc là giá gạch ngang, giá bán là giá sau giảm giá sản phẩm. Voucher shop tính riêng ở ô bên dưới.${
+      min ? ' Đối thủ đã ghim rẻ nhất: <b>' + money(min) + '</b> sau voucher.' : ''}${coVon ? ' Giá vốn chỉ người có quyền Tính chi phí thấy, không ghi vào nhật ký.' : ''}</div>
+    <div class="tblwrap"><table class="tbl sm bd-pe"><thead><tr><th>Phân loại</th><th>Giá gốc</th><th>Giá bán</th>${coVon ? '<th>Giá vốn</th>' : ''}<th></th></tr></thead>
+      <tbody>${(b.vars.length ? b.vars : [{vk: uid()}]).map(dong).join('')}</tbody></table></div>
+    <button class="btn sm" data-add style="margin-top:8px">+ Phân loại</button>
+    <div class="form" style="margin-top:12px">
+      <div class="fld half"><label>Voucher shop (%)</label><input class="inp" id="bdVp" type="number" min="0" max="90" step="0.5" value="${b.vPct || ''}" placeholder="0"></div>
+      <div class="fld"><label>Ghi chú về giá</label><textarea class="inp" id="bdPn" rows="2" placeholder="Vì sao chọn mức này, mốc giá sale…">${esc(b.priceNote || '')}</textarea></div>
+    </div>`;
+  const el = openModal('Giá & phân loại — ' + b.name, body, `<div class="btns end"><div class="grow"></div>
+      <button class="btn sm" data-act="closem">Huỷ</button><button class="btn pri" data-save>Lưu</button></div>`, true);
+  el.addEventListener('click', e => {
+    if (e.target.closest('[data-add]')) el.querySelector('tbody').insertAdjacentHTML('beforeend', dong({vk: uid()}));
+    const x = e.target.closest('[data-x]');
+    if (x) x.closest('tr').remove();
+    if (!e.target.closest('[data-save]')) return;
+    const rows = [...el.querySelectorAll('tbody tr')].map(tr => {
+      const g = f => { const i = tr.querySelector(`[data-f="${f}"]`); return i ? i.value : ''; };
+      return {vk: tr.dataset.vk || uid(), n: g('n').trim(), pb: parseMoney(g('pb')), p: parseMoney(g('p')), von: parseMoney(g('von'))};
+    }).filter(r => r.n || r.p || r.pb);
+    const rec = db.builds.find(x => x.id === bid);
+    const cu = new Map(rec.vars.map(v => [v.vk, v])), moi = new Set(rows.map(r => r.vk));
+    const doi = [];
+    rows.forEach(r => {
+      const o = cu.get(r.vk);
+      if (!o) return doi.push('thêm ' + bNhay(r.n) + ' giá bán ' + bTien(r.p) + (r.pb && r.pb !== r.p ? ' (gốc ' + bTien(r.pb) + ')' : ''));
+      const ten = r.n || o.n;
+      if (o.n !== r.n) doi.push('đổi tên ' + bNhay(o.n) + ' → ' + bNhay(r.n));
+      if (o.p !== r.p) doi.push(ten + ': giá bán ' + bTien(o.p) + ' → ' + bTien(r.p));
+      if (o.pb !== r.pb) doi.push(ten + ': giá gốc ' + bTien(o.pb) + ' → ' + bTien(r.pb));
+    });
+    rec.vars.filter(v => !moi.has(v.vk)).forEach(v => doi.push('bỏ ' + bNhay(v.n)));
+    const vp = Math.max(0, Math.min(90, +(el.querySelector('#bdVp').value || 0)));
+    if (vp !== (rec.vPct || 0)) doi.push('voucher shop ' + (rec.vPct || 0) + '% → ' + vp + '%');
+    const pn = el.querySelector('#bdPn').value;
+    if ((rec.priceNote || '') !== pn) doi.push('ghi chú giá ' + bNhay(pn));
+    rec.vars = rows.map(r => ({vk: r.vk, n: r.n, pb: r.pb, p: r.p}));
+    rec.vPct = vp; rec.priceNote = pn;
+    stamp(rec);
+    if (coVon){
+      let c = db.bcosts.find(x => x.buildId === bid && !x.deleted);
+      const v2 = Object.fromEntries(rows.filter(r => r.von).map(r => [r.vk, r.von]));
+      if (!c && Object.keys(v2).length){ c = stamp({buildId: bid, von: {}}); db.bcosts.push(c); }
+      if (c && JSON.stringify(c.von || {}) !== JSON.stringify(v2)){ c.von = v2; stamp(c); }
+    }
+    if (doi.length) bHist(bid, 'Giá & phân loại: ' + doi.join(' · '), {sec: 'price'});
+    save(); closeModal(); render(); toast('Đã lưu giá & phân loại');
+  });
+}
+
+/* ---- chính sách ---- */
+function bPolEdit(bid){
+  const b = buildOf(bid);
+  if (!b) return;
+  const vals = {}; BUILD_POL.forEach(x => vals['pol.' + x.k] = b.pol[x.k] || '');
+  formModal({
+    title: 'Chính sách — ' + b.name, values: vals, wide: true,
+    extra: `<div class="explain">Ghi phương án mình định làm. Mỗi lần đổi, nhật ký giữ lại câu cũ và câu mới để biết vì sao đã đổi.</div>`,
+    fields: BUILD_POL.map(x => ({k: 'pol.' + x.k, l: x.l, t: 'textarea', rows: 2, ph: x.ph})),
+    onSave(v){
+      const rec = db.builds.find(x => x.id === bid);
+      const doi = [];
+      BUILD_POL.forEach(x => {
+        const moi = String(v['pol.' + x.k] ?? '').trim(), cu = String(rec.pol[x.k] || '').trim();
+        if (moi !== cu) doi.push(x.l + ': ' + (cu ? bNhay(cu) + ' → ' : '') + bNhay(moi));
+        rec.pol[x.k] = moi;
+      });
+      stamp(rec);
+      if (doi.length) bHist(bid, 'Chính sách — ' + doi.join(' · '), {sec: 'pol'});
+      save(); toast('Đã lưu chính sách');
+    }
+  });
+}
+
+/* ---- ảnh ---- */
+/* Thu ảnh về cạnh dài 1600px, nén JPEG ngay trên máy. Ảnh PNG trong suốt được
+   lót nền trắng — ảnh sản phẩm Shopee vốn là nền trắng. */
+async function bShrink(file){
+  const url = URL.createObjectURL(file);
+  try {
+    const im = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => no(new Error('không đọc được ảnh ' + file.name)); i.src = url; });
+    const k = Math.min(1, 1600 / Math.max(im.naturalWidth, im.naturalHeight));
+    const w = Math.max(1, Math.round(im.naturalWidth * k)), h = Math.max(1, Math.round(im.naturalHeight * k));
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, w, h); g.drawImage(im, 0, 0, w, h);
+    return {data: c.toDataURL('image/jpeg', 0.86), w, h};
+  } finally { URL.revokeObjectURL(url); }
+}
+let bUpBusy = false;
+async function bUpload(bid, files){
+  files = [...(files || [])].filter(f => /^image\//.test(f.type));
+  if (!files.length) return toast('Không có ảnh nào (chỉ nhận JPEG, PNG, WEBP)');
+  if (bUpBusy) return toast('Đang tải ảnh khác lên, chờ chút');
+  bUpBusy = true;
+  const st = m => { const e = document.getElementById('bdUpSt'); if (e) e.textContent = m; };
+  let ok = 0; const loi = [];
+  for (const [i, f] of files.entries()){
+    st('Đang tải ' + (i + 1) + '/' + files.length + '…');
+    try {
+      const z = await bShrink(f);
+      const r = await Server.bimgUp(bid, z.data);
+      const coBia = bimgsOf(bid).some(x => x.slot === 'bia');
+      db.bimgs.push(stamp({id: r.id, buildId: bid, slot: coBia ? 'phu' : 'bia', st: 'nhap',
+        cap: f.name.replace(/\.[a-z0-9]+$/i, '').slice(0, 80), note: '', w: z.w, h: z.h, size: r.size, byName: bWho(), order: Date.now() + i}));
+      ok++;
+    } catch(e){ loi.push(f.name + ': ' + (e.message || e)); }
+  }
+  bUpBusy = false;
+  if (ok) bHist(bid, 'Tải lên ' + ok + ' ảnh', {sec: 'img'});
+  save(); render();
+  toast(ok ? 'Đã tải lên ' + ok + ' ảnh' + (loi.length ? ' · ' + loi.length + ' ảnh lỗi: ' + loi[0] : '') : 'Không tải được: ' + loi[0]);
+}
+function bImgModal(id){
+  const i = alive(db.bimgs).find(x => x.id === id);
+  if (!i) return;
+  $$('#modals .modal[data-bimg]').forEach(m => m.remove());
+  const xoaDuoc = isOwner() || i.byName === bWho();
+  const body = `<div class="bd-ibig"><a href="${esc(Server.imgUrl(i.id))}" target="_blank" rel="noopener"><img src="${esc(Server.imgUrl(i.id))}" alt=""></a></div>
+    <div class="dim" style="margin:6px 0">${esc(i.byName || '?')} tải lên · ${esc(fmtDate(String(i.updatedAt).slice(0, 10)))}${i.w ? ' · ' + i.w + '×' + i.h : ''}${i.size ? ' · ' + Math.round(i.size / 1024) + ' KB' : ''}</div>
+    <div class="chips" style="margin:8px 0">${Object.entries(BIMG_ST).map(([k, l]) =>
+      `<button class="btn sm ${i.st === k ? 'pri' : ''}" data-act="bist" data-id="${i.id}|${k}">${k === 'ok' ? '✅ ' : k === 'sua' ? '✏️ ' : ''}${esc(l)}</button>`).join('')}</div>
+    <div class="form">
+      <div class="fld half"><label>Vị trí</label><select class="inp" id="bdISl">${Object.entries(BIMG_SLOTS).map(([k, l]) => `<option value="${k}" ${i.slot === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
+      <div class="fld half"><label>Thứ tự</label><input class="inp" id="bdIOr" type="number" value="${Math.round((i.order || 0) % 1000)}" placeholder="0"></div>
+      <div class="fld"><label>Chú thích</label><input class="inp" id="bdICap" value="${esc(i.cap || '')}"></div>
+      <div class="fld"><label>Cần sửa gì / nhận xét</label><textarea class="inp" id="bdINote" rows="2" placeholder="Chữ to hơn, đổi nền trắng… (ghi trước rồi bấm Cần sửa)">${esc(i.note || '')}</textarea></div>
+    </div>`;
+  const el = openModal('Ảnh — ' + BIMG_SLOTS[i.slot], body, `<div class="btns end">${xoaDuoc ? '<button class="btn sm dngr" data-del>Xoá ảnh</button>' : ''}
+      <div class="grow"></div><button class="btn sm" data-act="closem">Đóng</button><button class="btn pri" data-save>Lưu</button></div>`, true);
+  el.dataset.bimg = i.id;
+  el.addEventListener('click', async e => {
+    if (e.target.closest('[data-save]')){
+      const rec = db.bimgs.find(x => x.id === id);
+      const sl = el.querySelector('#bdISl').value, cap = el.querySelector('#bdICap').value.trim(), nt = el.querySelector('#bdINote').value.trim();
+      const or = +el.querySelector('#bdIOr').value || 0;
+      const doi = [];
+      if (rec.slot !== sl) doi.push('chuyển ' + BIMG_SLOTS[rec.slot] + ' → ' + BIMG_SLOTS[sl]);
+      if ((rec.note || '') !== nt) doi.push('nhận xét ' + bNhay(nt));
+      Object.assign(rec, {slot: sl, cap, note: nt, order: or});
+      stamp(rec);
+      if (doi.length) bHist(rec.buildId, 'Ảnh ' + bNhay(cap || rec.id) + ': ' + doi.join(' · '), {sec: 'img'});
+      save(); closeModal(); render();
+    }
+    if (e.target.closest('[data-del]')){
+      if (!confirm('Xoá ảnh này? Không lấy lại được.')) return;
+      try { await Server.bimgDel(id); } catch(err){ return toast('Không xoá được trên máy chủ: ' + (err.message || err)); }
+      const rec = db.bimgs.find(x => x.id === id); rec.deleted = true; stamp(rec);
+      bHist(rec.buildId, 'Xoá ảnh ' + bNhay(rec.cap || BIMG_SLOTS[rec.slot]), {sec: 'img'});
+      save(); closeModal(); render(); toast('Đã xoá ảnh');
+    }
+  });
+}
+function bImgSet(id, st){
+  const rec = db.bimgs.find(x => x.id === id && !x.deleted);
+  if (!rec || rec.st === st) return;
+  const nt = (document.getElementById('bdINote') || {}).value;
+  if (nt !== undefined) rec.note = String(nt).trim();
+  if (st === 'sua' && !rec.note){ toast('Ghi cần sửa gì vào ô nhận xét trước đã'); return; }
+  const cu = rec.st;
+  rec.st = st; stamp(rec);
+  bHist(rec.buildId, 'Ảnh ' + bNhay(rec.cap || BIMG_SLOTS[rec.slot]) + ' (' + BIMG_SLOTS[rec.slot].toLowerCase() + '): ' + BIMG_ST[cu] + ' → ' + BIMG_ST[st] +
+        (st === 'sua' && rec.note ? ' — ' + bNhay(rec.note) : ''), {sec: 'img'});
+  save(); render(); bImgModal(id);
+}
+
+/* ---- ghim đối thủ ---- */
+function bPinPick(){
+  const x = rvPinSnap;
+  if (!x) return;
+  const mo = builds().filter(b => b.st === 'dang');
+  const body = `<div class="dim" style="margin-bottom:10px">Ghim <b>${esc(x.shop)}</b> — ${esc(cut(x.n, 80))} làm mốc so cho bảng nào?</div>
+    <div class="alerts">${mo.map(b => { const co = (b.refs || []).some(r => r.id === x.id);
+      return `<div class="al al-info" ${co ? '' : `data-act="bpinto" data-id="${b.id}"`} style="${co ? 'opacity:.55' : ''}"><span class="al-dot"></span>
+        <div class="grow"><div class="al-t">${esc(b.name)}</div><div class="al-s">${co ? 'đã ghim sản phẩm này rồi' : (b.refs || []).length + ' đối thủ đang ghim'}</div></div>${co ? '' : '<span class="al-go">›</span>'}</div>`; }).join('')}
+      <div class="al al-ok" data-act="bpinto" data-id="__new"><span class="al-dot"></span><div class="grow"><div class="al-t">+ Tạo bảng mới với sản phẩm này</div></div><span class="al-go">›</span></div></div>`;
+  openModal('📌 Ghim vào bảng xây dựng', body, '', false);
+}
+function bPinTo(bid){
+  const x = rvPinSnap;
+  if (!x) return;
+  closeAllModals();
+  if (bid === '__new') return buildForm(null, {refs: [x], name: '', goal: 'Dựng theo ' + x.shop + ' — ' + cut(x.n, 80)});
+  const b = db.builds.find(y => y.id === bid && !y.deleted);
+  if (!b) return;
+  if ((b.refs || []).some(r => r.id === x.id)) return toast('Bảng này đã ghim sản phẩm đó rồi');
+  b.refs = (b.refs || []).concat([x]); stamp(b);
+  bHist(bid, 'Ghim đối thủ ' + x.shop + ' — ' + cut(x.n, 70) + (x.gc ? ' (giá cuối ' + money(x.gc) + ')' : ''));
+  save(); toast('Đã ghim vào "' + b.name + '"');
+  ui.bTab = 'all'; go('build', bid);
+}
+function bPinAdd(bid){
+  formModal({
+    title: 'Ghim thêm đối thủ', values: {}, wide: true, saveLabel: 'Ghim',
+    extra: `<div class="explain">Cách đầy đủ nhất: mở <b>Theo dõi đối thủ</b>, bấm một sản phẩm → <b>📌 Ghim vào bảng xây dựng</b> — ghim kèm ảnh,
+      từng phân loại, voucher và doanh số. ${may('rival') ? '<button class="btn sm" data-act="bgorival" style="margin-left:6px">Mở Theo dõi đối thủ</button>' : ''}
+      <br>Sản phẩm không có trong đó thì dán link và giá vào đây.</div>`,
+    fields: [
+      {k:'n', l:'Tên sản phẩm', t:'text', req:true},
+      {k:'shop', l:'Gian hàng', t:'text', half:true},
+      {k:'gc', l:'Giá cuối khách trả', t:'money', half:true},
+      {k:'url', l:'Link Shopee', t:'text', ph:'https://shopee.vn/…'}
+    ],
+    onSave(v){
+      if (!String(v.n || '').trim()){ toast('Ghi tên sản phẩm'); return false; }
+      const b = db.builds.find(y => y.id === bid && !y.deleted);
+      const r = {id: 'm' + uid(), n: v.n.trim(), shop: (v.shop || '').trim(), url: /^https:\/\//.test(v.url || '') ? v.url.trim() : '',
+                 gc: parseMoney(v.gc), p: parseMoney(v.gc), models: [], imgs: [], vouchers: [], tags: [], manual: true, at: today()};
+      b.refs = (b.refs || []).concat([r]); stamp(b);
+      bHist(bid, 'Ghim đối thủ (gõ tay) ' + (r.shop ? r.shop + ' — ' : '') + cut(r.n, 70));
+      save(); toast('Đã ghim');
+    }
+  });
+}
+function bRefModal(bid, rid){
+  const b = buildOf(bid), r = b && (b.refs || []).find(x => x.id === rid);
+  if (!r) return;
+  const ds = (r.imgs || []).length ? r.imgs : r.img ? [r.img] : [];
+  const body = `${ds.length ? `<div class="bd-rimgs">${ds.map(u => `<a href="${esc(rvImg(u))}" target="_blank" rel="noopener noreferrer"><img src="${esc(rvImg(u, 'tn'))}" alt="" referrerpolicy="no-referrer"></a>`).join('')}</div>` : ''}
+    <div style="margin-top:10px"><b>${esc(r.n)}</b></div>
+    <div class="dim">${esc(r.shop || '')}${r.mall ? ' · Mall' : ''}${r.created ? ' · lên kệ ' + esc(fmtDate(r.created)) : ''} · ghim ngày ${esc(fmtDate(r.at))}</div>
+    <div style="margin-top:8px">${r.gc ? `Giá cuối <b>${money(r.gc)}</b>${r.gpb ? ' (gốc ' + money(r.gpb) + ')' : ''} · ` : ''}${r.p ? 'giá bán ' + money(r.p) : ''}${
+      r.r ? ' · DS kỳ ' + moneyShort(r.r) + ' · ' + (r.o || 0).toLocaleString('vi-VN') + ' lượt' : ''}${r.ra ? ' · ' + r.ra.toFixed(1) + '★ ' + (r.rc || 0).toLocaleString('vi-VN') : ''}</div>
+    ${(r.tags || []).length ? `<div class="chips" style="margin-top:8px">${r.tags.map(t => `<span class="chip warn">${esc(t)}</span>`).join('')}</div>` : ''}
+    ${(r.vouchers || []).length ? `<ul class="bd-ul">${r.vouchers.map(v => `<li>🎟 ${esc(v)}</li>`).join('')}</ul>` : ''}
+    ${(r.models || []).length ? `<div class="sec sm">${r.models.length} phân loại<span class="ln"></span></div>
+      <div class="tblwrap"><table class="tbl sm"><thead><tr><th>Phân loại</th><th class="r">Giá bán</th><th class="r">Giá cuối</th></tr></thead><tbody>${
+      r.models.map(m => `<tr><td>${esc(m.n || '—')}</td><td class="r">${money(m.p)}</td><td class="r"><b>${m.f ? money(m.f) : '—'}</b></td></tr>`).join('')}</tbody></table></div>` : ''}`;
+  openModal('Đối thủ làm mốc', body, `<div class="btns end"><button class="btn sm dngr" data-act="bunpin" data-id="${bid}|${esc(rid)}">Bỏ ghim</button>
+    <div class="grow"></div>${r.url ? `<a class="btn sm" href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">Mở trên Shopee ↗</a>` : ''}
+    <button class="btn sm" data-act="closem">Đóng</button></div>`, true);
+}
+function bUnpin(bid, rid){
+  const b = db.builds.find(y => y.id === bid && !y.deleted), r = b && (b.refs || []).find(x => x.id === rid);
+  if (!r || !confirm('Bỏ ghim ' + (r.shop ? r.shop + ' — ' : '') + cut(r.n, 60) + '?')) return;
+  b.refs = b.refs.filter(x => x.id !== rid); stamp(b);
+  bHist(bid, 'Bỏ ghim đối thủ ' + (r.shop ? r.shop + ' — ' : '') + cut(r.n, 70));
+  save(); closeAllModals(); render();
+}
+
+/* Tải ảnh: nút, kéo thả vào ô, dán từ bộ nhớ tạm khi đang ở thẻ Hình ảnh */
+document.addEventListener('change', e => {
+  if (e.target && e.target.id === 'bdFile'){
+    const z = document.getElementById('bdDrop');
+    if (z) bUpload(z.dataset.bid, e.target.files);
+    e.target.value = '';
+  }
+});
+document.addEventListener('dragover', e => { const z = e.target.closest && e.target.closest('#bdDrop'); if (z){ e.preventDefault(); z.classList.add('on'); } });
+document.addEventListener('dragleave', e => { const z = e.target.closest && e.target.closest('#bdDrop'); if (z) z.classList.remove('on'); });
+document.addEventListener('drop', e => {
+  const z = e.target.closest && e.target.closest('#bdDrop');
+  if (!z) return;
+  e.preventDefault(); z.classList.remove('on');
+  bUpload(z.dataset.bid, e.dataTransfer.files);
+});
+document.addEventListener('paste', e => {
+  const z = document.getElementById('bdDrop');
+  if (!z || route.page !== 'build' || ui.bTab !== 'img') return;
+  if (e.target.closest && e.target.closest('input,textarea')) return;
+  const fs = [...((e.clipboardData && e.clipboardData.files) || [])].filter(f => /^image\//.test(f.type));
+  if (!fs.length) return;
+  e.preventDefault();
+  bUpload(z.dataset.bid, fs);
+});
+
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "6ffcc640"]);

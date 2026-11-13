@@ -12,6 +12,8 @@
         POST {ticket, do:"scan", kw_id, query, from, to, products, basic, groups, shops}
         POST {ticket, do:"vol",  kw_id, query, from, to, keywords}
         POST {ticket, do:"shops", from, to, data}   ← trang "Theo dõi đối thủ"
+        POST {ticket, do:"shopdeep", shop_id, query, from, to, products, basic, groups, shops}
+          ← trang Phân tích, gõ link shop (top 60 của một gian hàng)
           (gian hàng đối thủ: doanh số, sản phẩm bán chạy, sản phẩm mới lên kệ)
       Trang Metric gửi thẳng nguyên mảng sản phẩm nó vừa nhận từ máy chủ
       Metric. Không qua tay tác vụ: 20 sản phẩm × 25 từ khoá mà bắt AI chép
@@ -74,6 +76,13 @@ if ($do === 'shops') {
   if (!rvTicketOk((string)($in['ticket'] ?? '')))
     rvOut(['ok' => false, 'error' => 'Vé quét không đúng hoặc đã hết hạn — xin vé mới bằng do:"kws".'], 403);
   $r = rvShopSave($in);
+  rvOut(isset($r['error']) ? ['ok' => false, 'error' => $r['error']] : $r, isset($r['error']) ? 400 : 200);
+}
+/* Quét sâu MỘT gian hàng — trang Phân tích, gõ link shop vào ô từ khoá */
+if ($do === 'shopdeep') {
+  if (!rvTicketOk((string)($in['ticket'] ?? '')))
+    rvOut(['ok' => false, 'error' => 'Vé quét không đúng hoặc đã hết hạn — xin vé mới bằng do:"kws".'], 403);
+  $r = rvShopDeepSave($in);
   rvOut(isset($r['error']) ? ['ok' => false, 'error' => $r['error']] : $r, isset($r['error']) ? 400 : 200);
 }
 

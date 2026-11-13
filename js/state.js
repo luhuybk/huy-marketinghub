@@ -780,6 +780,9 @@ const PERMS = [
      chỉ chủ — máy chủ chặn ở requireOwner(). Dữ liệu này không đồng bộ qua
      items nên máy chủ kiểm quyền ở rival_state / rival_scans (requirePerm). */
   {id:'rival',     label:'Theo dõi đối thủ', hint:'top sản phẩm theo từ khoá, giá, voucher của đối thủ'},
+  /* Bảng xây dựng sản phẩm: ảnh, giá & phân loại, chính sách, giao việc. Giá
+     vốn của phân loại dự kiến vẫn cần thêm quyền `cost` mới thấy. */
+  {id:'build',     label:'Xây dựng SP', hint:'dựng sản phẩm theo đối thủ bán chạy: ảnh, giá, chính sách, giao việc'},
   /* Quyền riêng, KHÔNG gộp vào `ads`: giá vốn là thứ nhạy nhất trong app.
      Người chạy quảng cáo cần biết chi bao nhiêu, không cần biết mua vào bao
      nhiêu. Bộ `costs` cũng vì thế mà tách khỏi `products` — `products` không
@@ -822,14 +825,14 @@ const KEY = 'kolhub.v1';
 const COLLECTIONS = ['kols','bookings','clips','products','adperiods','actions','brands','statuses',
                      'templates','spweeks','impacts','ideas','posts','adcamps','shops','addays',
                      'orderstats','adfixes','keywords','kwranks','costs','projects','costlogs',
-                     'launches','lsteps','lmarks'];
+                     'launches','lsteps','lmarks','builds','btasks','bnotes','bimgs','bcosts'];
 
 function blank(){
   return {
     kols:[], bookings:[], clips:[], products:[], adperiods:[], actions:[], brands:[], statuses:[],
     templates:[], spweeks:[], impacts:[], ideas:[], posts:[], adcamps:[], shops:[], addays:[],
     orderstats:[], adfixes:[], keywords:[], kwranks:[], costs:[], projects:[], costlogs:[],
-    launches:[], lsteps:[], lmarks:[],
+    launches:[], lsteps:[], lmarks:[], builds:[], btasks:[], bnotes:[], bimgs:[], bcosts:[],
     settings:{
       theme:'dark',
       myName:'',
@@ -1424,6 +1427,27 @@ function ensure(){
     p.channels = p.channels.map(x => String(x || '').trim().replace(/\s+/g, ' '))
       .filter(x => x && !coKn.has(norm(x)) && coKn.add(norm(x)));
     if (!p.reupUrl) p.reupAt = '';
+  });
+  db.builds.forEach(b => {
+    if (typeof b.name !== 'string') b.name = String(b.name || 'Chưa đặt tên');
+    if (!BUILD_MODE[b.mode]) b.mode = 'new';
+    if (!BUILD_ST[b.st]) b.st = 'dang';
+    if (!Array.isArray(b.refs)) b.refs = [];
+    if (!Array.isArray(b.vars)) b.vars = [];
+    b.vars.forEach(v => { if (!v.vk) v.vk = uid(); v.pb = parseMoney(v.pb); v.p = parseMoney(v.p); v.n = String(v.n || ''); });
+    b.vPct = Math.max(0, Math.min(90, +b.vPct || 0));
+    if (typeof b.pol !== 'object' || !b.pol) b.pol = {};
+    ['ideaId','productId','who','whoName','goal','priceNote','created'].forEach(f => { if (b[f] === undefined) b[f] = ''; });
+  });
+  db.btasks.forEach(t => {
+    if (!BUILD_SECS[t.sec]) t.sec = 'other';
+    if (!BTASK_ST[t.st]) t.st = 'todo';
+    ['title','who','whoName','due','note','doneAt','byName'].forEach(f => { if (t[f] === undefined) t[f] = ''; });
+  });
+  db.bimgs.forEach(i => {
+    if (!BIMG_SLOTS[i.slot]) i.slot = 'phu';
+    if (!BIMG_ST[i.st]) i.st = 'nhap';
+    ['cap','note','byName'].forEach(f => { if (i[f] === undefined) i[f] = ''; });
   });
   db.ideas.forEach(i => {
     if (typeof i.name !== 'string') i.name = String(i.name || 'Chưa đặt tên');
@@ -4281,6 +4305,68 @@ function impactResult(im){
 /* ============================================================
    XÂY DỰNG SẢN PHẨM MỚI
    ============================================================ */
+/* ============================================================
+   BẢNG XÂY DỰNG SẢN PHẨM
+   Dựa vào sản phẩm bán chạy của đối thủ để cùng nhân viên dựng sản phẩm của
+   mình — sản phẩm mới (gắn ý tưởng) hoặc sản phẩm đang bán cần làm lại.
+
+   Tách thành năm bộ, mỗi thứ một bản ghi riêng: đồng bộ theo kiểu "ai sửa sau
+   thắng" từng bản ghi, nên nhét việc, bình luận, ảnh vào chung bản ghi của
+   bảng là hai người cùng thao tác thì một người mất phần của mình.
+     builds  bảng: tên, gắn ý tưởng / sản phẩm, đối thủ ghim (ảnh chụp lại lúc
+             ghim), phân loại & giá dự kiến, chính sách
+     btasks  việc: thuộc mục nào, ai làm, hạn, trạng thái
+     bnotes  nhật ký: bình luận (cmt) và lịch sử thay đổi (hist) — chỉ thêm, không sửa
+     bimgs   ảnh mình tải lên (chính cái ảnh nằm ở máy chủ, api/img.php)
+     bcosts  giá vốn từng phân loại dự kiến — quyền `cost`, như bộ `costs`
+   ============================================================ */
+const BUILD_SECS = {
+  img:   {icon:'🖼', label:'Hình ảnh'},
+  price: {icon:'💰', label:'Giá & phân loại'},
+  pol:   {icon:'📜', label:'Chính sách'},
+  other: {icon:'📌', label:'Việc khác'}
+};
+const BUILD_ST  = {dang:'Đang làm', xong:'Đã xong', dung:'Tạm dừng'};
+const BUILD_MODE = {new:'Sản phẩm mới', live:'Sản phẩm đang bán'};
+const BTASK_ST  = {todo:'Cần làm', doing:'Đang làm', review:'Chờ duyệt', done:'Xong'};
+const BIMG_SLOTS = {bia:'Ảnh bìa', phu:'Ảnh phụ', mota:'Ảnh mô tả', khac:'Khác'};
+const BIMG_ST   = {nhap:'Nháp', sua:'Cần sửa', ok:'Đã duyệt'};
+const BUILD_POL = [
+  {k:'voucher',  l:'Voucher shop',                 ph:'giảm 10% đơn từ 199k tối đa 30k · voucher theo dõi shop 5k'},
+  {k:'gift',     l:'Quà tặng',                     ph:'tặng lược / mini size cho đơn từ 2 chai'},
+  {k:'combo',    l:'Combo / mua kèm deal sốc',     ph:'combo 2 giảm thêm 5% · mua kèm gôm 49k'},
+  {k:'ship',     l:'Vận chuyển',                   ph:'freeship Xtra · gói hàng kín, chống vỡ'},
+  {k:'warranty', l:'Đổi trả / cam kết',            ph:'hoàn tiền nếu không giữ nếp · đổi trả 15 ngày'},
+  {k:'sale',     l:'Lịch sale / flash sale',       ph:'flash sale khung 12h ngày đôi · giá sale 11.11'},
+  {k:'other',    l:'Định hướng khác',              ph:'đánh vào nhóm học sinh, giá dưới 150k'}
+];
+const builds   = () => alive(db.builds);
+const buildOf  = id => builds().find(b => b.id === id) || null;
+const btasksOf = bid => alive(db.btasks).filter(t => t.buildId === bid);
+const bnotesOf = bid => alive(db.bnotes).filter(n => n.buildId === bid).sort((a, b) => (b.at || '').localeCompare(a.at || ''));
+const bimgsOf  = bid => alive(db.bimgs).filter(i => i.buildId === bid).sort((a, b) => (a.order || 0) - (b.order || 0) || (a.updatedAt || '').localeCompare(b.updatedAt || ''));
+const bcostOf  = bid => alive(db.bcosts).find(c => c.buildId === bid) || null;
+/* Việc này có phải của người đang dùng app không — giao theo id tài khoản,
+   hoặc theo tên khi giao lúc không đọc được danh sách tài khoản. */
+function btaskMine(t){
+  const ten = norm((window.Server && Server.name && Server.name()) || '');
+  return !!ten && norm(t.whoName) === ten;
+}
+const btaskOpen = t => t.st !== 'done';
+/* Việc của tôi chưa xong, tới hạn trước nhất trước — dùng cho số đỏ cạnh mục */
+function myBtasks(){
+  const song = new Set(builds().filter(b => b.st !== 'dung').map(b => b.id));
+  return alive(db.btasks).filter(t => btaskOpen(t) && song.has(t.buildId) && btaskMine(t))
+    .sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999'));
+}
+/* Giá sau voucher shop của một phân loại dự kiến */
+const bGiaSau = (p, vPct) => Math.max(0, Math.round((p || 0) * (1 - Math.max(0, Math.min(90, +vPct || 0)) / 100)));
+/* So giá với đối thủ: giá cuối thấp nhất trong các đối thủ đã ghim (có đọc trang
+   Shopee thì là giá sau mọi voucher, chưa đọc thì giá bán Metric). */
+function bRefMin(b){
+  const ds = (b.refs || []).map(r => r.gc || r.pmin || r.p).filter(x => x > 0);
+  return ds.length ? Math.min(...ds) : 0;
+}
 const ideas   = () => alive(db.ideas);
 const ideaOf  = id => ideas().find(x => x.id === id) || null;
 const liveIdeas = () => ideas().filter(i => IDEA_LIVE.includes(i.stage));
@@ -5195,6 +5281,10 @@ function rvReportText(kw, cur, cmp, vol){
    top = sản phẩm bán chạy nhất (xếp theo doanh số kỳ), new = sản phẩm mới
    lên kệ nhất; từng sản phẩm cùng khuôn với sản phẩm của bản chụp từ khoá. */
 const RV_SH_MOI = 60;                     // lên kệ trong chừng này ngày thì còn coi là "mới"
+const RV_SH_SAU = 60;                     // quét sâu: tối đa mấy sản phẩm mỗi gian hàng (RV_SH_SAU bên PHP)
+const RV_SH_DAU = 20;                     // "nhóm bán chạy nhất" khi đã quét sâu (top 60)
+/* Tần suất quét sâu từng gian hàng (ngày) — máy chủ quyết tới hạn (rvShopHan) */
+const RV_SH_SAU_TAN = {0:'Không quét sâu', 7:'Mỗi tuần', 14:'2 tuần một lần', 30:'Mỗi tháng'};
 const rvShops = () => rv.shops || [];
 const rvCachNgay = (a, b) => { const x = Date.parse(a), y = Date.parse(b); return isNaN(x) || isNaN(y) ? null : Math.round((x - y) / 864e5); };
 /* Ngày quét đang xem, và với từng gian hàng: bản chụp ngày đó + bản ngay
@@ -5209,7 +5299,13 @@ function rvShopView(){
     if (i < 0) return;
     const cur = sh.scans[i], prev = sh.scans[i + 1] || null, next = i > 0 ? sh.scans[i - 1] : null;
     const goi = (c, k) => c ? {date:c.date, at:c.at, to:c.to, items:c[k] || []} : null;
-    const top = rvCompare(goi(cur, 'top'), goi(prev, 'top'), next);
+    /* Quét sâu (top 60 của riêng shop này): lấy lần gần nhất không muộn hơn
+       ngày đang xem — đang xem lần mới nhất thì lấy lần quét sâu mới nhất dù
+       nó làm sau đó vài hôm. Không có thì dùng 5 sản phẩm của trang Theo dõi. */
+    const dsSau = sh.deep || [];
+    const j = date === dates[0] ? (dsSau.length ? 0 : -1) : dsSau.findIndex(d => d.date <= date);
+    const sau = j >= 0 ? dsSau[j] : null, sauTruoc = j >= 0 ? dsSau[j + 1] || null : null;
+    const top = sau ? rvCompare(sau, sauTruoc, j > 0 ? dsSau[j - 1] : null) : rvCompare(goi(cur, 'top'), goi(prev, 'top'), next);
     /* Vừa lên kệ = lần quét trước chưa thấy ở đâu, và ngày lên kệ mới hơn mọi
        sản phẩm lần trước đã thấy (không thì chỉ là sản phẩm cũ trồi lên vì
        shop gỡ bớt hàng). */
@@ -5219,14 +5315,15 @@ function rvShopView(){
       tuoi: r.created ? rvCachNgay(cur.date, r.created) : null,
       vuaLen: !!prev && !daThay.has(r.id) && !!r.created && r.created > moiNhat}));
     const sm = cur.sum || {};
-    rows.push({sh, cur, prev, top, nw, sum: sm, gR: rvPct(sm.r, sm.rp), gO: rvPct(sm.o, sm.op),
+    rows.push({sh, cur, prev, top, nw, sum: sm, sau, sauTruoc, gR: rvPct(sm.r, sm.rp), gO: rvPct(sm.o, sm.op),
                dNp: prev && prev.sum && prev.sum.np ? (sm.np || 0) - prev.sum.np : null,
                moi: nw.filter(r => r.tuoi != null && r.tuoi <= RV_SH_MOI)});
   });
   rows.sort((a, b) => (b.sum.r || 0) - (a.sum.r || 0));
   const chon = rows.find(r => r.sh.id === ui.rvShop) || null;
   return {dates, date, rows, chon, xem: chon ? [chon] : rows,
-          prevDate: rows.map(r => r.prev && r.prev.date).filter(Boolean).sort().pop() || ''};
+          prevDate: rows.map(r => r.prev && r.prev.date).filter(Boolean).sort().pop() || '',
+          coSau: rows.some(r => r.sau)};
 }
 /* "Điều gì vừa đổi" của một gian hàng — cùng khuôn rvChanges: {w, icon, cls, id, text} */
 function rvShopChanges(row){
@@ -5244,9 +5341,12 @@ function rvShopChanges(row){
   const da = new Set();
   const spDong = r => { if (da.has(r.id)) return; da.add(r.id);
     (r.spCh || []).forEach(c => them(c.w, c.icon, c.cls, r.id, sp(r) + ': ' + c.t)); };
+  /* Có quét sâu thì danh sách dài 60: chỉ báo vào/rớt/lên xuống hạng quanh
+     nhóm đầu (RV_SH_DAU) và lên xuống từ 2 hạng — không thì ngập thông báo. */
+  const dau = r => r.rank <= RV_SH_DAU || (r.prev && r.prev.rank <= RV_SH_DAU);
   row.top.rows.forEach(r => {
-    if (r.isNew) them(85, '🔥', 'acc', r.id, sp(r) + ' mới vào nhóm bán chạy nhất của shop, hạng ' + r.rank);
-    else if (r.prev && r.move) them(60 + Math.abs(r.move), r.move > 0 ? '⬆️' : '⬇️', r.move > 0 ? 'warn' : 'ok', r.id,
+    if (r.isNew && r.rank <= RV_SH_DAU) them(85, '🔥', 'acc', r.id, sp(r) + ' mới vào nhóm bán chạy nhất của shop, hạng ' + r.rank);
+    else if (r.prev && r.move && dau(r) && (!row.sau || Math.abs(r.move) >= 2)) them(60 + Math.abs(r.move), r.move > 0 ? '⬆️' : '⬇️', r.move > 0 ? 'warn' : 'ok', r.id,
       sp(r) + (r.move > 0 ? ' lên ' : ' tụt ') + 'hạng trong shop (' + r.prev.rank + ' → ' + r.rank + ')');
     if (r.pCu && r.p !== r.pCu){
       const pc = rvPct(r.p, r.pCu);
@@ -5258,8 +5358,8 @@ function rvShopChanges(row){
     if (r.nameNew) them(45, '✏️', '', r.id, sp(r) + ' đổi tên sản phẩm');
   });
   row.nw.forEach(spDong);
-  row.top.out.forEach(x => them(58, '📉', 'ok', x.id, ten + ' — ' + cut(x.n, 46) + ' rớt khỏi nhóm bán chạy nhất của shop (trước đứng hạng ' + x.rank + ')'));
+  row.top.out.filter(x => x.rank <= RV_SH_DAU).forEach(x => them(58, '📉', 'ok', x.id, ten + ' — ' + cut(x.n, 46) + ' rớt khỏi nhóm bán chạy nhất của shop (trước đứng hạng ' + x.rank + ')'));
   return out;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "5bae086d"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "6ffcc640"]);

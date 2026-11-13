@@ -508,7 +508,29 @@ switch ($action) {
     $pdo = db(); rvTables($pdo);
     $id = (string)($in['id'] ?? '');
     $pdo->prepare('DELETE FROM rv_shscan WHERE shop_id = ?')->execute([$id]);
+    $pdo->prepare('DELETE FROM rv_shdeep WHERE shop_id = ?')->execute([$id]);
     $pdo->prepare('DELETE FROM rv_shop WHERE id = ?')->execute([$id]);
+    out(['ok' => true]);
+  }
+  /* ---- Ảnh của bảng xây dựng sản phẩm (xem imgSave ở lib.php) ---- */
+  case 'bimg_up': {
+    requirePerm('build');
+    $r = imgSave((string)($in['build'] ?? ''), (string)($in['data'] ?? ''), (string)(currentUser()['name'] ?? ''));
+    if (isset($r['error'])) fail($r['error'], 400);
+    out(['ok' => true] + $r);
+  }
+  case 'bimg_del': {
+    requirePerm('build');
+    imgDel((string)($in['id'] ?? ''));
+    out(['ok' => true]);
+  }
+  /* Tần suất quét sâu của một gian hàng (0 = không quét sâu) */
+  case 'rival_shop_save': {
+    requireOwner();
+    $pdo = db(); rvTables($pdo);
+    $st = $pdo->prepare('UPDATE rv_shop SET every = ? WHERE id = ?');
+    $st->execute([rvShSauTan($in['every'] ?? RV_SH_SAU_MD), (string)($in['id'] ?? '')]);
+    if (!$st->rowCount()) fail('Không thấy gian hàng này.', 404);
     out(['ok' => true]);
   }
   case 'rival_kw_save': {

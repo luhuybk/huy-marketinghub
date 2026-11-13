@@ -260,4 +260,4 @@ const Chart = (() => {
 })();
 window.Chart = Chart;
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/charts.js", "5bae086d"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/charts.js", "6ffcc640"]);
