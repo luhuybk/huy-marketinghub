@@ -16,7 +16,7 @@ const ui = {
   postQ:'', postState:'', postMonthOnly:false,
   /* Lọc bài theo một kênh đăng. Rỗng = mọi kênh. */
   postCh:'',
-  adYm:'', adQ:'', adIssue:'', adOnlyBad:false, adShop:'', adTab:'radar', rvKw:'', rvDate:'', rvAll:false, rvMode:'tbl', rvTab:'kw', rvShop:'', rvShDate:'', rvShAll:false, bQ:'', bTab:'all', bShowAll:false, bLog:'', bThu:{}, bImgRef:'', bShop:{}, adDate:'', adGioYm:'',
+  adYm:'', adQ:'', adIssue:'', adOnlyBad:false, adShop:'', adTab:'radar', rvKw:'', rvDate:'', rvAll:false, rvMode:'tbl', rvTab:'kw', rvShop:'', rvShDate:'', rvShAll:false, bQ:'', bTab:'all', bShowAll:false, bLog:'', bThu:{}, bImgRef:'', bShop:{}, bLad:(() => { try { return localStorage.getItem('kolhub.bLad') || ''; } catch(e){ return ''; } })(), bLadHet:false, adDate:'', adGioYm:'',
   adGioQ:'', adGioSp:'', adSoSanh:'', adGon:false,
   resTab:'brands', resQ:'',
   cmpFrom:'', cmpTo:'',
@@ -6134,17 +6134,55 @@ function bShopCmp(b){
 /* Thang giá: mọi mức giá cuối của các đối thủ đã ghim và giá sau voucher của
    mình, xếp từ rẻ tới đắt — liếc là biết mình đang đứng ở khúc nào. */
 function bLadder(b, ds){
-  const mine = b.vars.filter(v => v.p > 0).map(v => ({f: bGiaSau(v.p, bV(b, bShopMain(b))), n: v.n || '(không tên)', mine: true, ok: true}));
-  const all = ds.concat(mine).sort((a, c) => a.f - c.f);
-  /* thanh bắt đầu từ 80% giá rẻ nhất chứ không từ 0 — chênh 10–20% mới nhìn ra */
+  const theoShop = ui.bLad === 'shop', coHet = ds.some(o => !o.ok), anHet = coHet && ui.bLadHet;
+  const sm = bShopMain(b), vm = bV(b, sm);
+  const mine = b.vars.filter(v => v.p > 0).map(v => ({f: bGiaSau(v.p, vm), n: v.n || '(không tên)', mine: true, ok: true}));
+  const dv = anHet ? ds.filter(o => o.ok) : ds;
+  const all = dv.concat(mine).sort((a, c) => a.f - c.f);
+  /* thanh bắt đầu từ 80% giá rẻ nhất chứ không từ 0 — chênh 10–20% mới nhìn ra.
+     Mọi nhóm dùng chung một thước để so được giữa các shop. */
   const max = Math.max(...all.map(x => x.f), 1), min0 = Math.min(...all.map(x => x.f)) * 0.8;
+  const pos = f => max > min0 ? 4 + (f - min0) / (max - min0) * 96 : 100;
   const con = ds.filter(o => o.ok).map(o => o.f).sort((a, c) => a - c);
   const giua = con.length ? con[Math.floor((con.length - 1) / 2)] : 0;
   const nSp = new Set(ds.map(o => o.rid)).size;
+  const mMin = mine.length ? Math.min(...mine.map(x => x.f)) : 0, mMax = mine.length ? Math.max(...mine.map(x => x.f)) : 0;
+  /* vạch giá các phân loại của mình trên từng thanh đối thủ (chế độ theo shop) */
+  const dai = theoShop ? mine.map(x => `<em style="left:${pos(x.f).toFixed(1)}%" title="Mình — ${esc(x.n)}: ${money(x.f)}"></em>`).join('') : '';
+  const row = (x, ten) => `<div class="bd-lr ${x.mine ? 'me' : ''} ${x.ok === false ? 'het' : ''}">
+      <span class="n" title="${esc(x.mine ? x.n : x.rn + (x.n ? ' · ' + x.n : ''))}">${ten}${x.ok === false ? ' <span class="dim">(hết hàng)</span>' : ''}</span>
+      <span class="bd-lb"><i style="width:${pos(x.f).toFixed(1)}%"></i>${x.mine ? '' : dai}</span><b>${money(x.f)}</b></div>`;
   let h = sectionTitle('Thang giá', `<span class="dim">${ds.length} mức giá của ${nSp} sản phẩm đối thủ${con.length ? ' · rẻ nhất ' + money(con[0]) + ' · giữa ' + money(giua) + ' · đắt nhất ' + money(con[con.length - 1]) : ''}</span>`);
-  h += `<div class="bd-lad">${all.map(x => `<div class="bd-lr ${x.mine ? 'me' : ''} ${x.ok === false ? 'het' : ''}">
-      <span class="n">${x.mine ? '★ Mình — ' + esc(x.n) : esc(bCmpTen(x))}${x.ok === false ? ' <span class="dim">(hết hàng)</span>' : ''}</span>
-      <span class="bd-lb"><i style="width:${(max > min0 ? 4 + (x.f - min0) / (max - min0) * 96 : 100).toFixed(1)}%"></i></span><b>${money(x.f)}</b></div>`).join('')}</div>`;
+  h += `<div class="chips bd-ladsw">${[['', 'Gộp chung'], ['shop', 'Theo shop']].map(([k, l]) =>
+      `<button class="btn sm ${(ui.bLad || '') === k ? 'pri' : ''}" data-act="blad" data-id="${k}">${l}</button>`).join('')}${
+    coHet ? `<button class="btn sm ${anHet ? 'pri' : ''}" data-act="bladhet">${anHet ? '✓ ' : ''}Ẩn phân loại hết hàng</button>` : ''}</div>`;
+  if (!theoShop){
+    h += `<div class="bd-lad">${all.map(x => row(x, x.mine ? '★ Mình — ' + esc(x.n) : esc(bCmpTen(x)))).join('')}</div>`;
+    return h;
+  }
+  /* Theo shop: mỗi shop một nhóm (nhiều sản phẩm cùng shop thì tách dòng tiêu đề nhỏ),
+     nhóm xếp theo giá rẻ nhất còn hàng; nhóm của mình luôn đứng đầu */
+  const nhom = new Map();
+  dv.forEach(o => { const k = o.shop || '(không rõ shop)'; if (!nhom.has(k)) nhom.set(k, []); nhom.get(k).push(o); });
+  const gMin = xs => { const c = xs.filter(o => o.ok); return Math.min(...(c.length ? c : xs).map(o => o.f)); };
+  const ns = [...nhom.entries()].sort((a, c) => gMin(a[1]) - gMin(c[1]));
+  if (mine.length) h += `<div class="bd-ladg me"><div class="bd-ladh"><b>★ Mình</b> <span class="dim">${sm && bShopList().length > 1 ? 'bán ở ' + esc(shopName(sm)) + ' · ' : ''}${
+      mine.length} phân loại · ${money(mMin)}${mMax > mMin ? ' – ' + money(mMax) : ''}${vm ? ' (sau voucher ' + vm + '%)' : ''}</span></div>
+    <div class="bd-lad">${mine.slice().sort((a, c) => a.f - c.f).map(x => row(x, esc(x.n))).join('')}</div>
+    ${dai ? '<div class="dim bd-ladnote">Vạch màu trên thanh của đối thủ = giá từng phân loại của mình (rê chuột để xem).</div>' : ''}</div>`;
+  ns.forEach(([shop, xs]) => {
+    const g = gMin(xs), gMax = Math.max(...xs.map(o => o.f)), rids = [...new Set(xs.map(o => o.rid))];
+    const so = mMin && g ? rvPct(mMin, g) : null;
+    const soTxt = so == null ? '' : Math.abs(so) < 0.5 ? ' · <b>mình bằng giá</b>'
+      : ` · giá rẻ nhất của mình <b>${so > 0 ? 'đắt hơn' : 'rẻ hơn'} ${Math.abs(so).toFixed(0)}%</b>`;
+    h += `<details class="bd-ladg" open><summary><b>${esc(shop)}</b> <span class="dim">· ${rids.length > 1 ? rids.length + ' sản phẩm · ' : ''}${xs.length} mức · ${
+      money(g)}${gMax > g ? ' – ' + money(gMax) : ''}</span>${soTxt}</summary>`;
+    rids.map(rid => xs.filter(o => o.rid === rid).sort((a, c) => a.f - c.f)).sort((a, c) => a[0].f - c[0].f).forEach(sp => {
+      if (rids.length > 1) h += `<div class="bd-ladp">${esc(cut(sp[0].rn, 80))}</div>`;
+      h += `<div class="bd-lad">${sp.map(o => row(o, esc(o.n || (rids.length > 1 ? 'giá bán' : cut(o.rn, 60))))).join('')}</div>`;
+    });
+    h += '</details>';
+  });
   return h;
 }
 /* Giờ ghi nhật ký (lưu UTC) → "dd/mm/yyyy hh:mm" giờ máy đang xem */
@@ -6166,4 +6204,4 @@ function bNoteList(ns){
         <div>${esc(n.text).replace(/\n/g, '<br>')}</div></div></div>`; }).join('')}</div>`;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "2a9814cd"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "71385955"]);
