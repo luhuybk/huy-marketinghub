@@ -1423,12 +1423,25 @@ function radarMo(shop, cid){
 const RV_CU_PHUT = 10;      // mở lại trang sau chừng này phút thì hỏi lại máy chủ
 function ensureRival(){
   if (!window.Server || !Server.authed() || !may('rival')) return;
+  /* Thẻ Gian hàng đối thủ: một lần hỏi lấy hết (ít gian hàng, mỗi cái vài sản phẩm) */
+  if (ui.rvTab === 'shop'){
+    if (!rv.shBusy && (!rv.shLuc || Date.now() - rv.shLuc > RV_CU_PHUT * 6e4)) loadRivalShops();
+    return;
+  }
   /* Tác vụ quét gửi số vào máy chủ lúc app đang mở — số trong `rv` cũ dần mà
      không ai hay. Quá RV_CU_PHUT phút thì hỏi lại; vẫn vẽ số cũ trong lúc chờ. */
   if (rv.asked && !rv.busy && rv.luc && Date.now() - rv.luc > RV_CU_PHUT * 6e4) return void loadRival(true);
   if (!rv.asked) return void loadRival();
   const k = rvCurKw();
   if (k && !rv.scans[k.id] && !rv.busy) loadRivalScans(k.id);
+}
+async function loadRivalShops(){
+  rv.shBusy = true; rv.shLuc = Date.now();
+  try { const r = await Server.rivalShops(); rv.shops = r.shops || []; rv.shHan = r.han || null;
+        Object.assign(rv.sp, r.sp || {}); rv.shErr = ''; }
+  catch(e){ rv.shErr = e.message || 'lỗi không rõ'; }
+  rv.shBusy = false;
+  if (route.page === 'rival') render();
 }
 async function loadRival(lamMoi){
   rv.asked = true; rv.busy = true; rv.luc = Date.now();
@@ -1496,11 +1509,25 @@ function rvKwForm(id, goiY){
 }
 /* Lịch sử một sản phẩm qua các lần quét của từ khoá đang xem */
 function rvProdOpen(id){
-  const {kw, ds} = rvView();
-  if (!kw) return;
+  /* Nguồn lịch sử: các lần quét của từ khoá đang xem, hoặc (thẻ Gian hàng đối
+     thủ) các lần quét của gian hàng có sản phẩm này — ở đó một lần quét gồm
+     nhóm bán chạy (có hạng) rồi tới nhóm mới lên kệ (không có hạng). */
+  let ds, ten;
+  if (ui.rvTab === 'shop'){
+    const sh = rvShops().find(x => x.scans.some(c => c.top.concat(c.new).some(y => y.id === id)));
+    if (!sh) return;
+    ds = sh.scans.map(c => { const co = new Set(c.top.map(y => y.id));
+      return {date:c.date, at:c.at, nTop:c.top.length, items:c.top.concat(c.new.filter(y => !co.has(y.id)))}; });
+    ten = 'gian hàng ' + sh.name;
+  } else {
+    const v = rvView();
+    if (!v.kw) return;
+    ds = v.ds; ten = '"' + v.kw.kw + '"';
+  }
   /* bu: lần quét bù — giá, ảnh bìa, tổng đã bán của nó là số hôm quét bù,
      không phải hồi đó, nên không đem so (xem rvLaBu) */
-  const his = ds.map(s => { const i = s.items.findIndex(x => x.id === id); return i < 0 ? null : Object.assign({date:s.date, rank:i + 1, bu:rvLaBu(s)}, s.items[i]); })
+  const his = ds.map(s => { const i = s.items.findIndex(x => x.id === id);
+                  return i < 0 ? null : Object.assign({date:s.date, rank:s.nTop != null && i >= s.nTop ? 0 : i + 1, bu:rvLaBu(s)}, s.items[i]); })
                 .filter(Boolean);
   const x = his[0];
   if (!x) return;
@@ -1536,7 +1563,7 @@ function rvProdOpen(id){
       </div></div>`;
 
   if (!sp || !g) h += `<div class="dim" style="margin-top:14px">Chưa có bảng giá chi tiết, voucher và phân loại: tác vụ quét chưa đọc trang Shopee của sản phẩm này
-      (mỗi lần quét đọc ${RV_SHOW} sản phẩm đứng đầu của từng từ khoá).</div>`;
+      (mỗi lần quét đọc ${RV_SHOW} sản phẩm đứng đầu của từng từ khoá, cùng sản phẩm bán chạy và mới lên kệ của từng gian hàng đối thủ).</div>`;
   else {
     /* ---- bảng "Chi tiết giá" của phân loại rẻ nhất — xếp y như hộp của Shopee ---- */
     const giamSp = g.pb - g.p;
@@ -1601,14 +1628,14 @@ function rvProdOpen(id){
       <div class="rv-bias">${biaCu.reverse().map((b, i) => `<a href="${esc(rvImg(b.img))}" target="_blank" rel="noopener noreferrer">
         <img src="${esc(rvImg(b.img, 'md'))}" alt="" referrerpolicy="no-referrer" loading="lazy"><span>${i === 0 ? 'đang dùng · ' : ''}từ ${esc(fmtDate(b.date))}</span></a>`).join('')}</div>`;
 
-  h += `<div class="sec sm">Qua các lần quét Metric — "${esc(kw.kw)}"<span class="ln"></span></div>
+  h += `<div class="sec sm">Qua các lần quét Metric — ${esc(ten)}<span class="ln"></span></div>
     <div class="tblwrap"><table class="tbl sm rv-his"><thead><tr><th>Ngày quét</th><th class="c">Hạng</th><th class="r">Giá bán</th>
       <th class="r">Phân loại</th><th class="r">Doanh số kỳ</th><th class="r">Lượt bán kỳ</th><th class="r">Tổng đã bán</th><th>Ảnh bìa</th></tr></thead><tbody>`;
   his.forEach((r, i) => {
     const sau = his[i + 1];                    // lần quét cũ hơn
     const soDuoc = sau && !r.bu && !sau.bu;    // giá / ảnh / tổng đã bán chỉ so giữa hai lần quét thật
     const doi = (a, b) => soDuoc && a !== b ? ' class="r rv-doi"' : ' class="r"';
-    h += `<tr><td>${esc(fmtDate(r.date))}${r.bu ? ' <span class="rv-chua">bù</span>' : ''}</td><td class="c"><b>${r.rank}</b></td>
+    h += `<tr><td>${esc(fmtDate(r.date))}${r.bu ? ' <span class="rv-chua">bù</span>' : ''}</td><td class="c">${r.rank ? '<b>' + r.rank + '</b>' : '<span class="dim" title="chưa vào nhóm bán chạy nhất của shop">—</span>'}</td>
       <td${doi(r.p, sau && sau.p)}>${money(r.p)}</td>
       <td${doi(r.pmin + '-' + r.pmax, sau && sau.pmin + '-' + sau.pmax)}>${moneyShort(r.pmin)} – ${moneyShort(r.pmax)}</td>
       <td class="r">${moneyShort(r.r)}</td><td class="r">${r.o.toLocaleString('vi-VN')}</td>
@@ -4935,7 +4962,21 @@ const ACTIONS = {
   rvnew:    () => isOwner() && rvKwForm(null),
   rvedit:   id => isOwner() && rvKwForm(id),
   rvprod:   id => rvProdOpen(id),
-  rvreload: () => { rv.asked = false; rv.scans = {}; rv.vols = {}; rv.sp = {}; rv.state = null; render(); },
+  rvreload: () => { rv.asked = false; rv.scans = {}; rv.vols = {}; rv.sp = {}; rv.state = null; rv.shops = null; rv.shLuc = 0; render(); },
+  /* ---- thẻ Gian hàng đối thủ ---- */
+  rvtab:    id => { ui.rvTab = id === 'shop' ? 'shop' : 'kw'; render(); },
+  rvshop:   id => { ui.rvShop = ui.rvShop === id ? '' : id; render(); },
+  rvshdate: id => { ui.rvShDate = id; render(); },
+  rvshall:  () => { ui.rvShAll = !ui.rvShAll; render(); },
+  rvshopdel: async id => {
+    if (!isOwner()) return;
+    const sh = rvShops().find(x => x.id === id);
+    if (!sh || !confirm('Bỏ gian hàng "' + sh.name + '" cùng ' + sh.scans.length + ' lần quét đã lưu khỏi Hub? Không lấy lại được.\n\n' +
+                        'Nếu gian hàng này còn trong danh sách Theo dõi đối thủ trên Metric thì lần quét sau nó sẽ về lại — muốn bỏ hẳn thì xoá cả ở Metric.')) return;
+    try { await Server.rivalShopDel(id); }
+    catch(e){ return toast('Không bỏ được: ' + (e.message || e)); }
+    ui.rvShop = ''; await loadRivalShops(); toast('Đã bỏ gian hàng');
+  },
   rvmode:   id => { ui.rvMode = id === 'img' ? 'img' : 'tbl'; render(); },
   /* đổi ảnh lớn trong hộp chi tiết đối thủ */
   rvimg:    (id, el) => {

@@ -238,6 +238,8 @@ const Server = (() => {
   const rivalKwDel   = id      => call('rival_kw_del', {id});
   const rivalScanDel = (kwId, date, src) => call('rival_scan_del', {kw_id: kwId, date, src});
   const rivalMine    = (sid, name, on)   => call('rival_mine', {shop_id: sid, name, on});
+  const rivalShops   = ()      => call('rival_shops');
+  const rivalShopDel = id      => call('rival_shop_del', {id});
 
   const users     = ()  => call('users_list');
   /* Chỉ tên, ai đăng nhập cũng gọi được — cần để giao việc cho một người. */
@@ -247,7 +249,7 @@ const Server = (() => {
 
   return {probe, login, logout, logoutAll, pull, push, pushBeacon, stats,
           tgGet, tgSave, tgTest, tgReport, tgHook, remind, ingestList, ingestSet,
-          rivalState, rivalScans, rivalKwSave, rivalKwDel, rivalScanDel, rivalMine, adTgUp, adTgMute,
+          rivalState, rivalScans, rivalKwSave, rivalKwDel, rivalScanDel, rivalMine, rivalShops, rivalShopDel, adTgUp, adTgMute,
           users, userNames, userSave, userDel, takeWhoChanged, notePerms,
           available, authed, state, role, isOwner, name, perms, may, call};
 })();

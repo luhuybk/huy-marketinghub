@@ -35,8 +35,9 @@ curl -s -H 'Content-Type: application/json' \
   https://darkblue-bat-395619.hostingersite.com/api/rival.php
 ```
 
-Trả về `ticket` (vé, sống 6 giờ), `url`, `today` và
-`kws: [{id, kw, last, every, due, next}]`.
+Trả về `ticket` (vé, sống 6 giờ), `url`, `today`,
+`kws: [{id, kw, last, every, due, next}]` và
+`shops: {n, last, every, due, next}` (gian hàng đối thủ — xem bước 2b).
 
 - **Chỉ quét từ khoá có `due: true`** (bước 2 và bước 3). Chủ chọn cho từng từ
   khoá quét mỗi tuần / 2 tuần / mỗi tháng (`every` = 7 / 14 / 30 ngày); Hub tính
@@ -58,7 +59,7 @@ if(!window.__rvHook){window.__rvHook=1;window.__rv={};
 const o=XMLHttpRequest.prototype.open,s=XMLHttpRequest.prototype.send;
 XMLHttpRequest.prototype.open=function(m,u){this.__u=u;return o.apply(this,arguments)};
 XMLHttpRequest.prototype.send=function(b){this.addEventListener('load',()=>{
-  const k=(String(this.__u||'').match(/analytics\/(search-basic|products|groups|shops|keywords)\//)||[])[1];
+  const k=(String(this.__u||'').match(/analytics\/(search-basic|products|groups|shops-tracking|shops|keywords)\//)||[])[1];
   if(k)window.__rv[k]={body:b,res:this.responseText}});return s.apply(this,arguments)}}
 ```
 
@@ -85,6 +86,38 @@ Hub trả `{ok:true, kw, date, n, top, market, price}` — `market` là doanh s�
 thị trường, `price` là số khoảng giá nhận được (0 là thiếu `basic`). Hub **từ
 chối** nếu kết quả trên trang không phải của từ khoá `KW_ID` (lệch nhịp) — khi
 đó kiểm lại ô từ khoá rồi làm lại, đừng đổi `KW_ID` cho khớp.
+
+## 2b. Gian hàng đối thủ — 1 lượt cho TẤT CẢ gian hàng
+
+Chỉ làm khi `shops.due` là `true` (mỗi tuần một lần), hoặc chủ dặn quét ngay.
+
+Chủ khai các gian hàng đối thủ ngay trên Metric (`Theo dõi đối thủ` → `Thêm đối
+thủ`); Hub không giữ danh sách riêng, quét được gian hàng nào thì hiện gian hàng
+đó. Một lần bấm **Phân tích** ở trang này trừ **1 lượt** dù có bao nhiêu gian
+hàng (kiểm 13/11/2026 với 7 gian hàng) và trả cho mỗi gian hàng: doanh số, lượt
+bán kỳ này + kỳ liền trước, doanh số từng tuần, số sản phẩm, 5 sản phẩm bán chạy
+nhất, 5 sản phẩm mới lên kệ nhất.
+
+1. Mở `https://metric.vn/analytics/shop-tracking`, gài đoạn bắt kết quả ở bước 2
+   (trang vừa tải lại thì phải gài lại), đặt `window.__rv={}`.
+2. Ô gian hàng để **Tất cả**, thời gian để **Trong 30 ngày**. Bấm **Phân tích**
+   đúng một lần. Chờ bảng *Tất cả gian hàng đối thủ* có số
+   (`window.__rv['shops-tracking']` có rồi). Chọn riêng một gian hàng rồi phân
+   tích lại là tốn thêm 1 lượt mà không được thêm sản phẩm nào — đừng làm.
+3. Gửi sang Hub (thay `VE`):
+
+```js
+const T=window.__rv['shops-tracking'], q=JSON.parse(T.body);
+const r=await fetch('https://darkblue-bat-395619.hostingersite.com/api/rival.php',{method:'POST',
+  headers:{'Content-Type':'text/plain'},
+  body:JSON.stringify({ticket:'VE',do:'shops',from:q.start_date,to:q.end_date,data:JSON.parse(T.res).data})});
+await r.json()
+```
+
+Hub trả `{ok:true, date, n, shops:[{id, name, r, top, new}]}` — `n` phải bằng số
+gian hàng đang khai trên Metric, mỗi gian hàng `top` và `new` thường là 5.
+Sản phẩm bán chạy và sản phẩm lên kệ trong 45 ngày của các gian hàng tự vào danh
+sách đọc trang Shopee ở bước 4 (`kws` của chúng ghi `Gian hàng: <tên>`).
 
 ## 3. Với từng từ khoá — lượt tìm kiếm (50 điểm, không tốn lượt)
 
@@ -174,7 +207,7 @@ mỗi từ khoá.
 
 ## 5. Báo lại
 
-Tóm tắt: quét được mấy từ khoá (và mấy từ khoá chưa tới hạn nên bỏ qua), từ khoá nào lỗi và vì sao, còn bao nhiêu lượt và
+Tóm tắt: quét được mấy gian hàng đối thủ (bước 2b), quét được mấy từ khoá (và mấy từ khoá chưa tới hạn nên bỏ qua), từ khoá nào lỗi và vì sao, còn bao nhiêu lượt và
 điểm Metric (mở `https://metric.vn/profile` ở **tab khác**: *Số lượt phân tích
 còn lại*, *Điểm phân tích còn lại*); Shopee đọc được mấy / mấy sản phẩm, có bị
 dừng giữa chừng không.

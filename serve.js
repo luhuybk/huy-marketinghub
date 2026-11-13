@@ -615,6 +615,18 @@ function api(req, res, body){
       }
       return send({ok:true, id});
     }
+    case 'rival_shops': {
+      if (!perm('rival')) return;
+      const shops = rvShopScans();
+      return send({ok:true, shops, han:rvShopHan(), sp:rvSps(rvShopIds(shops))});
+    }
+    case 'rival_shop_del': {
+      if (!owner()) return;
+      const D = db(); rvTables(D);
+      D.prepare('DELETE FROM rv_shscan WHERE shop_id = ?').run(String(inp.id || ''));
+      D.prepare('DELETE FROM rv_shop WHERE id = ?').run(String(inp.id || ''));
+      return send({ok:true});
+    }
     case 'rival_kw_del': {
       if (!owner()) return;
       const D = db(); rvTables(D);
@@ -1403,6 +1415,9 @@ function rvTables(D){
       PRIMARY KEY (item_id, date))`);
   if (!D.prepare('PRAGMA table_info(rv_scan)').all().some(r => r.name === 'extra')) D.exec('ALTER TABLE rv_scan ADD COLUMN extra TEXT');
   if (!D.prepare('PRAGMA table_info(rv_kw)').all().some(r => r.name === 'every')) D.exec('ALTER TABLE rv_kw ADD COLUMN every INTEGER DEFAULT 7');
+  D.exec(`CREATE TABLE IF NOT EXISTS rv_shop (id TEXT PRIMARY KEY, name TEXT, shops TEXT, created TEXT);
+    CREATE TABLE IF NOT EXISTS rv_shscan (shop_id TEXT NOT NULL, date TEXT NOT NULL, d_from TEXT, d_to TEXT,
+      at TEXT, data TEXT, PRIMARY KEY (shop_id, date))`);
 }
 const rvTan = v => RV_TAN.includes(Math.trunc(+v)) ? Math.trunc(+v) : 7;
 const rvCong = (d, n) => new Date(Date.parse(d + 'T00:00:00Z') + n * 864e5).toISOString().slice(0, 10);
@@ -1598,6 +1613,18 @@ function rvSpList(){
       out.get(id).kws.push(k.kw);
     });
   });
+  rvShopScans(1).forEach(sh => {
+    const s = sh.scans[0];
+    if (!s) return;
+    const moiTu = rvCong(s.date, -RV_SH_MOI_NGAY);
+    s.top.concat(s.new.filter(x => String(x.created || '') >= moiTu)).forEach(x => {
+      const id = String(x.id || '');
+      if (!id || !x.url) return;
+      if (!out.has(id)) out.set(id, {id, sid:String(x.sid || ''), url:String(x.url), shop:String(x.shop || ''), kws:[]});
+      const nhan = 'Gian hàng: ' + sh.name;
+      if (!out.get(id).kws.includes(nhan)) out.get(id).kws.push(nhan);
+    });
+  });
   if (out.size){
     const xong = new Set(D.prepare('SELECT item_id FROM rv_sp WHERE date = ?').all(vnNow().date).map(r => String(r.item_id)));
     out.forEach(o => { o.done = xong.has(o.id); });
@@ -1622,6 +1649,88 @@ function rvSps(ids, max = 8){
   return out;
 }
 const rvScanIds = (scans, lan = 8) => [...new Set(scans.slice(0, lan).flatMap(s => s.items.map(x => String(x.id || ''))))];
+/* Gian hàng đối thủ — xem chú thích ở rvShopSave() … rvShopIds() bên PHP */
+const RV_SH_GIU = 10, RV_SH_TAN = 7, RV_SH_MOI_NGAY = 45;
+function rvShopSave(inp){
+  const D = db(); rvTables(D);
+  const d = inp.data && typeof inp.data === 'object' ? inp.data : {};
+  const sum = Array.isArray(d.summary) ? d.summary : [];
+  if (!sum.length) return {error:'Gói gửi lên không có gian hàng nào (thiếu summary).'};
+  const ds = k => d[k] && Array.isArray(d[k].data) ? d[k].data : [];
+  const top = ds('products_top_selling');
+  let moi = ds('products_new_product'); if (!moi.length) moi = ds('products_new_products');
+  const chu = (v, n) => [...String(v == null || typeof v === 'object' ? '' : v).replace(/\s+/gu, ' ').trim()].slice(0, n).join('');
+  const so = (x, k) => Math.round(x && typeof x === 'object' && isFinite(+x[k]) ? +x[k] : 0);
+  const date = rvNgayQuet(inp), tu = rvNgay(inp.from), den = rvNgay(inp.to);
+  const ins = D.prepare(`INSERT INTO rv_shscan (shop_id, date, d_from, d_to, at, data) VALUES (?,?,?,?,?,?)
+      ON CONFLICT(shop_id, date) DO UPDATE SET d_from=excluded.d_from, d_to=excluded.d_to, at=excluded.at, data=excluded.data`);
+  const insS = D.prepare(`INSERT INTO rv_shop (id, name, shops, created) VALUES (?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET name=excluded.name, shops=excluded.shops`);
+  const xong = [];
+  sum.slice(0, 60).forEach(g => {
+    if (!g || typeof g !== 'object') return;
+    const gid = String(g.id != null ? g.id : g.shop_group_tag != null ? g.shop_group_tag : '').replace(/[^A-Za-z0-9_-]/g, '');
+    if (!gid || gid.length > 40) return;
+    const shops = [], ten = new Map();
+    (Array.isArray(g.shops) ? g.shops : []).slice(0, 10).forEach(x => {
+      if (!x || typeof x !== 'object') return;
+      const sid = String(x.shop_platform_id || '').replace(/\D/g, '');
+      if (!sid) return;
+      const img = String(x.shop_url_image || '');
+      shops.push({sid, n:chu(x.shop_name, 120), user:chu(x.shop_username, 80), mall:Math.trunc(+x.official_type || 0) === 1,
+                  img:img.startsWith('https://') ? img : ''});
+      ten.set(sid, shops[shops.length - 1].n);
+    });
+    if (!shops.length) return;
+    const name = chu(g.title, 120) || shops[0].n;
+    const loc = ps => {
+      const m = new Map();
+      ps.forEach(p => {
+        if (!p || typeof p !== 'object') return;
+        const sid = String(String(p.shop_base_id || '').split('__')[1] || '').replace(/\D/g, '');
+        if (!ten.has(sid)) return;
+        const x = rvItem(String(p.shop_name || '').trim() ? p : Object.assign({}, p, {shop_name:ten.get(sid)}));
+        if (x) m.set(x.id, x);
+      });
+      return [...m.values()];
+    };
+    const t = loc(top).sort((a, b) => b.r - a.r);
+    const m = loc(moi).sort((a, b) => a.created < b.created ? 1 : a.created > b.created ? -1 : 0);
+    const wk = (Array.isArray(g.revenue_by_time) ? g.revenue_by_time : []).slice(0, 16).filter(w => w && typeof w === 'object')
+      .map(w => ({f:rvNgay(w.start_date), t:rvNgay(w.end_date), v:so(w, 'value')}));
+    const data = {sum:{r:so(g, 'order_revenue_custom'), rp:so(g, 'order_revenue_custom_previous'), o:so(g, 'order_count_custom'),
+                       op:so(g, 'order_count_custom_previous'), np:so(g, 'total_products'), wk},
+                  top:t.slice(0, RV_SH_GIU), new:m.slice(0, RV_SH_GIU)};
+    insS.run(gid, name, JSON.stringify(shops), iso());
+    ins.run(gid, date, tu, den, iso(), JSON.stringify(data));
+    xong.push({id:gid, name, r:data.sum.r, top:data.top.length, new:data.new.length});
+  });
+  if (!xong.length) return {error:'Không đọc được gian hàng nào trong gói gửi lên.'};
+  return {ok:true, date, from:tu, to:den, n:xong.length, shops:xong};
+}
+function rvShopScans(max = 12){
+  const D = db(); rvTables(D);
+  const st = D.prepare('SELECT date, d_from, d_to, at, data FROM rv_shscan WHERE shop_id = ? ORDER BY date DESC LIMIT ' + Math.trunc(max));
+  return D.prepare('SELECT * FROM rv_shop ORDER BY created, id').all().map(r => {
+    const scans = [];
+    st.all(String(r.id)).forEach(s => {
+      let d = null; try { d = JSON.parse(s.data); } catch(e){}
+      if (!d || typeof d !== 'object') return;
+      scans.push({date:String(s.date), from:String(s.d_from || ''), to:String(s.d_to || ''), at:String(s.at || ''),
+                  sum:d.sum && typeof d.sum === 'object' ? d.sum : {}, top:Array.isArray(d.top) ? d.top : [], new:Array.isArray(d.new) ? d.new : []});
+    });
+    let sh = []; try { sh = JSON.parse(r.shops || '[]'); } catch(e){}
+    return {id:String(r.id), name:String(r.name || ''), shops:Array.isArray(sh) ? sh : [], scans};
+  });
+}
+function rvShopHan(){
+  const D = db(); rvTables(D);
+  const n = D.prepare('SELECT COUNT(*) c FROM rv_shop').get().c;
+  const last = String(D.prepare('SELECT MAX(date) d FROM rv_shscan').get().d || '');
+  const [due, next] = rvKwHan(last, RV_SH_TAN, false, vnNow().date);
+  return {n, last, every:RV_SH_TAN, due, next};
+}
+const rvShopIds = (shops, lan = 6) => [...new Set(shops.flatMap(sh => sh.scans.slice(0, lan).flatMap(s => s.top.concat(s.new).map(x => String(x.id || '')))))];
 function rvTicketNew(){
   const t = crypto.randomBytes(20).toString('hex');
   kvSet('rv_ticket', {hash:sha(t), exp:Math.floor(Date.now() / 1000) + RV_TICKET_GIO * 3600});
@@ -1647,7 +1756,12 @@ function rivalRoute(req, res, body){
     if (tt !== 'ok') return out({ok:false, pending: tt === 'pending', error: tt === 'pending'
       ? 'Chờ chủ cho phép: Marketing Hub → Cài đặt → Nhận số liệu quảng cáo tự động → Cho phép.'
       : 'Thiết bị này đã bị thu hồi quyền gửi số.'}, 403);
-    return out({ok:true, ticket:rvTicketNew(), url:`http://localhost:${PORT}/api/rival.php`, today:vnNow().date, kws:rvKwList(false)});
+    return out({ok:true, ticket:rvTicketNew(), url:`http://localhost:${PORT}/api/rival.php`, today:vnNow().date, kws:rvKwList(false), shops:rvShopHan()});
+  }
+  if (inp.do === 'shops'){
+    if (!rvTicketOk(inp.ticket)) return out({ok:false, error:'Vé quét không đúng hoặc đã hết hạn — xin vé mới bằng do:"kws".'}, 403);
+    const r = rvShopSave(inp);
+    return r.error ? out({ok:false, error:r.error}, 400) : out(r);
   }
   if (inp.do === 'scan'){
     if (!rvTicketOk(inp.ticket)) return out({ok:false, error:'Vé quét không đúng hoặc đã hết hạn — xin vé mới bằng do:"kws".'}, 403);

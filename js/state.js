@@ -4902,7 +4902,8 @@ function launchAutoMarks(){
      r, o (doanh số, lượt bán trong kỳ) · rp, op (kỳ liền trước, do Metric tính)
      rev, sold (tổng từ trước tới giờ) · rc, ra (số đánh giá, điểm)
    ============================================================ */
-const rv = {state:null, scans:{}, vols:{}, sp:{}, err:'', asked:false, busy:false};
+const rv = {state:null, scans:{}, vols:{}, sp:{}, err:'', asked:false, busy:false,
+            shops:null, shHan:null, shErr:'', shBusy:false, shLuc:0};     // gian hàng đối thủ — xem rvShopView()
 const RV_KINDS = {main:'Từ khoá chính', sp:'Từ khoá sản phẩm'};
 const RV_SHOW = 10;                       // bảng mặc định hiện top mấy
 /* Bao lâu quét một từ khoá (ngày) — máy chủ quyết định tới hạn (rvKwHan ở
@@ -5184,4 +5185,79 @@ function rvReportText(kw, cur, cmp, vol){
   const ch = rvChanges(cmp);
   if (ch.length){ L.push('', 'ĐIỀU GÌ VỪA ĐỔI' + (cmp.prev ? ' (so với ' + fmtDate(cmp.prev.date) + ')' : '')); ch.slice(0, 12).forEach(c => L.push(c.icon + ' ' + c.text)); }
   return L.join('\n');
+}
+
+/* ---------- Gian hàng đối thủ ----------
+   Thẻ thứ hai của trang Theo dõi đối thủ. Số đến từ trang "Theo dõi đối thủ"
+   của Metric (một lần Phân tích = 1 lượt cho mọi gian hàng), xem rvShopSave()
+   ở api/lib.php. Mỗi gian hàng có các bản chụp, mới nhất trước:
+     {date, from, to, at, sum:{r, rp, o, op, np, wk}, top:[…], new:[…]}
+   top = sản phẩm bán chạy nhất (xếp theo doanh số kỳ), new = sản phẩm mới
+   lên kệ nhất; từng sản phẩm cùng khuôn với sản phẩm của bản chụp từ khoá. */
+const RV_SH_MOI = 60;                     // lên kệ trong chừng này ngày thì còn coi là "mới"
+const rvShops = () => rv.shops || [];
+const rvCachNgay = (a, b) => { const x = Date.parse(a), y = Date.parse(b); return isNaN(x) || isNaN(y) ? null : Math.round((x - y) / 864e5); };
+/* Ngày quét đang xem, và với từng gian hàng: bản chụp ngày đó + bản ngay
+   trước để so. Gian hàng không có bản chụp đúng ngày đó thì không hiện. */
+function rvShopView(){
+  const all = rvShops();
+  const dates = [...new Set(all.flatMap(sh => sh.scans.map(c => c.date)))].sort().reverse();
+  const date = dates.includes(ui.rvShDate) ? ui.rvShDate : dates[0] || '';
+  const rows = [];
+  all.forEach(sh => {
+    const i = sh.scans.findIndex(c => c.date === date);
+    if (i < 0) return;
+    const cur = sh.scans[i], prev = sh.scans[i + 1] || null, next = i > 0 ? sh.scans[i - 1] : null;
+    const goi = (c, k) => c ? {date:c.date, at:c.at, to:c.to, items:c[k] || []} : null;
+    const top = rvCompare(goi(cur, 'top'), goi(prev, 'top'), next);
+    /* Vừa lên kệ = lần quét trước chưa thấy ở đâu, và ngày lên kệ mới hơn mọi
+       sản phẩm lần trước đã thấy (không thì chỉ là sản phẩm cũ trồi lên vì
+       shop gỡ bớt hàng). */
+    const daThay = new Set(prev ? prev.top.concat(prev.new).map(x => x.id) : []);
+    const moiNhat = prev ? prev.new.reduce((m, x) => x.created > m ? x.created : m, '') : '';
+    const nw = rvCompare(goi(cur, 'new'), goi(prev, 'new'), next).rows.map(r => Object.assign(r, {
+      tuoi: r.created ? rvCachNgay(cur.date, r.created) : null,
+      vuaLen: !!prev && !daThay.has(r.id) && !!r.created && r.created > moiNhat}));
+    const sm = cur.sum || {};
+    rows.push({sh, cur, prev, top, nw, sum: sm, gR: rvPct(sm.r, sm.rp), gO: rvPct(sm.o, sm.op),
+               dNp: prev && prev.sum && prev.sum.np ? (sm.np || 0) - prev.sum.np : null,
+               moi: nw.filter(r => r.tuoi != null && r.tuoi <= RV_SH_MOI)});
+  });
+  rows.sort((a, b) => (b.sum.r || 0) - (a.sum.r || 0));
+  const chon = rows.find(r => r.sh.id === ui.rvShop) || null;
+  return {dates, date, rows, chon, xem: chon ? [chon] : rows,
+          prevDate: rows.map(r => r.prev && r.prev.date).filter(Boolean).sort().pop() || ''};
+}
+/* "Điều gì vừa đổi" của một gian hàng — cùng khuôn rvChanges: {w, icon, cls, id, text} */
+function rvShopChanges(row){
+  const out = [], ten = row.sh.name, sp = r => ten + ' — ' + cut(r.n, 46);
+  const them = (w, icon, cls, id, text) => out.push({w, icon, cls, id, text});
+  if (row.gR != null && Math.abs(row.gR) >= 20)
+    them(55 + Math.min(30, Math.abs(row.gR) / 3), row.gR > 0 ? '📈' : '📉', row.gR > 0 ? 'bad' : 'ok', '',
+      ten + ': doanh số kỳ ' + (row.gR > 0 ? 'tăng ' : 'giảm ') + Math.abs(row.gR).toFixed(0) + '% so với kỳ liền trước (' +
+      moneyShort(row.sum.rp) + ' → ' + moneyShort(row.sum.r) + ')');
+  if (row.dNp)
+    them(52, '📦', '', '', ten + ': số sản phẩm đang bán ' + (row.sum.np - row.dNp) + ' → ' + row.sum.np +
+      ' (' + (row.dNp > 0 ? '+' : '') + row.dNp + ')');
+  row.nw.filter(r => r.vuaLen).forEach(r =>
+    them(95, '🆕', 'acc', r.id, ten + ' vừa lên kệ: ' + cut(r.n, 50) + ' — giá ' + money(r.p) + ', lên kệ ' + fmtDate(r.created).slice(0, 5)));
+  const da = new Set();
+  const spDong = r => { if (da.has(r.id)) return; da.add(r.id);
+    (r.spCh || []).forEach(c => them(c.w, c.icon, c.cls, r.id, sp(r) + ': ' + c.t)); };
+  row.top.rows.forEach(r => {
+    if (r.isNew) them(85, '🔥', 'acc', r.id, sp(r) + ' mới vào nhóm bán chạy nhất của shop, hạng ' + r.rank);
+    else if (r.prev && r.move) them(60 + Math.abs(r.move), r.move > 0 ? '⬆️' : '⬇️', r.move > 0 ? 'warn' : 'ok', r.id,
+      sp(r) + (r.move > 0 ? ' lên ' : ' tụt ') + 'hạng trong shop (' + r.prev.rank + ' → ' + r.rank + ')');
+    if (r.pCu && r.p !== r.pCu){
+      const pc = rvPct(r.p, r.pCu);
+      them(70 + Math.min(20, Math.abs(pc)), '💰', r.p < r.pCu ? 'bad' : 'ok', r.id,
+        sp(r) + (r.p < r.pCu ? ' hạ giá ' : ' tăng giá ') + money(r.pCu) + ' → ' + money(r.p) + ' (' + (pc > 0 ? '+' : '') + pc.toFixed(0) + '%)');
+    }
+    spDong(r);
+    if (r.imgNew)  them(65, '🖼', 'acc', r.id, sp(r) + ' đổi ảnh bìa');
+    if (r.nameNew) them(45, '✏️', '', r.id, sp(r) + ' đổi tên sản phẩm');
+  });
+  row.nw.forEach(spDong);
+  row.top.out.forEach(x => them(58, '📉', 'ok', x.id, ten + ' — ' + cut(x.n, 46) + ' rớt khỏi nhóm bán chạy nhất của shop (trước đứng hạng ' + x.rank + ')'));
+  return out;
 }

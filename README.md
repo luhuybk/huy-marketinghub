@@ -937,6 +937,36 @@ tốn lượt Metric.
 
 ---
 
+### Gian hàng đối thủ (thẻ thứ hai, thêm 13/11/2026)
+
+Ngoài theo dõi theo từ khoá, trang này có thẻ **🏪 Gian hàng đối thủ**: từng shop
+đối thủ bán được bao nhiêu, sản phẩm nào đang chạy, sản phẩm nào vừa lên kệ.
+
+- **Nguồn:** trang *Theo dõi đối thủ* của Metric (`metric.vn/analytics/shop-tracking`).
+  Một lần bấm Phân tích ở đó trừ **1 lượt cho mọi gian hàng** (kiểm 13/11/2026 với
+  7 gian hàng) và trả cho mỗi gian hàng: doanh số + lượt bán kỳ này và kỳ liền
+  trước, doanh số từng tuần, số sản phẩm, **5 sản phẩm bán chạy nhất** và **5 sản
+  phẩm mới lên kệ nhất**. Chọn riêng một gian hàng rồi phân tích vẫn chỉ được 5 + 5
+  mà tốn thêm lượt — nên luôn quét tất cả một lần.
+- **Danh sách gian hàng do Metric giữ.** Thêm/bớt đối thủ thì làm trên Metric
+  (Theo dõi đối thủ → Thêm đối thủ); lần quét sau Hub tự có. Nút *Bỏ gian hàng
+  này* trong Hub chỉ xoá số đã lưu — còn khai trên Metric thì nó lại về.
+- **Lưu:** `rv_shop` (nhóm của Metric, có thể gồm vài shop Shopee) và `rv_shscan`
+  (mỗi gian hàng mỗi ngày quét một bản: `sum`, `top`, `new`). Cổng nhận:
+  `api/rival.php` `do:"shops"`; app đọc bằng `rival_shops` (quyền `rival`).
+  Quét mỗi tuần (`RV_SH_TAN`), `do:"kws"` trả kèm `shops.due`.
+- **Vừa lên kệ** = lần quét trước chưa thấy sản phẩm đó ở đâu, và ngày lên kệ
+  mới hơn mọi sản phẩm lần trước đã thấy. Vì thế nhãn này, cùng lên/xuống hạng
+  và "Điều gì vừa đổi", chỉ có từ lần quét thứ hai.
+- **Phân loại, giá cuối sau voucher:** sản phẩm bán chạy và sản phẩm lên kệ trong
+  45 ngày của mỗi gian hàng tự vào danh sách đọc trang Shopee (bước 4 của
+  `tools/quet-doi-thu.md`), nên bấm vào là có bảng giá chi tiết và từng phân
+  loại như bên từ khoá.
+- **Giới hạn:** chỉ thấy 5 sản phẩm bán chạy nhất mỗi shop. Muốn top 20 của một
+  shop thì phải phân tích riêng shop đó ở trang Phân tích (dán link shop), tốn 1
+  lượt mỗi shop — chưa làm.
+
+
 ## 🚀 Hàng mới về
 
 Chữa đúng một chuyện: hàng về rồi mà quên up, up rồi mà quên chạy quảng cáo.
