@@ -11,6 +11,8 @@
    2. Trang Metric đang mở trong trình duyệt của tác vụ, bằng vé đó:
         POST {ticket, do:"scan", kw_id, query, from, to, products, basic, groups, shops}
         POST {ticket, do:"vol",  kw_id, query, from, to, keywords}
+        POST {ticket, do:"shops", from, to, data}   ← trang "Theo dõi đối thủ"
+          (gian hàng đối thủ: doanh số, sản phẩm bán chạy, sản phẩm mới lên kệ)
       Trang Metric gửi thẳng nguyên mảng sản phẩm nó vừa nhận từ máy chủ
       Metric. Không qua tay tác vụ: 20 sản phẩm × 25 từ khoá mà bắt AI chép
       lại từng con số thì chậm và thế nào cũng sai một con.
@@ -64,7 +66,15 @@ if ($do === 'kws') {
              : 'Thiết bị này đã bị thu hồi quyền gửi số.'], 403);
   rvOut(['ok' => true, 'ticket' => rvTicketNew(), 'url' => apiBase() . '/rival.php',
          'today' => (new DateTime('now', new DateTimeZone(KH_TZ)))->format('Y-m-d'),
-         'kws' => rvKwList(false)]);
+         'kws' => rvKwList(false), 'shops' => rvShopHan()]);
+}
+
+/* Gian hàng đối thủ — gửi từ trang "Theo dõi đối thủ" của Metric (1 lượt cho mọi gian hàng) */
+if ($do === 'shops') {
+  if (!rvTicketOk((string)($in['ticket'] ?? '')))
+    rvOut(['ok' => false, 'error' => 'Vé quét không đúng hoặc đã hết hạn — xin vé mới bằng do:"kws".'], 403);
+  $r = rvShopSave($in);
+  rvOut(isset($r['error']) ? ['ok' => false, 'error' => $r['error']] : $r, isset($r['error']) ? 400 : 200);
 }
 
 if ($do === 'scan') {

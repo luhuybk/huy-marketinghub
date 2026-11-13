@@ -1158,6 +1158,10 @@ function rvTables(PDO $pdo): void {
   /* every (thêm sau): bao nhiêu ngày quét một lần — xem RV_TAN */
   if (!in_array('every', array_column($pdo->query('PRAGMA table_info(rv_kw)')->fetchAll(), 'name'), true))
     $pdo->exec('ALTER TABLE rv_kw ADD COLUMN every INTEGER DEFAULT 7');
+  /* Gian hàng đối thủ (thêm 13/11/2026) — xem rvShopSave() */
+  $pdo->exec('CREATE TABLE IF NOT EXISTS rv_shop (id TEXT PRIMARY KEY, name TEXT, shops TEXT, created TEXT)');
+  $pdo->exec('CREATE TABLE IF NOT EXISTS rv_shscan (shop_id TEXT NOT NULL, date TEXT NOT NULL, d_from TEXT, d_to TEXT,
+      at TEXT, data TEXT, PRIMARY KEY (shop_id, date))');
 }
 function rvTan($v): int {
   return in_array((int)$v, RV_TAN, true) ? (int)$v : 7;
@@ -1474,6 +1478,20 @@ function rvSpList(): array {
       $out[$id]['kws'][] = $k['kw'];
     }
   }
+  /* Gian hàng đối thủ: mọi sản phẩm bán chạy + sản phẩm mới lên kệ của lần quét gần nhất */
+  foreach (rvShopScans(1) as $sh) {
+    $s = $sh['scans'][0] ?? null;
+    if (!$s) continue;
+    $moiTu = (new DateTime($s['date']))->modify('-' . RV_SH_MOI_NGAY . ' days')->format('Y-m-d');
+    foreach (array_merge($s['top'], array_filter($s['new'], fn($x) => ($x['created'] ?? '') >= $moiTu)) as $x) {
+      $id = (string)($x['id'] ?? '');
+      if ($id === '' || empty($x['url'])) continue;
+      if (!isset($out[$id])) $out[$id] = ['id' => $id, 'sid' => (string)($x['sid'] ?? ''), 'url' => (string)$x['url'],
+                                          'shop' => (string)($x['shop'] ?? ''), 'kws' => []];
+      $nhan = 'Gian hàng: ' . $sh['name'];
+      if (!in_array($nhan, $out[$id]['kws'], true)) $out[$id]['kws'][] = $nhan;
+    }
+  }
   if ($out) {
     $st = $pdo->prepare('SELECT item_id FROM rv_sp WHERE date = ?');
     $st->execute([$nay]);
@@ -1508,6 +1526,122 @@ function rvSps(array $ids, int $max = 8): array {
 function rvScanIds(array $scans, int $lan = 8): array {
   $ids = [];
   foreach (array_slice($scans, 0, $lan) as $s) foreach ($s['items'] as $x) $ids[(string)($x['id'] ?? '')] = 1;
+  return array_keys($ids);
+}
+/* ---------- Gian hàng đối thủ (rv_shop, rv_shscan) ----------
+   Trang "Theo dõi đối thủ" của Metric (metric.vn/analytics/shop-tracking): chủ
+   khai các gian hàng đối thủ ở đó, bấm Phân tích MỘT lần (1 lượt cho tất cả,
+   kiểm ngày 13/11/2026: 7 gian hàng vẫn chỉ trừ 1 lượt) là Metric trả cho mỗi
+   gian hàng: doanh số / lượt bán trong kỳ + kỳ liền trước, doanh số từng tuần,
+   số sản phẩm, 5 sản phẩm bán chạy nhất và 5 sản phẩm mới lên kệ nhất.
+
+   Danh sách gian hàng vì thế do Metric giữ — Hub chỉ chép lại cái được quét:
+   thêm / bớt đối thủ thì làm trên Metric, lần quét sau Hub tự có.
+   Một "nhóm" của Metric (rv_shop) có thể gồm vài gian hàng Shopee.
+
+   Một bản chụp (rv_shscan.data):
+     sum  {r, rp, o, op (doanh số, lượt bán kỳ này / kỳ liền trước), np (số sản phẩm),
+           wk: [{f, t, v}] doanh số từng tuần trong kỳ}
+     top  sản phẩm bán chạy, xếp theo doanh số kỳ giảm dần   (cùng khuôn rvItem)
+     new  sản phẩm mới lên kệ, mới nhất trước */
+const RV_SH_GIU = 10;          // mỗi danh sách giữ tối đa mấy sản phẩm của một gian hàng
+const RV_SH_TAN = 7;           // bao nhiêu ngày quét gian hàng một lần
+const RV_SH_MOI_NGAY = 45;     // sản phẩm lên kệ trong chừng này ngày thì đọc trang Shopee
+function rvShopSave(array $in): array {
+  $pdo = db(); rvTables($pdo);
+  $d = is_array($in['data'] ?? null) ? $in['data'] : [];
+  $sum = is_array($d['summary'] ?? null) ? $d['summary'] : [];
+  if (!$sum) return ['error' => 'Gói gửi lên không có gian hàng nào (thiếu summary).'];
+  $ds = fn($k) => is_array($d[$k]['data'] ?? null) ? $d[$k]['data'] : [];
+  $top = $ds('products_top_selling');
+  /* Metric đặt tên không đều: xin "products_new_products", trả "products_new_product" */
+  $moi = $ds('products_new_product') ?: $ds('products_new_products');
+  $chu = fn($v, int $n) => mb_substr(trim((string)preg_replace('/\s+/u', ' ', is_scalar($v) ? (string)$v : '')), 0, $n, 'UTF-8');
+  $so = fn($x, $k) => (int)round((float)(is_array($x) && is_numeric($x[$k] ?? null) ? $x[$k] : 0));
+  $date = rvNgayQuet($in);
+  $tu = rvNgay((string)($in['from'] ?? '')); $den = rvNgay((string)($in['to'] ?? ''));
+  $ins = $pdo->prepare('INSERT INTO rv_shscan (shop_id, date, d_from, d_to, at, data) VALUES (?,?,?,?,?,?)
+      ON CONFLICT(shop_id, date) DO UPDATE SET d_from=excluded.d_from, d_to=excluded.d_to, at=excluded.at, data=excluded.data');
+  $insS = $pdo->prepare('INSERT INTO rv_shop (id, name, shops, created) VALUES (?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET name=excluded.name, shops=excluded.shops');
+  $xong = [];
+  foreach (array_slice($sum, 0, 60) as $g) {
+    if (!is_array($g)) continue;
+    $gid = preg_replace('/[^A-Za-z0-9_-]/', '', (string)($g['id'] ?? $g['shop_group_tag'] ?? ''));
+    if ($gid === '' || strlen($gid) > 40) continue;
+    $shops = []; $ten = [];
+    foreach (array_slice((array)($g['shops'] ?? []), 0, 10) as $x) {
+      if (!is_array($x)) continue;
+      $sid = preg_replace('/\D/', '', (string)($x['shop_platform_id'] ?? ''));
+      if ($sid === '') continue;
+      $img = (string)($x['shop_url_image'] ?? '');
+      $shops[] = ['sid' => $sid, 'n' => $chu($x['shop_name'] ?? '', 120), 'user' => $chu($x['shop_username'] ?? '', 80),
+                  'mall' => (int)($x['official_type'] ?? 0) === 1, 'img' => str_starts_with($img, 'https://') ? $img : ''];
+      $ten[$sid] = $shops[count($shops) - 1]['n'];
+    }
+    if (!$shops) continue;
+    $name = $chu($g['title'] ?? '', 120) ?: $shops[0]['n'];
+    $loc = function (array $ps) use ($ten): array {
+      $out = [];
+      foreach ($ps as $p) {
+        if (!is_array($p)) continue;
+        $sid = preg_replace('/\D/', '', (string)(explode('__', (string)($p['shop_base_id'] ?? ''))[1] ?? ''));
+        if (!isset($ten[$sid])) continue;
+        if (trim((string)($p['shop_name'] ?? '')) === '') $p['shop_name'] = $ten[$sid];
+        $x = rvItem($p);
+        if ($x) $out[$x['id']] = $x;
+      }
+      return array_values($out);
+    };
+    $t = $loc($top); usort($t, fn($a, $b) => $b['r'] <=> $a['r']);
+    $m = $loc($moi); usort($m, fn($a, $b) => strcmp($b['created'], $a['created']));
+    $wk = [];
+    foreach (array_slice((array)($g['revenue_by_time'] ?? []), 0, 16) as $w) if (is_array($w))
+      $wk[] = ['f' => rvNgay((string)($w['start_date'] ?? '')), 't' => rvNgay((string)($w['end_date'] ?? '')), 'v' => $so($w, 'value')];
+    $data = ['sum' => ['r' => $so($g, 'order_revenue_custom'), 'rp' => $so($g, 'order_revenue_custom_previous'),
+                       'o' => $so($g, 'order_count_custom'), 'op' => $so($g, 'order_count_custom_previous'),
+                       'np' => $so($g, 'total_products'), 'wk' => $wk],
+             'top' => array_slice($t, 0, RV_SH_GIU), 'new' => array_slice($m, 0, RV_SH_GIU)];
+    $insS->execute([$gid, $name, json_encode($shops, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), gmdate('c')]);
+    $ins->execute([$gid, $date, $tu, $den, gmdate('c'), json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]);
+    $xong[] = ['id' => $gid, 'name' => $name, 'r' => $data['sum']['r'], 'top' => count($data['top']), 'new' => count($data['new'])];
+  }
+  if (!$xong) return ['error' => 'Không đọc được gian hàng nào trong gói gửi lên.'];
+  return ['ok' => true, 'date' => $date, 'from' => $tu, 'to' => $den, 'n' => count($xong), 'shops' => $xong];
+}
+/* Mọi gian hàng kèm $max bản chụp mới nhất của từng cái (mới nhất trước) */
+function rvShopScans(int $max = 12): array {
+  $pdo = db(); rvTables($pdo);
+  $out = [];
+  $st = $pdo->prepare('SELECT date, d_from, d_to, at, data FROM rv_shscan WHERE shop_id = ? ORDER BY date DESC LIMIT ' . (int)$max);
+  foreach ($pdo->query('SELECT * FROM rv_shop ORDER BY created, id')->fetchAll() as $r) {
+    $st->execute([(string)$r['id']]);
+    $scans = [];
+    foreach ($st->fetchAll() as $s) {
+      $d = json_decode((string)$s['data'], true);
+      if (!is_array($d)) continue;
+      $scans[] = ['date' => (string)$s['date'], 'from' => (string)$s['d_from'], 'to' => (string)$s['d_to'], 'at' => (string)$s['at'],
+                  'sum' => is_array($d['sum'] ?? null) ? $d['sum'] : [],
+                  'top' => is_array($d['top'] ?? null) ? $d['top'] : [], 'new' => is_array($d['new'] ?? null) ? $d['new'] : []];
+    }
+    $sh = json_decode((string)$r['shops'], true);
+    $out[] = ['id' => (string)$r['id'], 'name' => (string)$r['name'], 'shops' => is_array($sh) ? $sh : [], 'scans' => $scans];
+  }
+  return $out;
+}
+/* Tình hình quét gian hàng cho tác vụ: có mấy gian hàng, lần gần nhất, đã tới hạn chưa */
+function rvShopHan(): array {
+  $pdo = db(); rvTables($pdo);
+  $n = (int)$pdo->query('SELECT COUNT(*) FROM rv_shop')->fetchColumn();
+  $last = (string)($pdo->query('SELECT MAX(date) FROM rv_shscan')->fetchColumn() ?: '');
+  $nay = (new DateTime('now', new DateTimeZone(KH_TZ)))->format('Y-m-d');
+  [$due, $next] = rvKwHan($last, RV_SH_TAN, false, $nay);
+  return ['n' => $n, 'last' => $last, 'every' => RV_SH_TAN, 'due' => $due, 'next' => $next];
+}
+function rvShopIds(array $shops, int $lan = 6): array {
+  $ids = [];
+  foreach ($shops as $sh) foreach (array_slice($sh['scans'], 0, $lan) as $s)
+    foreach (array_merge($s['top'], $s['new']) as $x) $ids[(string)($x['id'] ?? '')] = 1;
   return array_keys($ids);
 }
 /* Vé quét: tác vụ đổi token thiết bị lấy một vé ngắn hạn, rồi trang Metric

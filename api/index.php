@@ -496,6 +496,21 @@ switch ($action) {
     out(['ok' => true, 'scans' => $scans, 'vols' => rvVols((string)($in['kw_id'] ?? '')),
          'sp' => (object)rvSps(rvScanIds($scans))]);
   }
+  /* Gian hàng đối thủ: mọi gian hàng kèm các lần quét, và bản chụp trang Shopee của sản phẩm trong đó */
+  case 'rival_shops': {
+    requirePerm('rival');
+    $shops = rvShopScans();
+    out(['ok' => true, 'shops' => $shops, 'han' => rvShopHan(), 'sp' => (object)rvSps(rvShopIds($shops))]);
+  }
+  /* Bỏ một gian hàng khỏi Hub (cùng các lần quét). Còn khai trên Metric thì lần quét sau nó lại về. */
+  case 'rival_shop_del': {
+    requireOwner();
+    $pdo = db(); rvTables($pdo);
+    $id = (string)($in['id'] ?? '');
+    $pdo->prepare('DELETE FROM rv_shscan WHERE shop_id = ?')->execute([$id]);
+    $pdo->prepare('DELETE FROM rv_shop WHERE id = ?')->execute([$id]);
+    out(['ok' => true]);
+  }
   case 'rival_kw_save': {
     requireOwner();
     $pdo = db(); rvTables($pdo);
