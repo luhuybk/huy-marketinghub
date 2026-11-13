@@ -796,16 +796,33 @@ Quyền riêng **Xây dựng SP** (`build`).
 - **Ghim đối thủ làm mốc:** ở Theo dõi đối thủ, bấm một sản phẩm → **📌 Ghim vào
   bảng xây dựng** (vào bảng có sẵn hoặc tạo bảng mới). Hub **chụp lại** sản phẩm
   lúc ghim: số Metric, ảnh, từng phân loại kèm giá cuối, voucher, nhãn khuyến mãi —
-  để nhân viên không có quyền Theo dõi đối thủ vẫn xem được mốc so. Sản phẩm
-  ngoài danh sách thì dán link + giá tay.
+  để nhân viên không có quyền Theo dõi đối thủ vẫn xem được mốc so. Một bảng ghim
+  được **nhiều đối thủ**: ngay trong bảng, **📌 Ghim thêm** mở danh sách mọi sản
+  phẩm bán chạy + mới lên kệ của các gian hàng đang theo dõi (và từ khoá đã mở),
+  tìm theo tên / lọc theo shop, tick nhiều cái rồi ghim một lần. Sản phẩm ngoài
+  danh sách thì dán link + giá tay.
 - **Bốn mục, mỗi mục có danh sách việc riêng:**
   - 🖼 **Hình ảnh** — tải ảnh thẳng lên Hub (nút, kéo thả, hoặc dán Ctrl/⌘+V).
     Trình duyệt thu ảnh về cạnh dài 1600px, nén JPEG rồi mới gửi. Mỗi ảnh có vị
     trí (bìa / phụ / mô tả), trạng thái Nháp → Cần sửa (bắt ghi nhận xét) → Đã
     duyệt. Ảnh đối thủ bày ngay bên dưới để so.
-  - 💰 **Giá & phân loại** — phân loại dự kiến (giá gốc, giá bán), voucher shop %,
-    so với giá cuối thấp nhất của đối thủ đã ghim. Người có quyền **Tính chi phí**
-    điền thêm giá vốn và thấy lời/đơn + ROAS hoà vốn (bảng phí mặc định).
+  - 💰 **Giá & phân loại** — phân loại dự kiến (giá gốc, giá bán), voucher shop %.
+    Mỗi phân loại **đặt cạnh** một dòng đối thủ (chọn trong Sửa giá & phân loại);
+    không chọn thì Hub tự đoán theo tên phân loại ("Combo 2 hộp" ↔ combo 2 hộp của
+    đối thủ), đoán không ra mới so với dòng rẻ nhất. **Thang giá** xếp mọi mức giá
+    cuối của các đối thủ đã ghim và giá của mình từ rẻ tới đắt. Người có quyền
+    **Tính chi phí** điền thêm giá vốn và thấy lời/đơn + ROAS hoà vốn (bảng phí của
+    sản phẩm đã gắn, không gắn thì bảng phí mặc định), cùng khung
+    **🧮 Thử giá với ROAS thực tế**:
+    - ROAS thực tế lấy từ: ROAS tháng gần nhất của một sản phẩm đang chạy quảng
+      cáo (mặc định sản phẩm gắn với bảng), ROAS chung cả shop, hoặc gõ tay.
+      Lựa chọn lưu trong `bcosts.rs`.
+    - Gõ thử giá bán từng phân loại (hoặc bấm **Khớp** để giá sau voucher bằng mốc
+      đối thủ) → tính lại ngay: sau voucher, lời chưa QC, ROAS hoà vốn, tiền QC mỗi
+      đơn (= giá sau voucher ÷ ROAS thực tế), **lời sau QC**, kết luận (có lời /
+      lời mỏng < 5% / lỗ) và **giá sàn** — giá bán thấp nhất còn lời với ROAS đó.
+    - Giá thử chỉ nằm trên máy đang xem; bấm **Áp dụng** mới lưu vào bảng giá
+      (ghi nhật ký giá cũ → giá mới).
   - 📜 **Chính sách** — voucher, quà tặng, combo/mua kèm, vận chuyển, đổi trả,
     lịch sale, định hướng khác; đặt cạnh voucher và nhãn khuyến mãi của đối thủ.
   - 📌 **Việc khác**.

@@ -4367,6 +4367,98 @@ function bRefMin(b){
   const ds = (b.refs || []).map(r => r.gc || r.pmin || r.p).filter(x => x > 0);
   return ds.length ? Math.min(...ds) : 0;
 }
+/* Mọi mức giá đối thủ có thể đem so: từng phân loại của từng sản phẩm đã ghim
+   (giá cuối sau voucher nếu đã đọc trang Shopee), sản phẩm chưa có bảng phân
+   loại thì một dòng giá chung. Khoá `rid|i` — i = -1 là dòng giá chung. */
+function bCmpOpts(b){
+  const out = [];
+  (b.refs || []).forEach(r => {
+    const ms = r.models || [];
+    if (ms.length) ms.forEach((m, i) => { const f = m.f || m.p; if (f > 0) out.push({k: r.id + '|' + i, f, ok: m.ok !== false, shop: r.shop || '', n: m.n || '', rn: r.n || '', rid: r.id}); });
+    else { const f = r.gc || r.pmin || r.p; if (f > 0) out.push({k: r.id + '|-1', f, ok: true, shop: r.shop || '', n: '', rn: r.n || '', rid: r.id}); }
+  });
+  return out;
+}
+const bCmpTen = o => (o.shop ? o.shop + ' — ' : '') + (o.n || cut(o.rn, 40));
+/* Mốc so của một phân loại của mình: dòng đối thủ đã chọn "đặt cạnh", không
+   chọn (hoặc dòng đó đã bị bỏ ghim) thì giá cuối thấp nhất trong các đối thủ. */
+function bCmp(b, v){
+  const ds = bCmpOpts(b);
+  const o = v && v.mk ? ds.find(x => x.k === v.mk) : null;
+  if (o) return {f: o.f, lab: bCmpTen(o), chon: true};
+  const con = ds.filter(x => x.ok), pool = con.length ? con : ds;
+  /* Chưa chọn: đoán theo tên phân loại trước ("Combo 2 hộp" thì so với các dòng
+     combo 2 của đối thủ, không so với hộp lẻ rẻ nhất), đoán không ra mới lấy
+     dòng rẻ nhất. Khớp ≥ 60% số chữ trong tên phân loại của mình mới tính. */
+  const tu = s => norm(s).split(/[^a-z0-9]+/).filter(Boolean);
+  const mine = tu(v && v.n);
+  if (mine.length){
+    const diem = x => { const t = new Set(tu(x.n)); return mine.filter(w => t.has(w)).length / mine.length; };
+    const gan = pool.map(x => ({x, d: diem(x)})).filter(z => z.d >= 0.6);
+    if (gan.length){
+      const max = Math.max(...gan.map(z => z.d)), g = gan.filter(z => z.d === max).map(z => z.x).sort((a, c) => a.f - c.f)[0];
+      return {f: g.f, lab: 'cùng tên, rẻ nhất: ' + bCmpTen(g), chon: false};
+    }
+  }
+  const re = pool.slice().sort((a, c) => a.f - c.f)[0];
+  return re ? {f: re.f, lab: 'rẻ nhất: ' + bCmpTen(re), chon: false} : null;
+}
+/* Bảng phí dùng để tính lời: bảng đã gắn sản phẩm đang bán thì lấy đúng bảng
+   phí, % phí ngành và phí đóng gói của sản phẩm đó trong Tính chi phí; sản
+   phẩm mới thì bảng phí mặc định. */
+function bFee(b){
+  const p = b && b.productId ? productOf(b.productId) : null, c = p ? costOf(p.id) : null;
+  return c ? {F: shopFees(shopOf(c.shopId)), feePct: c.feePct || 0, pack: c.packCost || 0} : {};
+}
+const bCalc = (b, gia, von) => gia > 0 && von > 0 ? costFrom(Object.assign({gia, vPct: b.vPct, von}, bFee(b))) : null;
+/* ROAS thực tế đem ra so với ROAS hoà vốn. Ba nguồn:
+     sp   — ROAS tháng gần nhất của một sản phẩm đang chạy quảng cáo (mặc định
+            là sản phẩm gắn với bảng, không thì một sản phẩm tương tự)
+     shop — ROAS chung mọi chiến dịch tháng gần nhất
+     tay  — gõ tay (ROAS mình kỳ vọng, hoặc số của KOL / kênh khác)
+   Chọn nguồn lưu ở bcosts (cùng chỗ giá vốn) — chỉ người có quyền Tính chi phí thấy. */
+function bRoasProds(){
+  return products().filter(p => !p.archived).map(p => ({p, r: costRoasNow(p)})).filter(x => x.r && x.r.m.roas > 0)
+    .sort((a, c) => c.r.m.cost - a.r.m.cost);
+}
+function bRoasShop(){
+  const cs = adcamps();
+  if (!cs.length) return null;
+  const ym = cs.map(c => c.ym).sort().pop(), m = adSum(cs.filter(c => c.ym === ym));
+  return m.roas > 0 ? {ym, m, n: cs.filter(c => c.ym === ym).length} : null;
+}
+function bRoasSrc(b){
+  const rs = ((bcostOf(b.id) || {}).rs) || {};
+  const thangTen = ym => 'tháng ' + ym.slice(5) + '/' + ym.slice(0, 4);
+  const tuSp = pid => { const p = pid ? productOf(pid) : null, r = p ? costRoasNow(p) : null;
+    return r && r.m.roas > 0 ? {x: r.m.roas, k: 'sp', pid: p.id, lab: p.name + ' · ' + thangTen(r.ym) + ' · ' + r.n + ' chiến dịch, chi ' + moneyShort(r.m.cost)} : null; };
+  if (rs.k === 'tay') return rs.x > 0 ? {x: rs.x, k: 'tay', lab: 'gõ tay'} : {x: 0, k: 'tay', lab: 'gõ tay'};
+  if (rs.k === 'shop'){ const s = bRoasShop(); if (s) return {x: s.m.roas, k: 'shop', lab: 'cả shop · ' + thangTen(s.ym) + ' · ' + s.n + ' chiến dịch, chi ' + moneyShort(s.m.cost)}; }
+  if (rs.k === 'sp'){ const s = tuSp(rs.pid); if (s) return s; }
+  /* chưa chọn: sản phẩm gắn với bảng → cả shop → chưa có */
+  return tuSp(b.productId) || (() => { const s = bRoasShop();
+    return s ? {x: s.m.roas, k: 'shop', lab: 'cả shop · ' + thangTen(s.ym) + ' · ' + s.n + ' chiến dịch, chi ' + moneyShort(s.m.cost)} : null; })();
+}
+/* Một đơn bán với ROAS R: tiền quảng cáo mỗi đơn = giá bán thực ÷ R */
+function bSauQc(x, R){
+  if (!x || !(R > 0)) return null;
+  const qc = Math.round(x.gbt / R), lai = x.lai - qc;
+  return {qc, lai, bien: x.gbt ? lai / x.gbt * 100 : 0};
+}
+/* Giá bán (trước voucher shop) thấp nhất mà vẫn có lời sau quảng cáo với ROAS R.
+   Lời sau QC tăng theo giá khi R đủ lớn, nên dò nhị phân; giá to cỡ 50 lần vốn
+   vẫn lỗ thì ROAS này không cứu được — trả 0. */
+function bGiaSan(b, von, R){
+  if (!(von > 0) || !(R > 0)) return 0;
+  const ok = g => { const s = bSauQc(bCalc(b, g, von), R); return s && s.lai >= 0; };
+  let lo = 1000, hi = Math.max(von * 50, 2e6);
+  if (!ok(hi)) return 0;
+  while (hi - lo > 500){ const m = Math.round((lo + hi) / 2); if (ok(m)) hi = m; else lo = m; }
+  return Math.ceil(hi / 1000) * 1000;
+}
+/* Giá bán để giá sau voucher shop không cao hơn mốc f (làm tròn xuống nghìn) */
+const bGiaKhop = (f, vPct) => { let p = Math.floor(f / (1 - Math.max(0, Math.min(90, +vPct || 0)) / 100) / 1000) * 1000;
+  while (p > 1000 && bGiaSau(p, vPct) > f) p -= 1000; return p; };
 const ideas   = () => alive(db.ideas);
 const ideaOf  = id => ideas().find(x => x.id === id) || null;
 const liveIdeas = () => ideas().filter(i => IDEA_LIVE.includes(i.stage));

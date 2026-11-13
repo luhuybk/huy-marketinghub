@@ -4994,7 +4994,13 @@ const ACTIONS = {
   bref:     id => { const [bid, rid] = id.split('|'); bRefModal(bid, rid); },
   bpin:     () => bPinPick(),
   bpinto:   id => bPinTo(id),
-  bpinadd:  id => bPinAdd(id),
+  bpinadd:  id => may('rival') ? bPinMany(id) : bPinAdd(id),
+  bimgref:  id => { ui.bImgRef = id; render(); },
+  bthukhop: id => bThuKhop(id),
+  bthuapply: id => bThuApply(id),
+  bthureset: id => { delete ui.bThu[id]; render(); },
+  brs:      (id, el) => bRoasSet(id, el.value),
+  brsx:     (id, el) => bRoasSet(id, 'tay', parseX(el.value)),
   bunpin:   id => { const [bid, rid] = id.split('|'); bUnpin(bid, rid); },
   btst:     (id, el) => { const [tid, st] = id.split('|'); btaskSet(tid, st); },
   bist:     id => { const [iid, st] = id.split('|'); bImgSet(iid, st); },
@@ -5847,11 +5853,14 @@ function bPriceEdit(bid){
       <td><input class="inp sm" data-f="pb" data-sep="money" value="${v.pb ? v.pb.toLocaleString('vi-VN') : ''}" placeholder="giá gốc"></td>
       <td><input class="inp sm" data-f="p" data-sep="money" value="${v.p ? v.p.toLocaleString('vi-VN') : ''}" placeholder="giá bán"></td>
       ${coVon ? `<td><input class="inp sm" data-f="von" data-sep="money" value="${von[v.vk] ? (+von[v.vk]).toLocaleString('vi-VN') : ''}" placeholder="giá vốn"></td>` : ''}
+      ${cmpOpts.length ? `<td><select class="inp sm" data-f="mk"><option value="">Tự đoán (cùng tên, không thì rẻ nhất)</option>${cmpOpts.map(o =>
+        `<option value="${esc(o.k)}" ${v.mk === o.k ? 'selected' : ''}>${esc(cut(bCmpTen(o), 46))} · ${moneyShort(o.f)}</option>`).join('')}</select></td>` : ''}
       <td><button class="btn sm" data-x title="Bỏ phân loại này">×</button></td></tr>`;
+  const cmpOpts = bCmpOpts(b);
   const min = bRefMin(b);
   const body = `<div class="explain">Giá gốc là giá gạch ngang, giá bán là giá sau giảm giá sản phẩm. Voucher shop tính riêng ở ô bên dưới.${
       min ? ' Đối thủ đã ghim rẻ nhất: <b>' + money(min) + '</b> sau voucher.' : ''}${coVon ? ' Giá vốn chỉ người có quyền Tính chi phí thấy, không ghi vào nhật ký.' : ''}</div>
-    <div class="tblwrap"><table class="tbl sm bd-pe"><thead><tr><th>Phân loại</th><th>Giá gốc</th><th>Giá bán</th>${coVon ? '<th>Giá vốn</th>' : ''}<th></th></tr></thead>
+    <div class="tblwrap"><table class="tbl sm bd-pe"><thead><tr><th>Phân loại</th><th>Giá gốc</th><th>Giá bán</th>${coVon ? '<th>Giá vốn</th>' : ''}${cmpOpts.length ? '<th>Đặt cạnh đối thủ</th>' : ''}<th></th></tr></thead>
       <tbody>${(b.vars.length ? b.vars : [{vk: uid()}]).map(dong).join('')}</tbody></table></div>
     <button class="btn sm" data-add style="margin-top:8px">+ Phân loại</button>
     <div class="form" style="margin-top:12px">
@@ -5867,7 +5876,7 @@ function bPriceEdit(bid){
     if (!e.target.closest('[data-save]')) return;
     const rows = [...el.querySelectorAll('tbody tr')].map(tr => {
       const g = f => { const i = tr.querySelector(`[data-f="${f}"]`); return i ? i.value : ''; };
-      return {vk: tr.dataset.vk || uid(), n: g('n').trim(), pb: parseMoney(g('pb')), p: parseMoney(g('p')), von: parseMoney(g('von'))};
+      return {vk: tr.dataset.vk || uid(), n: g('n').trim(), pb: parseMoney(g('pb')), p: parseMoney(g('p')), von: parseMoney(g('von')), mk: g('mk')};
     }).filter(r => r.n || r.p || r.pb);
     const rec = db.builds.find(x => x.id === bid);
     const cu = new Map(rec.vars.map(v => [v.vk, v])), moi = new Set(rows.map(r => r.vk));
@@ -5879,13 +5888,15 @@ function bPriceEdit(bid){
       if (o.n !== r.n) doi.push('đổi tên ' + bNhay(o.n) + ' → ' + bNhay(r.n));
       if (o.p !== r.p) doi.push(ten + ': giá bán ' + bTien(o.p) + ' → ' + bTien(r.p));
       if (o.pb !== r.pb) doi.push(ten + ': giá gốc ' + bTien(o.pb) + ' → ' + bTien(r.pb));
+      if ((o.mk || '') !== (r.mk || '')){ const c = cmpOpts.find(x => x.k === r.mk); doi.push(ten + ': đặt cạnh ' + (c ? bCmpTen(c) : 'đối thủ rẻ nhất')); }
     });
     rec.vars.filter(v => !moi.has(v.vk)).forEach(v => doi.push('bỏ ' + bNhay(v.n)));
     const vp = Math.max(0, Math.min(90, +(el.querySelector('#bdVp').value || 0)));
     if (vp !== (rec.vPct || 0)) doi.push('voucher shop ' + (rec.vPct || 0) + '% → ' + vp + '%');
     const pn = el.querySelector('#bdPn').value;
     if ((rec.priceNote || '') !== pn) doi.push('ghi chú giá ' + bNhay(pn));
-    rec.vars = rows.map(r => ({vk: r.vk, n: r.n, pb: r.pb, p: r.p}));
+    rec.vars = rows.map(r => Object.assign({vk: r.vk, n: r.n, pb: r.pb, p: r.p}, r.mk ? {mk: r.mk} : {}));
+    if (ui.bThu[bid]) rows.forEach(r => { const cu0 = cu.get(r.vk); if (cu0 && cu0.p !== r.p) delete ui.bThu[bid][r.vk]; });
     rec.vPct = vp; rec.priceNote = pn;
     stamp(rec);
     if (coVon){
@@ -6084,9 +6095,125 @@ function bUnpin(bid, rid){
   const b = db.builds.find(y => y.id === bid && !y.deleted), r = b && (b.refs || []).find(x => x.id === rid);
   if (!r || !confirm('Bỏ ghim ' + (r.shop ? r.shop + ' — ' : '') + cut(r.n, 60) + '?')) return;
   b.refs = b.refs.filter(x => x.id !== rid); stamp(b);
+  (b.vars || []).forEach(v => { if (v.mk && v.mk.split('|')[0] === rid) delete v.mk; });
   bHist(bid, 'Bỏ ghim đối thủ ' + (r.shop ? r.shop + ' — ' : '') + cut(r.n, 70));
   save(); closeAllModals(); render();
 }
+
+/* Ghim nhiều đối thủ một lần, chọn ngay trong bảng: mọi sản phẩm bán chạy và
+   mới lên kệ của các gian hàng đang theo dõi (lần quét gần nhất), cộng sản
+   phẩm của các từ khoá đã mở trong phiên này. Mỗi sản phẩm được chụp lại kèm
+   ảnh, phân loại, voucher của lần đọc trang Shopee mới nhất — như nút 📌 ở
+   Theo dõi đối thủ. */
+function bPinCands(){
+  const out = new Map();
+  const them = (x, nguon, hang) => { if (x && x.id && !out.has(x.id)) out.set(x.id, Object.assign({}, x, {nguon, hang: hang || 0})); };
+  rvShops().forEach(sh => {
+    const d = (sh.deep || [])[0], c = (sh.scans || [])[0];
+    (d ? d.items : c ? c.top : []).forEach((x, i) => them(x, sh.name, i + 1));
+    if (c) c.new.forEach(x => them(x, sh.name + ' · mới lên kệ'));
+  });
+  Object.entries(rv.scans || {}).forEach(([kid, ds]) => {
+    const k = (rvKwOf(kid) || {}).kw || 'từ khoá';
+    ((ds && ds[0] && ds[0].items) || []).forEach((x, i) => them(x, '“' + k + '”', i + 1));
+  });
+  return [...out.values()];
+}
+async function bPinMany(bid){
+  const b = buildOf(bid);
+  if (!b) return;
+  if (!rvShops().length && !rv.shBusy){ toast('Đang tải danh sách đối thủ…'); await loadRivalShops(); }
+  const ds = bPinCands();
+  if (!ds.length) return bPinAdd(bid);
+  const da = new Set((b.refs || []).map(r => r.id)), chon = new Set();
+  const nguon = [...new Set(ds.map(x => x.nguon.replace(/ · mới lên kệ$/, '')))];
+  let q = '', ng = '';
+  const body = `<div class="bd-pkt"><input class="inp" id="bdPkQ" placeholder="Tìm tên sản phẩm…">
+      <select class="inp" id="bdPkN" style="max-width:220px"><option value="">Mọi nguồn (${ds.length})</option>${nguon.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}</select></div>
+    <div class="dim" style="margin-top:6px">Bấm để chọn nhiều sản phẩm. Sản phẩm đã ghim vào bảng này thì mờ đi.</div>
+    <div class="bd-pk" id="bdPk"></div>`;
+  const el = openModal('📌 Ghim đối thủ vào "' + cut(b.name, 40) + '"', body, `<div class="btns end">
+      <button class="btn sm" data-tay>Gõ tay sản phẩm khác</button><div class="grow"></div>
+      <button class="btn sm" data-act="closem">Huỷ</button><button class="btn pri" data-ok disabled>Ghim</button></div>`, true);
+  const ve = () => {
+    const nq = norm(q);
+    const g = ds.filter(x => (!ng || x.nguon.replace(/ · mới lên kệ$/, '') === ng) && (!nq || norm(x.n + ' ' + x.shop).includes(nq)))
+      .sort((a, c) => (da.has(a.id) - da.has(c.id)) || (c.r || 0) - (a.r || 0)).slice(0, 150);
+    el.querySelector('#bdPk').innerHTML = g.length ? g.map(x => {
+      const sp = (rv.sp[x.id] || [])[0], sum = rvSpSum(sp), gc = sum && sum.re ? sum.re.f : 0;
+      return `<div class="bd-pkr ${da.has(x.id) ? 'da' : chon.has(x.id) ? 'on' : ''}" data-id="${esc(x.id)}">
+        <input type="checkbox" ${da.has(x.id) || chon.has(x.id) ? 'checked' : ''} ${da.has(x.id) ? 'disabled' : ''} tabindex="-1">
+        ${x.img ? `<img src="${esc(rvImg(x.img, 'tn'))}" alt="" referrerpolicy="no-referrer" loading="lazy">` : '<span class="rv-noimg"></span>'}
+        <div class="grow"><div class="rv-n">${esc(x.n)}</div>
+          <div class="dim">${esc(x.nguon)}${x.hang ? ' · hạng ' + x.hang : ''}${x.r ? ' · DS kỳ ' + moneyShort(x.r) : ''}${x.o ? ' · ' + x.o.toLocaleString('vi-VN') + ' lượt' : ''}</div>
+          <div>${gc ? `<b>${money(gc)}</b> <span class="dim">sau voucher${sum.n > 1 ? ' · ' + sum.n + ' phân loại' : ''}</span>` : `<b>${money(x.p)}</b> <span class="dim">giá bán</span>`}${da.has(x.id) ? ' · <span class="dim">đã ghim</span>' : ''}</div></div></div>`; }).join('')
+      : '<div class="dim">Không có sản phẩm nào khớp.</div>';
+    const n = chon.size, ok = el.querySelector('[data-ok]');
+    ok.disabled = !n; ok.textContent = n ? 'Ghim ' + n + ' sản phẩm' : 'Ghim';
+  };
+  ve();
+  el.querySelector('#bdPkQ').addEventListener('input', e => { q = e.target.value; ve(); });
+  el.querySelector('#bdPkN').addEventListener('change', e => { ng = e.target.value; ve(); });
+  el.addEventListener('click', e => {
+    const r = e.target.closest('.bd-pkr');
+    if (r && !da.has(r.dataset.id)){ const id = r.dataset.id; chon.has(id) ? chon.delete(id) : chon.add(id); ve(); return; }
+    if (e.target.closest('[data-tay]')){ closeModal(); bPinAdd(bid); return; }
+    if (!e.target.closest('[data-ok]') || !chon.size) return;
+    const rec = db.builds.find(y => y.id === bid && !y.deleted);
+    if (!rec) return;
+    const moi = ds.filter(x => chon.has(x.id)).map(x => { const sp = (rv.sp[x.id] || [])[0] || null; return bRefFrom(x, sp, rvSpSum(sp)); }).filter(Boolean);
+    rec.refs = (rec.refs || []).concat(moi); stamp(rec);
+    bHist(bid, 'Ghim ' + moi.length + ' đối thủ: ' + moi.map(r => r.shop + ' — ' + cut(r.n, 40) + (r.gc ? ' (' + moneyShort(r.gc) + ')' : '')).join(' · '));
+    save(); closeModal(); render(); toast('Đã ghim ' + moi.length + ' đối thủ');
+  });
+}
+
+/* ---- thử giá với ROAS thực tế ---- */
+function bRoasSet(bid, k, x){
+  if (!may('cost')) return;
+  let c = db.bcosts.find(y => y.buildId === bid && !y.deleted);
+  if (!c){ c = stamp({buildId: bid, von: {}}); db.bcosts.push(c); }
+  const rs = k.startsWith('sp:') ? {k: 'sp', pid: k.slice(3)} : k === 'shop' ? {k: 'shop'} : {k: 'tay', x: x != null ? x : ((c.rs || {}).x || 0)};
+  c.rs = rs; stamp(c);
+  save(); render();
+}
+function bThuKhop(id){
+  const [bid, vk] = id.split('|'), b = buildOf(bid), v = b && b.vars.find(z => z.vk === vk), cm = v && bCmp(b, v);
+  if (!cm) return;
+  const p = bGiaKhop(cm.f, b.vPct);
+  if (!p) return toast('Mốc đối thủ quá thấp');
+  (ui.bThu[bid] = ui.bThu[bid] || {})[vk] = p;
+  render();
+  toast('Giá thử ' + money(p) + ' → sau voucher ' + money(bGiaSau(p, b.vPct)) + ' (mốc ' + money(cm.f) + ')');
+}
+function bThuApply(bid){
+  const t = ui.bThu[bid] || {}, rec = db.builds.find(y => y.id === bid && !y.deleted);
+  if (!rec) return;
+  const doi = [];
+  rec.vars.forEach(v => { if (t[v.vk] && t[v.vk] !== v.p){ doi.push((v.n || '(không tên)') + ': giá bán ' + bTien(v.p) + ' → ' + bTien(t[v.vk])); v.p = t[v.vk]; } });
+  if (!doi.length) return toast('Giá thử trùng giá đang lưu');
+  stamp(rec);
+  bHist(bid, 'Giá & phân loại (từ bảng thử giá): ' + doi.join(' · '), {sec: 'price'});
+  delete ui.bThu[bid];
+  save(); render(); toast('Đã áp dụng ' + doi.length + ' giá mới');
+}
+/* Gõ giá thử: tính lại đúng hàng đó và dòng tóm tắt, không vẽ lại cả trang
+   (vẽ lại thì mất con trỏ trong ô đang gõ). */
+document.addEventListener('input', e => {
+  const el = e.target.closest && e.target.closest('[data-bthu]');
+  if (!el) return;
+  const [bid, vk] = el.dataset.bthu.split('|'), b = buildOf(bid), v = b && b.vars.find(z => z.vk === vk);
+  if (!v) return;
+  const g = parseMoney(el.value);
+  ui.bThu[bid] = ui.bThu[bid] || {};
+  if (g && g !== v.p) ui.bThu[bid][vk] = g; else delete ui.bThu[bid][vk];
+  el.classList.toggle('doi', !!ui.bThu[bid][vk]);
+  const R = bRoasSrc(b), Rx = R && R.x > 0 ? R.x : 0, von = ((bcostOf(bid) || {}).von) || {};
+  const o = bThuOut(b, v, g, von[vk], Rx), tr = el.closest('tr');
+  Object.entries(o).forEach(([k, html]) => { const td = tr.querySelector(`[data-c="${k}"]`); if (td) td.innerHTML = html; });
+  const s = document.getElementById('bdThuSum');
+  if (s) s.innerHTML = bThuSum(b, Rx);
+});
 
 /* Tải ảnh: nút, kéo thả vào ô, dán từ bộ nhớ tạm khi đang ở thẻ Hình ảnh */
 document.addEventListener('change', e => {
