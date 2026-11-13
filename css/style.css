@@ -1025,6 +1025,10 @@ tr.rv-dang{background:var(--bg3)}
 .bd-thusrc{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13px;margin-bottom:8px}
 .bd-thusrc select{width:auto;max-width:100%;min-width:0;flex:0 1 auto}
 .bd-thusum{margin:0 0 8px}
+.bd-thush{align-items:center;margin-bottom:8px}
+.bd-thufee{font-size:12.5px;line-height:1.6;padding:8px 10px;border-radius:10px;background:var(--bg3);margin-bottom:8px;display:grid;gap:6px}
+.bd-thufee .btn{margin-left:6px}
+.bd-thufee .bd-thusrc{margin:0}
 .bd-thut{min-width:820px}
 .bd-thut td{vertical-align:top}
 .bd-thuin{width:110px}

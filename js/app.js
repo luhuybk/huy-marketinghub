@@ -4999,6 +4999,9 @@ const ACTIONS = {
   bthukhop: id => bThuKhop(id),
   bthuapply: id => bThuApply(id),
   bthureset: id => { delete ui.bThu[id]; render(); },
+  bshop:    id => { const [bid, sid] = id.split('|'); ui.bShop[bid] = sid; render(); },
+  bgocost:  sid => { closeAllModals(); ui.costTab = 'sp'; ui.costShop = sid; ui.costBrand = null; ui.costFee = true; go('cost'); },
+  bvshop:   (id, el) => bVShopSet(id, el.value),
   brs:      (id, el) => bRoasSet(id, el.value),
   brsx:     (id, el) => bRoasSet(id, 'tay', parseX(el.value)),
   bunpin:   id => { const [bid, rid] = id.split('|'); bUnpin(bid, rid); },
@@ -5697,6 +5700,7 @@ async function buildForm(b, preset){
   const isNew = !b;
   await loadNames();
   const v0 = b ? Object.assign({}, b) : Object.assign({mode:'new', st:'dang', name:'', goal:'', productId:'', ideaId:''}, preset || {});
+  v0.shopId = bShopMain(b || v0);
   if (isNew && !v0.who){ const u = (nameCfg || []).find(x => x.name === myName()); if (u) v0.who = u.id; }
   formModal({
     title: isNew ? 'Bảng xây dựng sản phẩm mới' : 'Sửa bảng', values: v0, wide: true,
@@ -5710,19 +5714,31 @@ async function buildForm(b, preset){
        opts: [['', '— không gắn —']].concat(products().filter(p => !p.archived).map(p => [p.id, p.name]))},
       may('newprod') ? {k:'ideaId', l:'Gắn ý tưởng (Sản phẩm mới)', t:'select', half:true,
        opts: [['', '— không gắn —']].concat(ideas().map(i => [i.id, i.name]))} : null,
+      bShopList().length ? {k:'shopId', l:'Bán ở gian hàng (tính phí theo shop này)', t:'select', half:true,
+       opts: bShopList().map(s => [s.id, s.name])} : null,
       whoField('who', 'Ai phụ trách chính'),
       {k:'goal', l:'Định hướng / mục tiêu', t:'textarea', rows:3,
        ph:'Đánh vào phân khúc 150–200k, ảnh bìa nền trắng chữ to, phân loại 90g + combo 2 hộp…'}
     ],
     async onSave(v){
       if (!String(v.name || '').trim()){ toast('Đặt tên cho bảng'); return false; }
-      const rec = isNew ? stamp({refs: (preset && preset.refs) || [], vars: [], vPct: 0, pol: {}, created: today()}) : db.builds.find(x => x.id === b.id);
+      const rec = isNew ? stamp({refs: (preset && preset.refs) || [], vars: [], vPct: +shopFees(shopOf(v.shopId)).voucherPct || 0, vShop: {}, pol: {},
+                                 shopId: v.shopId || '', created: today()}) : db.builds.find(x => x.id === b.id);
       if (!rec) return;
       const cu = Object.assign({}, rec);
       const w = whoRead(v, 'who');
       Object.assign(rec, {name: v.name.trim(), mode: v.mode, st: v.st, productId: v.productId || '', goal: v.goal || '',
                           who: w.who, whoName: w.whoName});
       if (v.ideaId !== undefined) rec.ideaId = v.ideaId || '';
+      /* Đổi gian hàng chính: voucher shop đi theo gian hàng — mức của gian hàng
+         cũ cất vào vShop, gian hàng mới có mức riêng thì lấy lên làm mức chính */
+      const sm0 = isNew ? '' : bShopMain(cu);
+      if (v.shopId !== undefined && v.shopId !== rec.shopId){
+        rec.vShop = Object.assign({}, rec.vShop || {});
+        if (sm0 && rec.vShop[sm0] == null) rec.vShop[sm0] = rec.vPct || 0;
+        if (rec.vShop[v.shopId] != null){ rec.vPct = +rec.vShop[v.shopId] || 0; delete rec.vShop[v.shopId]; }
+        rec.shopId = v.shopId || '';
+      }
       stamp(rec);
       if (isNew){
         db.builds.push(rec);
@@ -5733,6 +5749,7 @@ async function buildForm(b, preset){
         if (cu.st !== rec.st) doi.push('trạng thái ' + BUILD_ST[cu.st] + ' → ' + BUILD_ST[rec.st]);
         if ((cu.whoName || '') !== (rec.whoName || '')) doi.push('phụ trách ' + (cu.whoName || 'chưa ai') + ' → ' + (rec.whoName || 'chưa ai'));
         if ((cu.goal || '') !== (rec.goal || '')) doi.push('định hướng ' + bNhay(cu.goal) + ' → ' + bNhay(rec.goal));
+        if (sm0 !== bShopMain(rec)) doi.push('gian hàng ' + (sm0 ? shopName(sm0) : 'chưa chọn') + ' → ' + shopName(bShopMain(rec)));
         if (doi.length) bHist(rec.id, 'Sửa bảng: ' + doi.join(' · '));
       }
       ensure(); save();
@@ -5864,7 +5881,7 @@ function bPriceEdit(bid){
       <tbody>${(b.vars.length ? b.vars : [{vk: uid()}]).map(dong).join('')}</tbody></table></div>
     <button class="btn sm" data-add style="margin-top:8px">+ Phân loại</button>
     <div class="form" style="margin-top:12px">
-      <div class="fld half"><label>Voucher shop (%)</label><input class="inp" id="bdVp" type="number" min="0" max="90" step="0.5" value="${b.vPct || ''}" placeholder="0"></div>
+      <div class="fld half"><label>Voucher shop (%)${bShopList().length > 1 && bShopMain(b) ? ' — ' + esc(shopName(bShopMain(b))) : ''}</label><input class="inp" id="bdVp" type="number" min="0" max="90" step="0.5" value="${bV(b, bShopMain(b)) || ''}" placeholder="0"></div>
       <div class="fld"><label>Ghi chú về giá</label><textarea class="inp" id="bdPn" rows="2" placeholder="Vì sao chọn mức này, mốc giá sale…">${esc(b.priceNote || '')}</textarea></div>
     </div>`;
   const el = openModal('Giá & phân loại — ' + b.name, body, `<div class="btns end"><div class="grow"></div>
@@ -5892,7 +5909,9 @@ function bPriceEdit(bid){
     });
     rec.vars.filter(v => !moi.has(v.vk)).forEach(v => doi.push('bỏ ' + bNhay(v.n)));
     const vp = Math.max(0, Math.min(90, +(el.querySelector('#bdVp').value || 0)));
-    if (vp !== (rec.vPct || 0)) doi.push('voucher shop ' + (rec.vPct || 0) + '% → ' + vp + '%');
+    const vm0 = bV(rec, bShopMain(rec));
+    if (vp !== vm0) doi.push('voucher shop ' + vm0 + '% → ' + vp + '%');
+    if (rec.vShop) delete rec.vShop[bShopMain(rec)];
     const pn = el.querySelector('#bdPn').value;
     if ((rec.priceNote || '') !== pn) doi.push('ghi chú giá ' + bNhay(pn));
     rec.vars = rows.map(r => Object.assign({vk: r.vk, n: r.n, pb: r.pb, p: r.p}, r.mk ? {mk: r.mk} : {}));
@@ -6102,51 +6121,81 @@ function bUnpin(bid, rid){
 
 /* Ghim nhiều đối thủ một lần, chọn ngay trong bảng: mọi sản phẩm bán chạy và
    mới lên kệ của các gian hàng đang theo dõi (lần quét gần nhất), cộng sản
-   phẩm của các từ khoá đã mở trong phiên này. Mỗi sản phẩm được chụp lại kèm
-   ảnh, phân loại, voucher của lần đọc trang Shopee mới nhất — như nút 📌 ở
-   Theo dõi đối thủ. */
+   phẩm của lần quét gần nhất của MỌI từ khoá chính + từ khoá sản phẩm. Mỗi sản
+   phẩm được chụp lại kèm ảnh, phân loại, voucher của lần đọc trang Shopee mới
+   nhất — như nút 📌 ở Theo dõi đối thủ. Một sản phẩm có thể nằm ở nhiều nguồn
+   (vừa bán chạy ở shop, vừa top một từ khoá) — gộp làm một, giữ đủ các nguồn
+   để lọc. */
+async function loadRivalLatest(){
+  if (rv.latest && Date.now() - rv.latest.luc < 10 * 60e3) return;
+  try {
+    const r = await Server.rivalLatest();
+    rv.latest = {luc: Date.now(), kws: r.kws || []};
+    /* chỉ bù bản chụp còn thiếu — rv.sp đã có thì đang giữ cả lịch sử để so */
+    Object.entries(r.sp || {}).forEach(([id, ds]) => { if (!rv.sp[id]) rv.sp[id] = ds; });
+  } catch(e){ toast('Không tải được sản phẩm của các từ khoá: ' + (e.message || e)); }
+}
 function bPinCands(){
   const out = new Map();
-  const them = (x, nguon, hang) => { if (x && x.id && !out.has(x.id)) out.set(x.id, Object.assign({}, x, {nguon, hang: hang || 0})); };
+  const them = (x, nguon, nhom, hang) => {
+    if (!x || !x.id) return;
+    const n = {ten: nguon, nhom, hang: hang || 0};
+    const cu = out.get(x.id);
+    if (cu){ if (!cu.nguons.some(z => z.ten === nguon)) cu.nguons.push(n); return; }
+    out.set(x.id, Object.assign({}, x, {nguons: [n]}));
+  };
   rvShops().forEach(sh => {
     const d = (sh.deep || [])[0], c = (sh.scans || [])[0];
-    (d ? d.items : c ? c.top : []).forEach((x, i) => them(x, sh.name, i + 1));
-    if (c) c.new.forEach(x => them(x, sh.name + ' · mới lên kệ'));
+    (d ? d.items : c ? c.top : []).forEach((x, i) => them(x, 'Shop ' + sh.name, 'shop', i + 1));
+    if (c) c.new.forEach(x => them(x, 'Shop ' + sh.name + ' · mới lên kệ', 'shop'));
   });
-  Object.entries(rv.scans || {}).forEach(([kid, ds]) => {
-    const k = (rvKwOf(kid) || {}).kw || 'từ khoá';
-    ((ds && ds[0] && ds[0].items) || []).forEach((x, i) => them(x, '“' + k + '”', i + 1));
-  });
+  ((rv.latest && rv.latest.kws) || []).forEach(k =>
+    (k.items || []).forEach((x, i) => them(x, '“' + k.kw + '”', k.kind === 'sp' ? 'kwsp' : 'kw', i + 1)));
   return [...out.values()];
 }
 async function bPinMany(bid){
   const b = buildOf(bid);
   if (!b) return;
-  if (!rvShops().length && !rv.shBusy){ toast('Đang tải danh sách đối thủ…'); await loadRivalShops(); }
+  toast('Đang tải danh sách đối thủ…');
+  await Promise.all([rvShops().length || rv.shBusy ? null : loadRivalShops(), loadRivalLatest()]);
   const ds = bPinCands();
   if (!ds.length) return bPinAdd(bid);
   const da = new Set((b.refs || []).map(r => r.id)), chon = new Set();
-  const nguon = [...new Set(ds.map(x => x.nguon.replace(/ · mới lên kệ$/, '')))];
+  /* nguồn để lọc: cả nhóm (mọi gian hàng / mọi từ khoá chính / mọi từ khoá SP) hoặc từng nguồn */
+  const NHOM = {shop: 'Gian hàng đối thủ', kw: 'Từ khoá chính', kwsp: 'Từ khoá sản phẩm'};
+  const ten = new Map();
+  ds.forEach(x => x.nguons.forEach(n => { const t = n.ten.replace(/ · mới lên kệ$/, ''); if (!ten.has(t)) ten.set(t, n.nhom); }));
+  const dem = f => ds.filter(f).length;
+  const opts = Object.entries(NHOM).filter(([k]) => [...ten.values()].includes(k)).map(([k, l]) =>
+    `<optgroup label="${esc(l)}"><option value="g:${k}">Mọi ${esc(l.toLowerCase())} (${dem(x => x.nguons.some(n => n.nhom === k))})</option>${
+      [...ten.entries()].filter(([, g]) => g === k).map(([t]) => `<option value="t:${esc(t)}">${esc(t)}</option>`).join('')}</optgroup>`).join('');
   let q = '', ng = '';
-  const body = `<div class="bd-pkt"><input class="inp" id="bdPkQ" placeholder="Tìm tên sản phẩm…">
-      <select class="inp" id="bdPkN" style="max-width:220px"><option value="">Mọi nguồn (${ds.length})</option>${nguon.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}</select></div>
-    <div class="dim" style="margin-top:6px">Bấm để chọn nhiều sản phẩm. Sản phẩm đã ghim vào bảng này thì mờ đi.</div>
+  const body = `<div class="bd-pkt"><input class="inp" id="bdPkQ" placeholder="Tìm tên sản phẩm, tên shop…">
+      <select class="inp" id="bdPkN" style="max-width:260px"><option value="">Mọi nguồn (${ds.length})</option>${opts}</select></div>
+    <div class="dim" style="margin-top:6px">Bấm để chọn nhiều sản phẩm. Gian hàng: lần quét gần nhất (top bán chạy + mới lên kệ);
+      từ khoá: lần quét gần nhất của từng từ khoá. Sản phẩm đã ghim vào bảng này thì mờ đi.</div>
     <div class="bd-pk" id="bdPk"></div>`;
   const el = openModal('📌 Ghim đối thủ vào "' + cut(b.name, 40) + '"', body, `<div class="btns end">
       <button class="btn sm" data-tay>Gõ tay sản phẩm khác</button><div class="grow"></div>
       <button class="btn sm" data-act="closem">Huỷ</button><button class="btn pri" data-ok disabled>Ghim</button></div>`, true);
+  const hop = x => !ng || (ng.startsWith('g:') ? x.nguons.some(n => n.nhom === ng.slice(2))
+                                                : x.nguons.some(n => n.ten.replace(/ · mới lên kệ$/, '') === ng.slice(2)));
   const ve = () => {
     const nq = norm(q);
-    const g = ds.filter(x => (!ng || x.nguon.replace(/ · mới lên kệ$/, '') === ng) && (!nq || norm(x.n + ' ' + x.shop).includes(nq)))
-      .sort((a, c) => (da.has(a.id) - da.has(c.id)) || (c.r || 0) - (a.r || 0)).slice(0, 150);
+    const g = ds.filter(x => hop(x) && (!nq || norm(x.n + ' ' + x.shop).includes(nq)))
+      .sort((a, c) => (da.has(a.id) - da.has(c.id)) || (c.r || 0) - (a.r || 0)).slice(0, 200);
     el.querySelector('#bdPk').innerHTML = g.length ? g.map(x => {
       const sp = (rv.sp[x.id] || [])[0], sum = rvSpSum(sp), gc = sum && sum.re ? sum.re.f : 0;
+      const n0 = x.nguons[0];
       return `<div class="bd-pkr ${da.has(x.id) ? 'da' : chon.has(x.id) ? 'on' : ''}" data-id="${esc(x.id)}">
         <input type="checkbox" ${da.has(x.id) || chon.has(x.id) ? 'checked' : ''} ${da.has(x.id) ? 'disabled' : ''} tabindex="-1">
         ${x.img ? `<img src="${esc(rvImg(x.img, 'tn'))}" alt="" referrerpolicy="no-referrer" loading="lazy">` : '<span class="rv-noimg"></span>'}
         <div class="grow"><div class="rv-n">${esc(x.n)}</div>
-          <div class="dim">${esc(x.nguon)}${x.hang ? ' · hạng ' + x.hang : ''}${x.r ? ' · DS kỳ ' + moneyShort(x.r) : ''}${x.o ? ' · ' + x.o.toLocaleString('vi-VN') + ' lượt' : ''}</div>
-          <div>${gc ? `<b>${money(gc)}</b> <span class="dim">sau voucher${sum.n > 1 ? ' · ' + sum.n + ' phân loại' : ''}</span>` : `<b>${money(x.p)}</b> <span class="dim">giá bán</span>`}${da.has(x.id) ? ' · <span class="dim">đã ghim</span>' : ''}</div></div></div>`; }).join('')
+          <div class="dim">${esc(x.shop || '')} · ${esc(n0.ten)}${n0.hang ? ' hạng ' + n0.hang : ''}${
+            x.nguons.length > 1 ? ` <span title="${esc(x.nguons.map(n => n.ten + (n.hang ? ' hạng ' + n.hang : '')).join('\n'))}">+${x.nguons.length - 1} nguồn</span>` : ''}${
+            x.r ? ' · DS kỳ ' + moneyShort(x.r) : ''}</div>
+          <div>${gc ? `<b>${money(gc)}</b> <span class="dim">sau voucher${sum.n > 1 ? ' · ' + sum.n + ' phân loại' : ''}</span>` : `<b>${money(x.p)}</b> <span class="dim">giá bán${sp ? '' : ' · chưa đọc trang Shopee'}</span>`}${
+            da.has(x.id) ? ' · <span class="dim">đã ghim</span>' : ''}</div></div></div>`; }).join('')
       : '<div class="dim">Không có sản phẩm nào khớp.</div>';
     const n = chon.size, ok = el.querySelector('[data-ok]');
     ok.disabled = !n; ok.textContent = n ? 'Ghim ' + n + ' sản phẩm' : 'Ghim';
@@ -6180,11 +6229,11 @@ function bRoasSet(bid, k, x){
 function bThuKhop(id){
   const [bid, vk] = id.split('|'), b = buildOf(bid), v = b && b.vars.find(z => z.vk === vk), cm = v && bCmp(b, v);
   if (!cm) return;
-  const p = bGiaKhop(cm.f, b.vPct);
+  const vp = bV(b, bThuShop(b)), p = bGiaKhop(cm.f, vp);
   if (!p) return toast('Mốc đối thủ quá thấp');
   (ui.bThu[bid] = ui.bThu[bid] || {})[vk] = p;
   render();
-  toast('Giá thử ' + money(p) + ' → sau voucher ' + money(bGiaSau(p, b.vPct)) + ' (mốc ' + money(cm.f) + ')');
+  toast('Giá thử ' + money(p) + ' → sau voucher ' + money(bGiaSau(p, vp)) + ' (mốc ' + money(cm.f) + ')');
 }
 function bThuApply(bid){
   const t = ui.bThu[bid] || {}, rec = db.builds.find(y => y.id === bid && !y.deleted);
@@ -6197,6 +6246,18 @@ function bThuApply(bid){
   delete ui.bThu[bid];
   save(); render(); toast('Đã áp dụng ' + doi.length + ' giá mới');
 }
+/* Voucher shop % của một gian hàng trong bảng. Gian hàng chính → b.vPct. */
+function bVShopSet(id, val){
+  const [bid, sid] = id.split('|'), rec = db.builds.find(y => y.id === bid && !y.deleted);
+  if (!rec) return;
+  const v = Math.max(0, Math.min(90, +String(val).replace(',', '.') || 0)), cu = bV(rec, sid);
+  if (v === cu) return;
+  if (sid === bShopMain(rec) || !sid){ rec.vPct = v; if (rec.vShop) delete rec.vShop[sid]; }
+  else rec.vShop = Object.assign({}, rec.vShop || {}, {[sid]: v});
+  stamp(rec);
+  bHist(bid, 'Voucher shop' + (sid ? ' ở ' + shopName(sid) : '') + ': ' + cu + '% → ' + v + '%', {sec: 'price'});
+  save(); render();
+}
 /* Gõ giá thử: tính lại đúng hàng đó và dòng tóm tắt, không vẽ lại cả trang
    (vẽ lại thì mất con trỏ trong ô đang gõ). */
 document.addEventListener('input', e => {
@@ -6208,11 +6269,13 @@ document.addEventListener('input', e => {
   ui.bThu[bid] = ui.bThu[bid] || {};
   if (g && g !== v.p) ui.bThu[bid][vk] = g; else delete ui.bThu[bid][vk];
   el.classList.toggle('doi', !!ui.bThu[bid][vk]);
-  const R = bRoasSrc(b), Rx = R && R.x > 0 ? R.x : 0, von = ((bcostOf(bid) || {}).von) || {};
-  const o = bThuOut(b, v, g, von[vk], Rx), tr = el.closest('tr');
+  const sid = bThuShop(b), R = bRoasSrc(b, sid), Rx = R && R.x > 0 ? R.x : 0, von = ((bcostOf(bid) || {}).von) || {};
+  const o = bThuOut(b, v, g, von[vk], Rx, sid), tr = el.closest('tr');
   Object.entries(o).forEach(([k, html]) => { const td = tr.querySelector(`[data-c="${k}"]`); if (td) td.innerHTML = html; });
   const s = document.getElementById('bdThuSum');
-  if (s) s.innerHTML = bThuSum(b, Rx);
+  if (s) s.innerHTML = bThuSum(b, Rx, sid);
+  const c = document.getElementById('bdShCmp');
+  if (c) c.innerHTML = bShopCmp(b);
 });
 
 /* Tải ảnh: nút, kéo thả vào ô, dán từ bộ nhớ tạm khi đang ở thẻ Hình ảnh */
@@ -6241,4 +6304,4 @@ document.addEventListener('paste', e => {
   bUpload(z.dataset.bid, fs);
 });
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "803e45e0"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "2a9814cd"]);

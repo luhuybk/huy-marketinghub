@@ -16,7 +16,7 @@ const ui = {
   postQ:'', postState:'', postMonthOnly:false,
   /* Lọc bài theo một kênh đăng. Rỗng = mọi kênh. */
   postCh:'',
-  adYm:'', adQ:'', adIssue:'', adOnlyBad:false, adShop:'', adTab:'radar', rvKw:'', rvDate:'', rvAll:false, rvMode:'tbl', rvTab:'kw', rvShop:'', rvShDate:'', rvShAll:false, bQ:'', bTab:'all', bShowAll:false, bLog:'', bThu:{}, bImgRef:'', adDate:'', adGioYm:'',
+  adYm:'', adQ:'', adIssue:'', adOnlyBad:false, adShop:'', adTab:'radar', rvKw:'', rvDate:'', rvAll:false, rvMode:'tbl', rvTab:'kw', rvShop:'', rvShDate:'', rvShAll:false, bQ:'', bTab:'all', bShowAll:false, bLog:'', bThu:{}, bImgRef:'', bShop:{}, adDate:'', adGioYm:'',
   adGioQ:'', adGioSp:'', adSoSanh:'', adGon:false,
   resTab:'brands', resQ:'',
   cmpFrom:'', cmpTo:'',
@@ -5950,14 +5950,15 @@ function viewBuildOne(b){
     h += viecMuc('price');
     const coVon = may('cost'), bc = bcostOf(b.id), von = (bc && bc.von) || {};
     const R = coVon ? bRoasSrc(b) : null, Rx = R && R.x > 0 ? R.x : 0;
-    h += sectionTitle('Phân loại & giá của mình', `<button data-act="bprice" data-id="${b.id}">✎ Sửa giá & phân loại</button>`);
+    const sm = bShopMain(b), vm = bV(b, sm), nShop = bShopList().length;
+    h += sectionTitle('Phân loại & giá của mình', `${nShop > 1 && sm ? `<span class="dim">bán ở <b>${esc(shopName(sm))}</b></span> ` : ''}<button data-act="bprice" data-id="${b.id}">✎ Sửa giá & phân loại</button>`);
     if (b.vars.length){
       h += `<div class="tblwrap"><table class="tbl sm bd-pt"><thead><tr><th>Phân loại</th><th class="r">Giá gốc</th><th class="r">Giá bán</th>
-          <th class="r">Sau voucher shop${b.vPct ? ' ' + b.vPct + '%' : ''}</th><th>So với đối thủ</th>${
+          <th class="r">Sau voucher shop${vm ? ' ' + vm + '%' : ''}</th><th>So với đối thủ</th>${
           coVon ? `<th class="r">Giá vốn</th><th class="r">Lời / đơn<div class="rv-thn">chưa quảng cáo</div></th><th class="r">ROAS hoà vốn</th>${
             Rx ? `<th class="r">Lời sau QC<div class="rv-thn">ROAS ${xText(Rx)}</div></th>` : ''}` : ''}</tr></thead><tbody>${
         b.vars.map(v => {
-          const f = bGiaSau(v.p, b.vPct), cm = bCmp(b, v), cl = cm && f ? rvPct(f, cm.f) : null;
+          const f = bGiaSau(v.p, vm), cm = bCmp(b, v), cl = cm && f ? rvPct(f, cm.f) : null;
           const x = coVon ? bCalc(b, v.p, von[v.vk]) : null, q = bSauQc(x, Rx);
           return `<tr><td><b>${esc(v.n || '(không tên)')}</b></td>
             <td class="r">${v.pb && v.pb !== v.p ? `<s>${money(v.pb)}</s>` : '<span class="dim">—</span>'}</td>
@@ -5970,12 +5971,12 @@ function viewBuildOne(b){
               <td class="r">${x && x.roas ? xText(x.roas) : x ? '<b class="bad">lỗ sẵn</b>' : '<span class="dim">—</span>'}</td>
               ${Rx ? `<td class="r">${q ? `<b class="${q.lai > 0 ? 'ok' : 'bad'}">${money(q.lai)}</b>` : '<span class="dim">—</span>'}</td>` : ''}` : ''}</tr>`; }).join('')}</tbody></table></div>
         <div class="dim" style="margin-top:6px">"So với đối thủ" là giá sau voucher shop của mình so với giá cuối của dòng đối thủ đã chọn đặt cạnh (chọn trong "Sửa giá & phân loại"), chưa chọn thì so với dòng rẻ nhất.${
-          coVon ? ' Lời / đơn tính bằng bảng phí ' + (bFee(b).F ? 'của sản phẩm đã gắn' : 'mặc định') + ' trong Tính chi phí.' : ''}</div>`;
+          coVon ? ' Lời / đơn tính bằng bảng phí ' + (sm ? 'của gian hàng ' + esc(shopName(sm)) : 'mặc định') + ' trong Tính chi phí.' : ''}</div>`;
       if (b.priceNote) h += `<div class="explain" style="margin-top:8px">${esc(b.priceNote).replace(/\n/g, '<br>')}</div>`;
     } else h += `<div class="dim">Chưa đặt phân loại nào. Bấm “Sửa giá & phân loại” để thêm.</div>`;
 
     /* ---- thử giá với ROAS thực tế ---- */
-    if (coVon && b.vars.length) h += bThuBox(b, R);
+    if (coVon && b.vars.length) h += bThuBox(b);
 
     /* ---- thang giá: mình đứng đâu giữa các đối thủ ---- */
     const ds = bCmpOpts(b);
@@ -6029,8 +6030,8 @@ function viewBuildOne(b){
    lời mỗi đơn khi chưa quảng cáo, ROAS hoà vốn, và — quan trọng nhất — với
    ROAS đang chạy thật thì mỗi đơn quảng cáo còn lời hay lỗ. Giá thử chỉ nằm
    trên máy đang xem (ui.bThu) tới khi bấm "Áp dụng". */
-function bThuOut(b, v, gia, von, Rx){
-  const x = bCalc(b, gia, von), q = bSauQc(x, Rx), san = bGiaSan(b, von, Rx);
+function bThuOut(b, v, gia, von, Rx, sid){
+  const x = bCalc(b, gia, von, sid), q = bSauQc(x, Rx), san = bGiaSan(b, von, Rx, sid);
   const d = '<span class="dim">—</span>';
   let ket = d;
   if (!von) ket = '<span class="dim">chưa có giá vốn</span>';
@@ -6041,7 +6042,7 @@ function bThuOut(b, v, gia, von, Rx){
   else if (q && q.lai > 0) ket = `<span class="chip warn">⚠ lời mỏng ${q.bien.toFixed(1).replace('.', ',')}%</span>`;
   else ket = '<span class="chip bad">❌ lỗ khi chạy QC</span>';
   return {
-    sau: gia ? `<b>${money(bGiaSau(gia, b.vPct))}</b>` : d,
+    sau: gia ? `<b>${money(bGiaSau(gia, bV(b, sid)))}</b>` : d,
     lai: x ? `<span class="${x.lai > 0 ? '' : 'bad'}">${money(x.lai)}</span>` : d,
     hv:  x && x.roas ? `<b class="${Rx && Rx < x.roas ? 'bad' : ''}">${xText(x.roas)}</b>` : x ? '<b class="bad">∞</b>' : d,
     sq:  q ? `<b class="${q.lai > 0 ? 'ok' : 'bad'}">${money(q.lai)}</b><div class="dim">QC ${moneyShort(q.qc)}/đơn</div>` : d,
@@ -6049,9 +6050,9 @@ function bThuOut(b, v, gia, von, Rx){
     san: san ? `<span title="giá bán trước voucher shop">${money(san)}</span>` : von && Rx ? '<span class="bad">không có</span>' : d
   };
 }
-function bThuSum(b, Rx){
+function bThuSum(b, Rx, sid){
   const von = ((bcostOf(b.id) || {}).von) || {}, thu = (ui.bThu || {})[b.id] || {};
-  const rs = b.vars.map(v => bSauQc(bCalc(b, thu[v.vk] || v.p, von[v.vk]), Rx)).filter(Boolean);
+  const rs = b.vars.map(v => bSauQc(bCalc(b, thu[v.vk] || v.p, von[v.vk], sid), Rx)).filter(Boolean);
   if (!Rx) return 'Chọn nguồn ROAS thực tế để xem phân loại nào chạy quảng cáo có lời.';
   if (!rs.length) return 'Điền giá vốn cho các phân loại (trong "Sửa giá & phân loại") để tính lời sau quảng cáo.';
   const lo = rs.filter(q => q.lai > 0).length, tot = rs.filter(q => q.lai > 0 && q.bien >= 5).length, tb = rs.reduce((a, q) => a + q.lai, 0) / rs.length;
@@ -6061,28 +6062,46 @@ function bThuSum(b, Rx){
      : lo === rs.length ? ' — có lời nhưng mỏng: ROAS tụt một chút là lỗ. Nên nâng giá, giảm voucher hoặc tìm giá vốn thấp hơn.'
      : lo ? ' — chỉ nên đẩy quảng cáo các phân loại có lời, hoặc nâng giá / giảm voucher.' : ' — <b class="bad">chưa nên chạy quảng cáo ở mức giá này</b>.');
 }
-function bThuBox(b, R){
+/* Gian hàng đang xem trong khung Thử giá: chọn bằng thẻ, mặc định gian hàng chính */
+function bThuShop(b){
+  const x = ui.bShop[b.id];
+  return x && bShopList().some(s => s.id === x) ? x : bShopMain(b);
+}
+function bThuBox(b){
   const von = ((bcostOf(b.id) || {}).von) || {}, thu = (ui.bThu || {})[b.id] || {};
-  const Rx = R && R.x > 0 ? R.x : 0;
-  const ps = bRoasProds(), sh = bRoasShop();
-  const kSel = !R ? 'tay' : R.k === 'sp' ? 'sp:' + R.pid : R.k;
+  const sid = bThuShop(b), sm = bShopMain(b), ds = bShopList();
+  const R = bRoasSrc(b, sid), Rx = R && R.x > 0 ? R.x : 0;
+  const ps = bRoasProds(), sh = bRoasShop(sid);
+  const kSel = !R ? ((((bcostOf(b.id) || {}).rs) || {}).k === 'shop' ? 'shop' : 'tay') : R.k === 'sp' ? 'sp:' + R.pid : R.k;
   const opts = ps.map(x => ['sp:' + x.p.id, x.p.name + ' — ' + xText(x.r.m.roas)]);
   if (R && R.k === 'sp' && !ps.some(x => x.p.id === R.pid)) opts.unshift(['sp:' + R.pid, R.lab]);
-  if (sh) opts.push(['shop', 'Cả shop — ' + xText(sh.m.roas)]);
+  opts.push(['shop', (sid ? 'Cả gian hàng ' + shopName(sid) : 'Cả shop') + ' — ' + (sh ? xText(sh.m.roas) : 'chưa có số')]);
   opts.push(['tay', 'Gõ tay…']);
+  const F = shopFees(shopOf(sid)), fo = bFee(b, sid);
   let h = sectionTitle('🧮 Thử giá với ROAS thực tế', '<span class="dim">chỉ người có quyền Tính chi phí thấy</span>');
-  h += `<div class="bd-thu">
+  h += `<div class="bd-thu">`;
+  if (ds.length > 1) h += `<div class="chips bd-thush"><span class="dim">Tính cho gian hàng</span>${ds.map(x =>
+    `<button class="btn sm ${x.id === sid ? 'pri' : ''}" data-act="bshop" data-id="${b.id}|${x.id}">${esc(x.name)}${x.id === sm ? ' ★' : ''}</button>`).join('')}</div>`;
+  h += `<div class="bd-thufee">
+      <div><span class="dim">Bảng phí ${sid ? esc(shopName(sid)) : 'mặc định'}:</span> ${esc(feeSummary(Object.assign({}, F, fo.feePct ? {feePct: fo.feePct} : {}, fo.pack ? {packCost: fo.pack} : {})))}${
+        fo.feePct || fo.pack ? ' <span class="dim">(phí ngành / đóng gói lấy theo sản phẩm đã gắn)</span>' : ''}${
+        sid ? (F.at ? ` <span class="dim">· sửa ${esc(fmtDate(F.at))}</span>` : ' <span class="warn">· chưa sửa lần nào, đang là mức mặc định</span>') : ''}
+        ${sid && isOwner() ? `<button class="btn sm" data-act="bgocost" data-id="${sid}">Sửa bảng phí</button>` : ''}</div>
+      <div class="bd-thusrc"><span>Voucher shop ở gian hàng này</span>
+        <input class="inp sm" type="number" min="0" max="90" step="0.5" style="width:80px" data-chact="bvshop" data-id="${b.id}|${sid}" value="${bV(b, sid) || ''}" placeholder="0"> %
+        ${sid !== sm && !(b.vShop && b.vShop[sid] != null) ? '<span class="dim">đang là mức "voucher shop đặt sẵn" của gian hàng này trong Tính chi phí</span>' : ''}</div>
+    </div>
     <div class="bd-thusrc"><span>ROAS thực tế lấy từ</span>
       <select class="inp sm" data-chact="brs" data-id="${b.id}">${opts.map(([k, l]) => `<option value="${esc(k)}" ${k === kSel ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
       ${kSel === 'tay' ? `<input class="inp sm" data-chact="brsx" data-id="${b.id}" value="${Rx ? String(Rx).replace('.', ',') : ''}" placeholder="vd 8,5" inputmode="decimal" style="width:90px">`
-        : `<b>${xText(Rx)}</b> <span class="dim">${esc(R.lab)}</span>`}
+        : R ? `<b>${xText(Rx)}</b> <span class="dim">${esc(R.lab)}</span>` : '<span class="warn">gian hàng này chưa có số quảng cáo — chọn nguồn khác</span>'}
     </div>
-    <div class="explain bd-thusum" id="bdThuSum">${bThuSum(b, Rx)}</div>
+    <div class="explain bd-thusum" id="bdThuSum">${bThuSum(b, Rx, sid)}</div>
     <div class="tblwrap"><table class="tbl sm bd-thut"><thead><tr><th>Phân loại</th><th>Mốc đối thủ</th><th>Giá bán thử</th><th class="r">Sau voucher</th>
       <th class="r">Lời / đơn<div class="rv-thn">chưa QC</div></th><th class="r">ROAS hoà vốn</th><th class="r">Lời sau QC</th><th>Kết luận</th>
       <th class="r">Giá sàn<div class="rv-thn">để còn lời</div></th></tr></thead><tbody>${
     b.vars.map(v => {
-      const gia = thu[v.vk] || v.p, cm = bCmp(b, v), o = bThuOut(b, v, gia, von[v.vk], Rx);
+      const gia = thu[v.vk] || v.p, cm = bCmp(b, v), o = bThuOut(b, v, gia, von[v.vk], Rx, sid);
       return `<tr data-thu="${esc(v.vk)}"><td><b>${esc(v.n || '(không tên)')}</b>${von[v.vk] ? `<div class="dim">vốn ${money(von[v.vk])}</div>` : ''}</td>
         <td>${cm ? `${money(cm.f)} <button class="btn sm" data-act="bthukhop" data-id="${b.id}|${esc(v.vk)}" title="Đặt giá bán để giá sau voucher bằng mốc này">Khớp</button>
           <div class="dim bd-cmpn">${esc(cut(cm.lab, 50))}</div>` : '<span class="dim">—</span>'}</td>
@@ -6091,15 +6110,31 @@ function bThuBox(b, R){
         ${['sau', 'lai', 'hv', 'sq', 'ket', 'san'].map(k => `<td class="${k === 'ket' ? '' : 'r'}" data-c="${k}">${o[k]}</td>`).join('')}</tr>`; }).join('')}</tbody></table></div>
     <div class="btns" style="margin-top:8px"><button class="btn pri sm" data-act="bthuapply" data-id="${b.id}">Áp dụng giá thử vào bảng giá</button>
       <button class="btn sm" data-act="bthureset" data-id="${b.id}">Đặt lại</button></div>
+    <div id="bdShCmp">${bShopCmp(b)}</div>
     <div class="dim" style="margin-top:6px">Lời sau QC = lời mỗi đơn − tiền quảng cáo mỗi đơn (giá sau voucher ÷ ROAS thực tế). ROAS thực tế cao hơn ROAS hoà vốn thì mỗi đơn
       từ quảng cáo có lời. "Giá sàn" là giá bán thấp nhất (trước voucher shop) mà với ROAS này vẫn còn lời. Giá thử chưa lưu tới khi bấm Áp dụng.</div>
   </div>`;
   return h;
 }
+/* Cùng giá thử, bán ở gian hàng nào lời hơn: mỗi gian hàng một cột, tính bằng
+   bảng phí + voucher shop + ROAS (nguồn "cả gian hàng" thì của riêng gian hàng đó). */
+function bShopCmp(b){
+  const ds = bShopList();
+  if (ds.length < 2) return '';
+  const von = ((bcostOf(b.id) || {}).von) || {}, thu = (ui.bThu || {})[b.id] || {};
+  const Rs = ds.map(s => { const R = bRoasSrc(b, s.id); return R && R.x > 0 ? R.x : 0; });
+  return `<div class="sec sm" style="margin-top:14px">So giữa các gian hàng — cùng giá thử<span class="ln"></span></div>
+    <div class="tblwrap"><table class="tbl sm"><thead><tr><th>Phân loại</th>${ds.map((s, i) =>
+      `<th class="r">${esc(s.name)}<div class="rv-thn">voucher ${bV(b, s.id)}% · ROAS ${Rs[i] ? xText(Rs[i]) : '—'}</div></th>`).join('')}</tr></thead><tbody>${
+    b.vars.map(v => `<tr><td><b>${esc(v.n || '(không tên)')}</b><div class="dim">${money(thu[v.vk] || v.p)}</div></td>${ds.map((s, i) => {
+      const x = bCalc(b, thu[v.vk] || v.p, von[v.vk], s.id), q = bSauQc(x, Rs[i]);
+      return `<td class="r">${q ? `<b class="${q.lai > 0 ? 'ok' : 'bad'}">${money(q.lai)}</b><div class="dim">${q.bien.toFixed(0)}% · chưa QC ${moneyShort(x.lai)}</div>`
+        : x ? `${money(x.lai)}<div class="dim">chưa QC · thiếu ROAS</div>` : '<span class="dim">—</span>'}</td>`; }).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
 /* Thang giá: mọi mức giá cuối của các đối thủ đã ghim và giá sau voucher của
    mình, xếp từ rẻ tới đắt — liếc là biết mình đang đứng ở khúc nào. */
 function bLadder(b, ds){
-  const mine = b.vars.filter(v => v.p > 0).map(v => ({f: bGiaSau(v.p, b.vPct), n: v.n || '(không tên)', mine: true, ok: true}));
+  const mine = b.vars.filter(v => v.p > 0).map(v => ({f: bGiaSau(v.p, bV(b, bShopMain(b))), n: v.n || '(không tên)', mine: true, ok: true}));
   const all = ds.concat(mine).sort((a, c) => a.f - c.f);
   /* thanh bắt đầu từ 80% giá rẻ nhất chứ không từ 0 — chênh 10–20% mới nhìn ra */
   const max = Math.max(...all.map(x => x.f), 1), min0 = Math.min(...all.map(x => x.f)) * 0.8;
@@ -6131,4 +6166,4 @@ function bNoteList(ns){
         <div>${esc(n.text).replace(/\n/g, '<br>')}</div></div></div>`; }).join('')}</div>`;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "803e45e0"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "2a9814cd"]);
