@@ -5641,7 +5641,7 @@ function viewRivalShop(){
       <th class="r">Sản phẩm</th><th>Bán chạy nhất</th><th>Mới lên kệ</th></tr></thead><tbody>${v.rows.map(r => {
       const t = r.top.rows[0], vua = r.nw.filter(x => x.vuaLen).length, s0 = r.sh.shops[0] || {};
       return `<tr data-act="rvshop" data-id="${esc(r.sh.id)}" class="${v.chon === r ? 'rv-dang' : ''}">
-        <td><div class="rv-shn">${anh(s0.img)}<div><b>${esc(r.sh.name)}</b>${r.sh.shops.some(x => x.mall) ? ' <span class="chip bad">Mall</span>' : ''}
+        <td><div class="rv-shn">${anh(s0.img)}<div><b>${esc(r.sh.name)}</b>${r.sh.shops.some(x => x.mall) && !/mall/i.test(r.sh.name) ? ' <span class="chip bad">Mall</span>' : ''}
           <div class="dim">${r.sh.shops.map(x => esc(x.user || x.n)).join(', ')}</div></div></div></td>
         <td><div class="rv-bar"><i class="${r.sum.r === maxR ? 'top' : ''}" style="width:${Math.max(1, (r.sum.r || 0) / maxR * 100).toFixed(1)}%"></i></div>
           <span class="nw"><b>${moneyShort(r.sum.r)}</b> ${pct(r.gR)}${tongR ? ` <span class="dim">· ${(r.sum.r / tongR * 100).toFixed(0)}%</span>` : ''}</span></td>
@@ -5708,7 +5708,7 @@ function viewRivalShop(){
         <div class="rv-cb">
           <div class="rv-n">${esc(r.n)}</div>
           <div class="rv-sh">${esc(r.shop)}${r.mall ? ' <span class="chip bad">Mall</span>' : ''}</div>
-          <div class="rv-cp">${g ? `<b>${money(g.f)}</b> <s>${moneyShort(g.pb)}</s> <span class="rv-cg">−${g.giam.toFixed(0)}%</span>` : `<b>${money(r.p)}</b>`}</div>
+          <div class="rv-cp">${g ? `<b>${money(g.f)}</b>${g.pb > g.f ? ` <s>${moneyShort(g.pb)}</s> <span class="rv-cg">−${g.giam.toFixed(0)}%</span>` : ''}` : `<b>${money(r.p)}</b>`}</div>
           <div class="rv-cs">lên kệ <b>${esc(fmtDate(r.created))}</b>${r.spSum ? ' · ' + r.spSum.n + ' phân loại' : ''}</div>
           <div class="rv-cs">DS kỳ <b>${moneyShort(r.r)}</b> · ${so(r.o)} lượt${r.rc ? ' · ' + so(r.rc) + ' đánh giá' : ''}</div>
         </div></div>`; }).join('')}</div>`
@@ -5730,7 +5730,7 @@ function viewRivalShop(){
         <td class="c rv-rk"><b>${v.chon ? r.rank : i + 1}</b>${v.chon ? (mv ? '<div>' + mv + '</div>' : '') : ''}</td>
         <td><div class="rv-sp">${r.img ? anh(r.img, '') : '<span class="rv-noimg"></span>'}
           <div class="grow"><div class="rv-n">${esc(r.n)}</div>
-            <div class="rv-sh">${esc(r.row.sh.name)}${r.mall ? ' <span class="chip bad">Mall</span>' : ''}${
+            <div class="rv-sh">${esc(r.row.sh.name)}${r.mall && !/mall/i.test(r.row.sh.name) ? ' <span class="chip bad">Mall</span>' : ''}${
               v.chon ? '' : ` <span class="chip">hạng ${r.rank} trong shop</span>${r.row.prev && r.isNew ? ' <span class="chip acc">mới vào nhóm bán chạy</span>' : ''}`}${
               r.spSum ? ` <span class="chip">${r.spSum.n} phân loại</span>` : ''}${r.created ? ` <span class="dim">· lên kệ ${esc(fmtDate(r.created).slice(3))}</span>` : ''}${
               r.imgNew ? ' <span class="chip acc">🖼 ảnh bìa mới</span>' : ''}${
@@ -5739,7 +5739,7 @@ function viewRivalShop(){
           ${r.pmin && r.pmin !== r.pmax ? `<div class="dim">${moneyShort(r.pmin)} – ${moneyShort(r.pmax)}</div>` : ''}</td>
         <td class="r nw rv-gc">${g ? `<b>${r.spSum.nhieuGia ? '<span class="dim rv-tu">từ</span> ' : ''}${money(g.f)}</b>${
             cu && cu.f !== g.f ? `<div class="${g.f < cu.f ? 'rv-dn' : 'rv-up'}">${g.f < cu.f ? '▼' : '▲'} từ ${moneyShort(cu.f)}</div>` : ''}
-            <div class="dim">−${g.giam.toFixed(0)}% so với gốc ${moneyShort(g.pb)}</div>${g.v ? `<div class="rv-vc">🎟 voucher −${moneyShort(g.v)}</div>` : ''}` : '<span class="dim">chưa đọc</span>'}</td>
+            ${g.pb > g.f ? `<div class="dim">−${g.giam.toFixed(0)}% so với gốc ${moneyShort(g.pb)}</div>` : ''}${g.v ? `<div class="rv-vc">🎟 voucher −${moneyShort(g.v)}</div>` : ''}` : '<span class="dim">chưa đọc</span>'}</td>
         <td class="r nw"><b>${moneyShort(r.r)}</b><div>${pct(r.gR)}</div>${shR ? `<div class="dim">${(r.r / shR * 100).toFixed(0)}% của shop</div>` : ''}</td>
         <td class="r nw">${so(r.o)}<div>${pct(r.gO)}</div></td>
         <td class="r nw">${coHieu ? (r.dSold != null ? `<b>+${so(r.dSold)}</b> lượt<div class="dim">+${moneyShort(r.dRev || 0)}</div>` : '<span class="dim">mới vào</span>')
@@ -5754,4 +5754,4 @@ function viewRivalShop(){
   return h;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "ec9e098f"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "5bae086d"]);
