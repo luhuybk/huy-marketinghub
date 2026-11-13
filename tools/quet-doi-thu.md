@@ -37,7 +37,8 @@ curl -s -H 'Content-Type: application/json' \
 
 Trả về `ticket` (vé, sống 6 giờ), `url`, `today`,
 `kws: [{id, kw, last, every, due, next}]` và
-`shops: {n, last, every, due, next}` (gian hàng đối thủ — xem bước 2b).
+`shops: {n, last, every, due, next, list}` (gian hàng đối thủ — xem bước 2b;
+`list: [{id, name, links, every, last, due, next}]` cho quét sâu ở bước 2c).
 
 - **Chỉ quét từ khoá có `due: true`** (bước 2 và bước 3). Chủ chọn cho từng từ
   khoá quét mỗi tuần / 2 tuần / mỗi tháng (`every` = 7 / 14 / 30 ngày); Hub tính
@@ -118,6 +119,50 @@ Hub trả `{ok:true, date, n, shops:[{id, name, r, top, new}]}` — `n` phải b
 gian hàng đang khai trên Metric, mỗi gian hàng `top` và `new` thường là 5.
 Sản phẩm bán chạy và sản phẩm lên kệ trong 45 ngày của các gian hàng tự vào danh
 sách đọc trang Shopee ở bước 4 (`kws` của chúng ghi `Gian hàng: <tên>`).
+
+## 2c. Quét sâu từng gian hàng — 1 lượt mỗi gian hàng, lấy tới 60 sản phẩm
+
+Trang Theo dõi đối thủ chỉ trả 5 sản phẩm bán chạy mỗi shop. Quét sâu lấy tới 60.
+Làm **sau** bước 2b (Hub phải biết gian hàng đó rồi). Chỉ quét gian hàng có
+`due: true` trong `shops.list` của bước 1 (chủ chọn tần suất cho từng gian hàng;
+`every: 0` là tắt).
+
+Với từng gian hàng tới hạn (`id`, `links` lấy từ `shops.list`):
+
+1. Mở `https://metric.vn/analytics`, gài đoạn bắt kết quả ở bước 2, đặt
+   `window.__rv={}`.
+2. Xoá thẻ cũ trong ô **Từ khóa**, gõ từng link trong `links`
+   (`https://shopee.vn/shop/<mã>`), Enter cho thành thẻ. Để nguyên **Shopee**,
+   **Trong 30 ngày**. Bấm **Phân tích** (1 lượt).
+3. Chờ bảng *Sản phẩm bán chạy*, rồi **lật trang 2 và trang 3** của bảng đó
+   (không tốn lượt — kiểm 14/11/2026). Mỗi lần lật, `window.__rv.products` bị
+   thay bằng trang mới, nên gom lại ngay:
+
+```js
+window.__gom = window.__gom || {};
+const P = JSON.parse(window.__rv.products.res).data.products;
+P.forEach(p => window.__gom[p.product_base_id] = p); Object.keys(window.__gom).length
+```
+
+   Chạy đoạn trên sau trang 1, sau trang 2, sau trang 3 (shop có ít hơn 60 sản
+   phẩm thì không có đủ trang — dừng ở trang cuối).
+4. Gửi (thay `VE`, `SHOP_ID` = `id` trong `shops.list`):
+
+```js
+const R=window.__rv, J=k=>R[k]?JSON.parse(R[k].res).data:null, q=JSON.parse(R.products.body);
+const r=await fetch('https://darkblue-bat-395619.hostingersite.com/api/rival.php',{method:'POST',
+  headers:{'Content-Type':'text/plain'},
+  body:JSON.stringify({ticket:'VE',do:'shopdeep',shop_id:'SHOP_ID',query:q.include_query.queries,
+    from:q.start_date,to:q.end_date,products:Object.values(window.__gom),
+    basic:(J('search-basic')||{search_basic:{}}).search_basic.aggregations||[],
+    groups:(J('groups')||{}).groups||[],shops:(J('shops')||{}).shops||[]})});
+window.__gom={}; await r.json()
+```
+
+Hub trả `{ok:true, name, n, top}` — `n` là số sản phẩm giữ (tối đa 60). Hub từ
+chối nếu ô từ khoá không đúng link shop của gian hàng đó. Nhớ `window.__gom={}`
+trước gian hàng kế tiếp (đoạn trên đã tự xoá).
+10 sản phẩm đầu của lần quét sâu tự vào danh sách đọc trang Shopee ở bước 4.
 
 ## 3. Với từng từ khoá — lượt tìm kiếm (50 điểm, không tốn lượt)
 
@@ -207,7 +252,7 @@ mỗi từ khoá.
 
 ## 5. Báo lại
 
-Tóm tắt: quét được mấy gian hàng đối thủ (bước 2b), quét được mấy từ khoá (và mấy từ khoá chưa tới hạn nên bỏ qua), từ khoá nào lỗi và vì sao, còn bao nhiêu lượt và
+Tóm tắt: quét được mấy gian hàng đối thủ (bước 2b), quét sâu mấy gian hàng (2c), quét được mấy từ khoá (và mấy từ khoá chưa tới hạn nên bỏ qua), từ khoá nào lỗi và vì sao, còn bao nhiêu lượt và
 điểm Metric (mở `https://metric.vn/profile` ở **tab khác**: *Số lượt phân tích
 còn lại*, *Điểm phân tích còn lại*); Shopee đọc được mấy / mấy sản phẩm, có bị
 dừng giữa chừng không.

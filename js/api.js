@@ -240,6 +240,11 @@ const Server = (() => {
   const rivalMine    = (sid, name, on)   => call('rival_mine', {shop_id: sid, name, on});
   const rivalShops   = ()      => call('rival_shops');
   const rivalShopDel = id      => call('rival_shop_del', {id});
+  const rivalShopSave = (id, every) => call('rival_shop_save', {id, every});
+  /* ảnh của bảng xây dựng sản phẩm */
+  const bimgUp  = (build, data) => call('bimg_up', {build, data});
+  const bimgDel = id            => call('bimg_del', {id});
+  const imgUrl  = id            => 'api/img.php?id=' + encodeURIComponent(id);
 
   const users     = ()  => call('users_list');
   /* Chỉ tên, ai đăng nhập cũng gọi được — cần để giao việc cho một người. */
@@ -249,7 +254,7 @@ const Server = (() => {
 
   return {probe, login, logout, logoutAll, pull, push, pushBeacon, stats,
           tgGet, tgSave, tgTest, tgReport, tgHook, remind, ingestList, ingestSet,
-          rivalState, rivalScans, rivalKwSave, rivalKwDel, rivalScanDel, rivalMine, rivalShops, rivalShopDel, adTgUp, adTgMute,
+          rivalState, rivalScans, rivalKwSave, rivalKwDel, rivalScanDel, rivalMine, rivalShops, rivalShopDel, rivalShopSave, bimgUp, bimgDel, imgUrl, adTgUp, adTgMute,
           users, userNames, userSave, userDel, takeWhoChanged, notePerms,
           available, authed, state, role, isOwner, name, perms, may, call};
 })();

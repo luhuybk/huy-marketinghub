@@ -16,7 +16,7 @@ const ui = {
   postQ:'', postState:'', postMonthOnly:false,
   /* Lọc bài theo một kênh đăng. Rỗng = mọi kênh. */
   postCh:'',
-  adYm:'', adQ:'', adIssue:'', adOnlyBad:false, adShop:'', adTab:'radar', rvKw:'', rvDate:'', rvAll:false, rvMode:'tbl', rvTab:'kw', rvShop:'', rvShDate:'', rvShAll:false, adDate:'', adGioYm:'',
+  adYm:'', adQ:'', adIssue:'', adOnlyBad:false, adShop:'', adTab:'radar', rvKw:'', rvDate:'', rvAll:false, rvMode:'tbl', rvTab:'kw', rvShop:'', rvShDate:'', rvShAll:false, bQ:'', bTab:'all', bShowAll:false, bLog:'', adDate:'', adGioYm:'',
   adGioQ:'', adGioSp:'', adSoSanh:'', adGon:false,
   resTab:'brands', resQ:'',
   cmpFrom:'', cmpTo:'',
@@ -5624,7 +5624,9 @@ function viewRivalShop(){
 
   let h = `<div class="toolbar">
       <div class="dim grow">${rvShops().length} gian hàng đối thủ · mỗi đợt quét tốn <b>1</b> lượt Metric cho tất cả${
-        han.last ? ' · quét gần nhất ' + esc(fmtDate(han.last)) + (han.due ? ' · tới hạn ở đợt quét tới' : ' · lần tới khoảng ' + esc(fmtDate(han.next))) : ''}</div>
+        han.last ? ' · quét gần nhất ' + esc(fmtDate(han.last)) + (han.due ? ' · tới hạn ở đợt quét tới' : ' · lần tới khoảng ' + esc(fmtDate(han.next))) : ''}${
+        (() => { const l = (han.list || []).filter(x => x.every), toi = l.filter(x => x.due);
+                 return l.length ? ` · quét sâu (top ${RV_SH_SAU}) ${l.length} gian hàng, đợt tới <b>${toi.length}</b> gian hàng tới hạn (${toi.length} lượt)` : ''; })()}</div>
       <button class="btn sm" data-act="rvreload">↻ Tải lại</button>
     </div>`;
   if (!cur0) return h + emptyBox('Chưa có lần quét nào', 'Đợt quét tới sẽ có số.');
@@ -5642,7 +5644,8 @@ function viewRivalShop(){
       const t = r.top.rows[0], vua = r.nw.filter(x => x.vuaLen).length, s0 = r.sh.shops[0] || {};
       return `<tr data-act="rvshop" data-id="${esc(r.sh.id)}" class="${v.chon === r ? 'rv-dang' : ''}">
         <td><div class="rv-shn">${anh(s0.img)}<div><b>${esc(r.sh.name)}</b>${r.sh.shops.some(x => x.mall) && !/mall/i.test(r.sh.name) ? ' <span class="chip bad">Mall</span>' : ''}
-          <div class="dim">${r.sh.shops.map(x => esc(x.user || x.n)).join(', ')}</div></div></div></td>
+          <div class="dim">${r.sh.shops.map(x => esc(x.user || x.n)).join(', ')}</div>
+          <div class="dim rv-sau">${r.sau ? `top ${r.sau.items.length} · quét sâu ${esc(fmtDate(r.sau.date).slice(0, 5))}` : r.sh.every ? 'chỉ top 5 · chưa quét sâu' : 'chỉ top 5 · tắt quét sâu'}</div></div></div></td>
         <td><div class="rv-bar"><i class="${r.sum.r === maxR ? 'top' : ''}" style="width:${Math.max(1, (r.sum.r || 0) / maxR * 100).toFixed(1)}%"></i></div>
           <span class="nw"><b>${moneyShort(r.sum.r)}</b> ${pct(r.gR)}${tongR ? ` <span class="dim">· ${(r.sum.r / tongR * 100).toFixed(0)}%</span>` : ''}</span></td>
         <td class="r nw">${so(r.sum.o)}<div>${pct(r.gO)}</div></td>
@@ -5662,14 +5665,29 @@ function viewRivalShop(){
     h += `<div class="rv-hd"><div class="grow"><h2>${esc(c.sh.name)}</h2><div class="dim">${c.sh.shops.map(x => esc(x.n) + (x.mall ? ' · Mall' : '')).join(' + ')}</div></div>
         ${s0.sid ? `<a class="btn sm" href="https://shopee.vn/shop/${esc(s0.sid)}" target="_blank" rel="noopener noreferrer">Mở shop trên Shopee ↗</a>` : ''}
         ${isOwner() ? `<button class="btn sm dngr" data-act="rvshopdel" data-id="${esc(c.sh.id)}">Bỏ gian hàng này</button>` : ''}</div>`;
+    const hs = (han.list || []).find(x => x.id === c.sh.id) || {};
+    h += `<div class="rv-sauhd"><span>🔬 <b>Quét sâu</b> (top ${RV_SH_SAU} sản phẩm bán chạy, 1 lượt Metric mỗi lần):</span>
+        ${isOwner() ? `<select class="inp sm" data-chact="rvshtan" data-id="${esc(c.sh.id)}">${Object.entries(RV_SH_SAU_TAN).map(([k, t]) =>
+            `<option value="${k}" ${+k === +c.sh.every ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>` : `<b>${esc(RV_SH_SAU_TAN[c.sh.every] || '')}</b>`}
+        <span class="dim">${c.sau ? 'lần gần nhất ' + esc(fmtDate(c.sau.date)) + ' · ' + c.sau.items.length + ' sản phẩm' : 'chưa quét lần nào'}${
+          c.sh.every && hs.next ? (hs.due ? ' · tới hạn ở đợt quét tới' : ' · lần tới khoảng ' + esc(fmtDate(hs.next))) : c.sh.every && !c.sau ? ' · tới hạn ở đợt quét tới' : ''}</span></div>`;
     const top5 = c.top.rows.reduce((a, r) => a + r.r, 0);
     h += `<div class="rv-kpis">
       <div class="rv-kpi"><span class="l">Doanh số kỳ</span><b>${moneyShort(sm.r)}</b><span class="s">${pct(c.gR)} so với kỳ liền trước (${moneyShort(sm.rp)})</span></div>
       <div class="rv-kpi"><span class="l">Lượt bán kỳ</span><b>${so(sm.o)}</b><span class="s">${pct(c.gO)} · mỗi lượt khoảng ${sm.o ? moneyShort(sm.r / sm.o) : '—'}</span></div>
       <div class="rv-kpi"><span class="l">Sản phẩm đang bán</span><b>${so(sm.np)}</b><span class="s">${
         c.dNp == null ? 'chưa có lần quét trước để so' : c.dNp ? (c.dNp > 0 ? '+' : '') + c.dNp + ' so với lần quét trước' : 'không đổi so với lần quét trước'}</span></div>
-      <div class="rv-kpi"><span class="l">${c.top.rows.length} sản phẩm bán chạy nhất</span><b>${sm.r ? (top5 / sm.r * 100).toFixed(0) + '%' : '—'}</b><span class="s">doanh số của shop · ${moneyShort(top5)}</span></div>
+      <div class="rv-kpi"><span class="l">${c.top.rows.length} sản phẩm bán chạy nhất</span><b>${sm.r ? Math.min(100, top5 / sm.r * 100).toFixed(0) + '%' : '—'}</b><span class="s">doanh số của shop · ${moneyShort(top5)}</span></div>
     </div>`;
+    /* khoảng giá bán chạy của riêng shop — lần quét sâu mang theo bảng khoảng giá */
+    const gia = c.sau ? rvPrice(c.sau, c.top.rows) : null;
+    if (gia)
+      h += `<div class="rv-tom" style="margin-top:10px">Shop này bán nhiều nhất ở khoảng <b>${esc(gia.topR.ten)}</b> (${gia.topR.sR.toFixed(0)}% doanh số) ·
+          nhiều lượt bán nhất ở khoảng <b>${esc(gia.topO.ten)}</b> (${gia.topO.sO.toFixed(0)}% lượt bán)</div>
+        <div class="tblwrap"><table class="tbl sm rv-gia"><thead><tr><th>Khoảng giá</th><th>Doanh số</th><th>Lượt bán</th></tr></thead><tbody>${gia.rows.map(g => `<tr>
+          <td class="nw"><b>${esc(g.ten)}</b></td>
+          <td><div class="rv-bar"><i class="${g.topR ? 'top' : ''}" style="width:${Math.max(1, g.wR).toFixed(1)}%"></i></div><span class="nw">${moneyShort(g.r)} · ${g.sR.toFixed(0)}%</span></td>
+          <td><div class="rv-bar o"><i class="${g.topO ? 'top' : ''}" style="width:${Math.max(1, g.wO).toFixed(1)}%"></i></div><span class="nw">${so(g.o)} · ${g.sO.toFixed(0)}%</span></td></tr>`).join('')}</tbody></table></div>`;
     const wk = (sm.wk || []).filter(w => w.f);
     if (wk.length > 1){
       const mx = Math.max(1, ...wk.map(w => w.v / Math.max(1, (rvCachNgay(w.t, w.f) || 0) + 1)));
@@ -5716,22 +5734,25 @@ function viewRivalShop(){
 
   /* ---- 5. sản phẩm bán chạy ---- */
   const ban = v.xem.flatMap(r => r.top.rows.map(x => Object.assign({}, x, {row: r}))).sort((a, b) => b.r - a.r);
-  const hien = ban.slice(0, v.chon || ui.rvShAll ? ban.length : RV_SHOW);
+  const gioiHan = v.chon ? RV_SH_DAU : RV_SHOW;
+  const hien = ban.slice(0, ui.rvShAll ? ban.length : gioiHan);
   const coSp = ban.some(r => r.sp), coHieu = hien.some(r => r.dSold != null);
   h += sectionTitle(v.chon ? ban.length + ' sản phẩm bán chạy nhất của shop' : 'Sản phẩm bán chạy của các gian hàng',
-    !v.chon && ban.length > RV_SHOW ? `<button data-act="rvshall">${ui.rvShAll ? 'Chỉ xem ' + RV_SHOW + ' đầu' : 'Xem cả ' + ban.length}</button>` : '');
+    ban.length > gioiHan ? `<button data-act="rvshall">${ui.rvShAll ? 'Chỉ xem ' + gioiHan + ' đầu' : 'Xem cả ' + ban.length}</button>` : '');
   h += `<div class="tblwrap"><table class="tbl rv-tbl"><thead><tr>
       <th class="c">${v.chon ? 'Hạng' : '#'}</th><th>Sản phẩm</th><th class="r">Giá bán</th><th class="r">Giá cuối<div class="rv-thn">sau voucher</div></th><th class="r">Doanh số kỳ</th>
       <th class="r">Lượt bán kỳ</th><th class="r">${coHieu ? 'Từ lần quét trước' : 'Tổng đã bán'}</th><th class="r">Đánh giá</th></tr></thead><tbody>${hien.map((r, i) => {
       const g = giaCuoi(r), cu = r.spPrevSum ? r.spPrevSum.re : null, shR = r.row.sum.r;
-      const mv = !r.row.prev ? '' : r.isNew ? '<span class="chip acc">MỚI</span>'
+      /* có lần trước để so không: quét sâu thì so với lần quét sâu trước, không thì với lần Theo dõi trước */
+      const coSo = r.row.sau ? !!r.row.sauTruoc : !!r.row.prev;
+      const mv = !coSo ? '' : r.isNew ? '<span class="chip acc">MỚI</span>'
                : r.move > 0 ? `<span class="rv-up">▲${r.move}</span>` : r.move < 0 ? `<span class="rv-dn">▼${-r.move}</span>` : '<span class="dim">–</span>';
       return `<tr data-act="rvprod" data-id="${esc(r.id)}">
         <td class="c rv-rk"><b>${v.chon ? r.rank : i + 1}</b>${v.chon ? (mv ? '<div>' + mv + '</div>' : '') : ''}</td>
         <td><div class="rv-sp">${r.img ? anh(r.img, '') : '<span class="rv-noimg"></span>'}
           <div class="grow"><div class="rv-n">${esc(r.n)}</div>
             <div class="rv-sh">${esc(r.row.sh.name)}${r.mall && !/mall/i.test(r.row.sh.name) ? ' <span class="chip bad">Mall</span>' : ''}${
-              v.chon ? '' : ` <span class="chip">hạng ${r.rank} trong shop</span>${r.row.prev && r.isNew ? ' <span class="chip acc">mới vào nhóm bán chạy</span>' : ''}`}${
+              v.chon ? '' : ` <span class="chip">hạng ${r.rank} trong shop</span>${coSo && r.isNew && r.rank <= RV_SH_DAU ? ' <span class="chip acc">mới vào nhóm bán chạy</span>' : ''}`}${
               r.spSum ? ` <span class="chip">${r.spSum.n} phân loại</span>` : ''}${r.created ? ` <span class="dim">· lên kệ ${esc(fmtDate(r.created).slice(3))}</span>` : ''}${
               r.imgNew ? ' <span class="chip acc">🖼 ảnh bìa mới</span>' : ''}${
               ((r.sp && r.sp.tags) || []).slice(0, 2).map(t => ` <span class="chip warn">${esc(t)}</span>`).join('')}</div></div></div></td>
@@ -5745,11 +5766,263 @@ function viewRivalShop(){
         <td class="r nw">${coHieu ? (r.dSold != null ? `<b>+${so(r.dSold)}</b> lượt<div class="dim">+${moneyShort(r.dRev || 0)}</div>` : '<span class="dim">mới vào</span>')
                                   : `${so(r.sold)}<div class="dim">${moneyShort(r.rev)}</div>`}</td>
         <td class="r nw">${r.ra ? r.ra.toFixed(1) + '★' : '—'}<div class="dim">${so(r.rc)}</div></td></tr>`; }).join('')}</tbody></table></div>
-    <div class="dim" style="margin-top:8px">Metric trả cho mỗi gian hàng 5 sản phẩm bán chạy nhất và 5 sản phẩm mới lên kệ nhất, theo doanh số trong kỳ
+    <div class="dim" style="margin-top:8px">${v.coSau ? `Gian hàng đã quét sâu thì có tới ${RV_SH_SAU} sản phẩm bán chạy; gian hàng chưa quét sâu chỉ có 5 sản phẩm của trang Theo dõi đối thủ. `
+        : `Hiện mới có 5 sản phẩm bán chạy mỗi gian hàng (trang Theo dõi đối thủ của Metric). Đợt quét sâu tới sẽ có tới ${RV_SH_SAU} sản phẩm mỗi gian hàng. `}Xếp theo doanh số trong kỳ
       (thường 30 ngày, số trễ khoảng 3–9 ngày). ▲▼ % là so với kỳ liền trước cùng độ dài.
       ${coSp ? '<b>Giá cuối</b> là giá khách thật sự trả cho phân loại rẻ nhất còn hàng, sau voucher — đọc trên trang Shopee.'
              : '<b>Giá cuối</b> và phân loại chưa có: tác vụ quét chưa đọc trang Shopee của các sản phẩm này.'}
       Bấm một dòng để xem ảnh, bảng giá chi tiết, từng phân loại và lịch sử của sản phẩm đó.
       Thêm hay bớt gian hàng đối thủ: làm trên Metric (Theo dõi đối thủ → Thêm đối thủ), lần quét sau Hub tự cập nhật.</div>`;
   return h;
+}
+
+/* ============================================================
+   BẢNG XÂY DỰNG SẢN PHẨM — danh sách và một bảng
+   Dữ liệu: builds / btasks / bnotes / bimgs / bcosts (xem js/state.js).
+   Biểu mẫu và thao tác ở js/app.js (buildForm, btaskForm, …).
+   ============================================================ */
+function viewBuild(id){
+  if (id){
+    const b = buildOf(id);
+    if (!b) return `<div class="empty"><b>Không thấy bảng này</b>Có thể đã bị xoá.
+      <div style="margin-top:14px"><button class="btn" data-act="nav" data-id="build">‹ Tất cả bảng</button></div></div>`;
+    return viewBuildOne(b);
+  }
+  const q = norm(ui.bQ);
+  const all = builds().filter(b => !q || norm([b.name, b.goal, b.whoName, ...(b.refs || []).map(r => r.shop + ' ' + r.n)].join(' ')).includes(q));
+  let h = `<div class="toolbar">
+    <input class="inp sm" data-inp="bQ" value="${esc(ui.bQ)}" placeholder="Tìm bảng, đối thủ…" style="max-width:240px">
+    <div class="grow"></div>
+    <button class="btn pri" data-act="bnew">+ Bảng mới</button></div>`;
+  if (!builds().length)
+    return h + `<div class="empty"><b>Chưa có bảng xây dựng nào</b>
+      Mỗi bảng là một sản phẩm mình đang dựng — mới, hoặc đang bán cần làm lại cho cạnh tranh. Ghim vài sản phẩm bán
+      chạy của đối thủ làm mốc, rồi cùng nhân viên làm bốn mục: hình ảnh, giá & phân loại, chính sách, và giao việc có hạn.
+      Mọi trao đổi, mọi lần đổi giá đổi chính sách đều ghi lại trong nhật ký.
+      <div class="dim" style="margin-top:10px">Mẹo: ở Theo dõi đối thủ, bấm một sản phẩm → <b>📌 Ghim vào bảng xây dựng</b> là tạo bảng kèm sẵn đối thủ đó.</div>
+      <div style="margin-top:14px" class="btns center"><button class="btn pri" data-act="bnew">+ Bảng đầu tiên</button></div></div>`;
+
+  /* ---- việc của tôi ---- */
+  const toi = myBtasks();
+  if (toi.length){
+    h += `<div class="mod">` + moduleHead('🙋', 'Việc của tôi', toi.length + ' việc chưa xong được giao cho bạn');
+    h += `<div class="alerts">` + toi.slice(0, 12).map(t => btaskLine(t, true)).join('') + `</div></div>`;
+  }
+
+  Object.keys(BUILD_ST).forEach(st => {
+    const g = all.filter(b => b.st === st);
+    if (!g.length) return;
+    if (st !== 'dang' && !ui.bShowAll){
+      h += `<div class="dim" style="margin:14px 2px"><button class="btn sm" data-act="bshowall">${esc(BUILD_ST[st])} (${g.length}) — xem</button></div>`;
+      return;
+    }
+    h += `<div class="mod">` + moduleHead(st === 'dang' ? '🛠' : st === 'xong' ? '🏁' : '⏸', BUILD_ST[st], g.length + ' bảng');
+    h += `<div class="bd-grid">` + g.map(buildCard).join('') + `</div></div>`;
+  });
+  return h;
+}
+/* Ảnh đại diện của bảng: ảnh bìa của mình đã duyệt → ảnh mình bất kỳ → ảnh đối thủ đầu tiên */
+function buildCover(b){
+  const im = bimgsOf(b.id), ok = im.find(i => i.slot === 'bia' && i.st === 'ok') || im.find(i => i.slot === 'bia') || im[0];
+  if (ok && window.Server) return Server.imgUrl(ok.id);
+  const r = (b.refs || []).find(x => x.img);
+  return r ? rvImg(r.img, 'md') : '';
+}
+function buildCard(b){
+  const ts = btasksOf(b.id), xong = ts.filter(t => t.st === 'done').length;
+  const tre = ts.filter(t => btaskOpen(t) && t.due && t.due < today()).length;
+  const im = bimgsOf(b.id), anh = buildCover(b);
+  const lan = bnotesOf(b.id)[0];
+  return `<div class="bd-card" data-act="bopen" data-id="${b.id}">
+    <div class="bd-cv">${anh ? `<img src="${esc(anh)}" alt="" referrerpolicy="no-referrer" loading="lazy">` : '<span>🛠</span>'}
+      ${(b.refs || []).length ? `<span class="bd-cvn">${b.refs.length} đối thủ</span>` : ''}</div>
+    <div class="bd-cb">
+      <div class="rv-n">${esc(b.name)}</div>
+      <div class="dim" style="font-size:12px">${esc(BUILD_MODE[b.mode])}${b.whoName ? ' · ' + esc(b.whoName) : ''}</div>
+      <div class="bd-prog"><i style="width:${ts.length ? (xong / ts.length * 100).toFixed(0) : 0}%"></i></div>
+      <div class="dim" style="font-size:12px">${ts.length ? xong + '/' + ts.length + ' việc xong' : 'chưa giao việc nào'}${
+        tre ? ` · <b class="bad">${tre} trễ hạn</b>` : ''} · ${im.filter(i => i.st === 'ok').length}/${im.length} ảnh duyệt</div>
+      ${lan ? `<div class="dim bd-lan">${esc(bLuc(lan.at).slice(0, 5))} · ${esc(lan.byName || '')}: ${esc(cut(lan.text, 60))}</div>` : ''}
+    </div></div>`;
+}
+/* Một dòng việc — dùng ở Việc của tôi, ở từng mục, ở Tổng quan */
+function btaskLine(t, kemBang){
+  const b = kemBang ? buildOf(t.buildId) : null;
+  const tre = t.due && btaskOpen(t) ? -dayDiff(t.due) : 0;
+  const nb = alive(db.bnotes).filter(n => n.taskId === t.id && n.kind === 'cmt').length;
+  return `<div class="al al-${t.st === 'done' ? 'ok' : tre > 0 ? 'bad' : t.st === 'review' ? 'warn' : 'info'} bd-task ${t.st === 'done' ? 'bd-done' : ''}" data-act="btask" data-id="${t.id}">
+    <span class="al-dot"></span>
+    <div class="grow"><div class="al-t">${BUILD_SECS[t.sec].icon} ${esc(t.title || '(chưa đặt tên)')}</div>
+      <div class="al-s">${b ? esc(b.name) + ' · ' : ''}${esc(BTASK_ST[t.st])}${t.whoName ? ' · ' + esc(t.whoName) : ' · chưa giao'}${
+        t.due ? ' · hạn ' + esc(fmtDate(t.due).slice(0, 5)) + (tre > 0 ? ` <b class="bad">trễ ${tre} ngày</b>` : '') : ''}${nb ? ' · 💬 ' + nb : ''}</div></div>
+    <span class="al-go">›</span></div>`;
+}
+
+function viewBuildOne(b){
+  const tab = ui.bTab || 'all';
+  const ts = btasksOf(b.id), im = bimgsOf(b.id), notes = bnotesOf(b.id);
+  const idea = b.ideaId ? ideaOf(b.ideaId) : null, sp = b.productId ? productOf(b.productId) : null;
+  let h = `<div class="bd-hd">
+      <button class="btn sm" data-act="nav" data-id="build">‹ Tất cả bảng</button>
+      <div class="grow"><h2>${esc(b.name)}</h2>
+        <div class="dim">${esc(BUILD_MODE[b.mode])} · <b>${esc(BUILD_ST[b.st])}</b>${b.whoName ? ' · phụ trách ' + esc(b.whoName) : ''}${
+          idea ? ` · ý tưởng <a href="#newprod" class="lnk">${esc(idea.name)}</a>` : ''}${
+          sp ? ` · sản phẩm <a href="#product/${esc(sp.id)}" class="lnk">${esc(sp.name)}</a>` : ''}</div></div>
+      <button class="btn sm" data-act="bedit" data-id="${b.id}">✎ Sửa</button>
+    </div>`;
+  if (b.goal) h += `<div class="explain bd-goal">🎯 ${esc(b.goal).replace(/\n/g, '<br>')}</div>`;
+
+  /* ---- đối thủ đã ghim ---- */
+  h += sectionTitle('Đối thủ làm mốc', `<button data-act="bpinadd" data-id="${b.id}">📌 Ghim thêm</button>`);
+  h += (b.refs || []).length ? `<div class="bd-refs">${b.refs.map(r => `<div class="bd-ref" data-act="bref" data-id="${b.id}|${esc(r.id)}">
+        ${r.img ? `<img src="${esc(rvImg(r.img, 'tn'))}" alt="" referrerpolicy="no-referrer" loading="lazy">` : '<span class="rv-noimg"></span>'}
+        <div class="grow"><div class="rv-n">${esc(r.n)}</div>
+          <div class="dim">${esc(r.shop || '')}${r.r ? ' · DS kỳ ' + moneyShort(r.r) : ''}${r.o ? ' · ' + r.o.toLocaleString('vi-VN') + ' lượt' : ''}</div>
+          <div><b>${money(r.gc || r.p || 0)}</b>${r.gc ? ' <span class="dim">sau voucher</span>' : r.p ? ' <span class="dim">giá bán</span>' : ''}${
+            (r.models || []).length ? ` · <span class="dim">${r.models.length} phân loại</span>` : ''}</div></div></div>`).join('')}</div>`
+    : `<div class="dim">Chưa ghim đối thủ nào. Vào <b>Theo dõi đối thủ</b>, bấm một sản phẩm bán chạy → <b>📌 Ghim vào bảng xây dựng</b>, hoặc bấm “Ghim thêm” để dán link.</div>`;
+
+  /* ---- các thẻ ---- */
+  const dem = sec => ts.filter(t => t.sec === sec && btaskOpen(t)).length;
+  const TABS = [['all', '📋 Tổng quan', ts.filter(btaskOpen).length], ['img', '🖼 Hình ảnh', im.length], ['price', '💰 Giá & phân loại', dem('price')],
+                ['pol', '📜 Chính sách', dem('pol')], ['log', '🗒 Nhật ký', notes.length]];
+  h += `<div class="tabs bd-tabs">${TABS.map(([k, l, n]) =>
+    `<button class="tab ${tab === k ? 'on' : ''}" data-act="btab" data-id="${k}">${l}${n ? ` <span class="bd-n">${n}</span>` : ''}</button>`).join('')}</div>`;
+
+  const viecMuc = sec => {
+    const g = ts.filter(t => t.sec === sec).sort((a, c) => (a.st === 'done') - (c.st === 'done') || (a.due || '9999').localeCompare(c.due || '9999'));
+    return sectionTitle('Việc — ' + BUILD_SECS[sec].label, `<button data-act="btasknew" data-id="${b.id}|${sec}">+ Giao việc</button>`, true) +
+      (g.length ? `<div class="alerts">${g.map(t => btaskLine(t)).join('')}</div>` : `<div class="dim">Chưa có việc nào ở mục này.</div>`);
+  };
+
+  if (tab === 'all'){
+    h += `<div class="bd-sum">${Object.keys(BUILD_SECS).map(sec => {
+      const g = ts.filter(t => t.sec === sec), x = g.filter(t => t.st === 'done').length, tre = g.filter(t => btaskOpen(t) && t.due && t.due < today()).length;
+      return `<div class="rv-kpi" ${sec !== 'other' ? `data-act="btab" data-id="${sec}"` : ''} style="${sec !== 'other' ? 'cursor:pointer' : ''}">
+        <span class="l">${BUILD_SECS[sec].icon} ${esc(BUILD_SECS[sec].label)}</span><b>${g.length ? x + '/' + g.length : '—'}</b>
+        <span class="s">${g.length ? 'việc xong' + (tre ? ` · <b class="bad">${tre} trễ</b>` : '') : 'chưa có việc'}${
+          sec === 'img' ? ' · ' + im.filter(i => i.st === 'ok').length + '/' + im.length + ' ảnh duyệt' : ''}</span></div>`; }).join('')}</div>`;
+    const mo = ts.filter(btaskOpen).sort((a, c) => (a.due || '9999').localeCompare(c.due || '9999'));
+    h += sectionTitle('Việc chưa xong', `<button data-act="btasknew" data-id="${b.id}|other">+ Giao việc</button>`);
+    h += mo.length ? `<div class="alerts">${mo.map(t => btaskLine(t)).join('')}</div>` : `<div class="dim">Không còn việc nào đang mở.</div>`;
+    h += sectionTitle('Mới nhất trong nhật ký', `<button data-act="btab" data-id="log">Xem cả</button>`);
+    h += bNoteList(notes.slice(0, 8));
+  }
+
+  if (tab === 'img'){
+    h += viecMuc('img');
+    const coTai = !!(window.Server && Server.authed());
+    h += sectionTitle('Ảnh của mình', '<span class="dim">kéo thả, dán (Ctrl/⌘+V) hoặc bấm nút để tải lên</span>');
+    h += coTai ? `<div class="bd-drop" id="bdDrop" data-bid="${b.id}">
+        <input type="file" id="bdFile" accept="image/jpeg,image/png,image/webp" multiple hidden>
+        <button class="btn pri sm" data-act="bimgpick">⬆ Tải ảnh lên</button>
+        <span class="dim">Ảnh được thu về cạnh dài 1600px trước khi gửi — điện thoại chụp 10 MB cũng chỉ còn vài trăm KB.</span>
+        <span class="dim" id="bdUpSt"></span></div>`
+      : `<div class="dim">Tải ảnh cần đăng nhập máy chủ.</div>`;
+    if (im.length)
+      Object.keys(BIMG_SLOTS).forEach(sl => {
+        const g = im.filter(i => i.slot === sl);
+        if (!g.length) return;
+        h += `<div class="sec sm">${esc(BIMG_SLOTS[sl])} · ${g.length}<span class="ln"></span></div><div class="bd-imgs">${g.map(i => `
+          <div class="bd-img st-${i.st}" data-act="bimg" data-id="${i.id}">
+            <img src="${esc(Server.imgUrl(i.id))}" alt="" loading="lazy">
+            <span class="bd-ist">${i.st === 'ok' ? '✅ ' : i.st === 'sua' ? '✏️ ' : ''}${esc(BIMG_ST[i.st])}</span>
+            ${i.cap || i.note ? `<div class="bd-icap">${esc(cut(i.note && i.st === 'sua' ? 'Sửa: ' + i.note : i.cap, 70))}</div>` : ''}
+          </div>`).join('')}</div>`;
+      });
+    else h += `<div class="dim" style="margin-top:8px">Chưa có ảnh nào.</div>`;
+    /* ảnh đối thủ để đặt cạnh mà so */
+    const co = (b.refs || []).filter(r => (r.imgs || []).length || r.img);
+    if (co.length){
+      h += sectionTitle('Ảnh của đối thủ', '<span class="dim">ảnh chụp lại lúc ghim · bấm để mở ảnh gốc</span>');
+      co.forEach(r => {
+        const ds = (r.imgs || []).length ? r.imgs : [r.img];
+        h += `<div class="dim" style="margin:8px 0 4px"><b>${esc(r.shop || '')}</b> — ${esc(cut(r.n, 70))}</div>
+          <div class="bd-rimgs">${ds.map(u => `<a href="${esc(rvImg(u))}" target="_blank" rel="noopener noreferrer"><img src="${esc(rvImg(u, 'tn'))}" alt="" referrerpolicy="no-referrer" loading="lazy"></a>`).join('')}</div>`;
+      });
+    }
+  }
+
+  if (tab === 'price'){
+    h += viecMuc('price');
+    const coVon = may('cost'), bc = bcostOf(b.id), von = (bc && bc.von) || {};
+    const min = bRefMin(b);
+    h += sectionTitle('Phân loại & giá của mình', `<button data-act="bprice" data-id="${b.id}">✎ Sửa giá & phân loại</button>`);
+    if (b.vars.length){
+      h += `<div class="tblwrap"><table class="tbl sm bd-pt"><thead><tr><th>Phân loại</th><th class="r">Giá gốc</th><th class="r">Giá bán</th>
+          <th class="r">Sau voucher shop${b.vPct ? ' ' + b.vPct + '%' : ''}</th><th class="r">So đối thủ rẻ nhất</th>${
+          coVon ? '<th class="r">Giá vốn</th><th class="r">Lời / đơn<div class="rv-thn">chưa quảng cáo</div></th><th class="r">ROAS hoà vốn</th>' : ''}</tr></thead><tbody>${
+        b.vars.map(v => {
+          const f = bGiaSau(v.p, b.vPct), cl = min && f ? rvPct(f, min) : null;
+          const x = coVon && von[v.vk] && v.p ? costFrom({gia: v.p, vPct: b.vPct, von: von[v.vk]}) : null;
+          return `<tr><td><b>${esc(v.n || '(không tên)')}</b></td>
+            <td class="r">${v.pb && v.pb !== v.p ? `<s>${money(v.pb)}</s>` : '<span class="dim">—</span>'}</td>
+            <td class="r">${money(v.p)}${v.pb > v.p ? `<div class="dim">−${((v.pb - v.p) / v.pb * 100).toFixed(0)}%</div>` : ''}</td>
+            <td class="r"><b>${money(f)}</b></td>
+            <td class="r">${cl == null ? '<span class="dim">—</span>' : `<span class="${cl > 0 ? 'rv-up' : 'rv-dn'}">${cl > 0 ? '+' : ''}${cl.toFixed(0)}%</span>`}</td>
+            ${coVon ? `<td class="r">${von[v.vk] ? money(von[v.vk]) : '<span class="dim">—</span>'}</td>
+              <td class="r">${x ? `<b class="${x.lai > 0 ? '' : 'bad'}">${money(x.lai)}</b>` : '<span class="dim">—</span>'}</td>
+              <td class="r">${x && x.roas ? xText(x.roas) : x ? '<b class="bad">lỗ sẵn</b>' : '<span class="dim">—</span>'}</td>` : ''}</tr>`; }).join('')}</tbody></table></div>
+        <div class="dim" style="margin-top:6px">"So đối thủ rẻ nhất" là giá sau voucher shop của mình so với giá cuối thấp nhất trong các đối thủ đã ghim (${min ? money(min) : 'chưa có'}).${
+          coVon ? ' Lời / đơn tính bằng bảng phí mặc định trong Tính chi phí, chưa trừ quảng cáo.' : ''}</div>`;
+      if (b.priceNote) h += `<div class="explain" style="margin-top:8px">${esc(b.priceNote).replace(/\n/g, '<br>')}</div>`;
+    } else h += `<div class="dim">Chưa đặt phân loại nào. Bấm “Sửa giá & phân loại” để thêm.</div>`;
+    /* phân loại của đối thủ */
+    const co = (b.refs || []).filter(r => (r.models || []).length || r.p);
+    if (co.length){
+      h += sectionTitle('Phân loại của đối thủ', '<span class="dim">chụp lại lúc ghim</span>');
+      co.forEach(r => {
+        h += `<div class="dim" style="margin:8px 0 4px"><b>${esc(r.shop || '')}</b> — ${esc(cut(r.n, 70))}${r.spDate ? ' · đọc Shopee ' + esc(fmtDate(r.spDate).slice(0, 5)) : ''}</div>`;
+        h += (r.models || []).length ? `<div class="tblwrap"><table class="tbl sm bd-pt"><thead><tr><th>Phân loại</th><th class="r">Giá gốc</th><th class="r">Giá bán</th><th class="r">Giá cuối sau voucher</th></tr></thead><tbody>${
+          r.models.map(m => `<tr class="${m.ok === false ? 'rv-het' : ''}"><td>${esc(m.n || '(không phân loại)')}${m.ok === false ? ' <span class="chip">hết hàng</span>' : ''}</td>
+            <td class="r">${m.pb && m.pb !== m.p ? `<s>${money(m.pb)}</s>` : '<span class="dim">—</span>'}</td><td class="r">${money(m.p)}</td>
+            <td class="r"><b>${m.f ? money(m.f) : '—'}</b></td></tr>`).join('')}</tbody></table></div>`
+          : `<div class="dim">Giá bán ${money(r.p)}${r.pmin && r.pmin !== r.pmax ? ' · phân loại ' + moneyShort(r.pmin) + ' – ' + moneyShort(r.pmax) : ''} — chưa có bảng phân loại (tác vụ quét chưa đọc trang Shopee lúc ghim).</div>`;
+      });
+    }
+  }
+
+  if (tab === 'pol'){
+    h += viecMuc('pol');
+    h += sectionTitle('Chính sách của mình', `<button data-act="bpol" data-id="${b.id}">✎ Sửa chính sách</button>`);
+    const co = BUILD_POL.filter(x => (b.pol[x.k] || '').trim());
+    h += co.length ? `<div class="bd-pol">${co.map(x => `<div><span class="l">${esc(x.l)}</span><div>${esc(b.pol[x.k]).replace(/\n/g, '<br>')}</div></div>`).join('')}</div>`
+      : `<div class="dim">Chưa đặt chính sách nào: voucher, quà tặng, combo, vận chuyển, đổi trả, lịch sale…</div>`;
+    const cr = (b.refs || []).filter(r => (r.vouchers || []).length || (r.tags || []).length);
+    if (cr.length){
+      h += sectionTitle('Đối thủ đang làm gì', '<span class="dim">voucher shop và nhãn khuyến mãi lúc ghim</span>');
+      h += `<div class="bd-pol">${cr.map(r => `<div><span class="l">${esc(r.shop || '')} — ${esc(cut(r.n, 50))}</span><div>${
+        (r.tags || []).map(t => `<span class="chip warn">${esc(t)}</span>`).join(' ')}${
+        (r.vouchers || []).length ? '<ul class="bd-ul">' + r.vouchers.map(v => `<li>🎟 ${esc(v)}</li>`).join('') + '</ul>' : ''}</div></div>`).join('')}</div>`;
+    }
+  }
+
+  if (tab === 'log'){
+    h += sectionTitle('Trao đổi', '');
+    h += `<div class="bd-cmt"><textarea class="inp" id="bdCmt" rows="2" placeholder="Ghi chú, câu hỏi, chốt phương án… (mọi người có quyền Xây dựng SP đều thấy)"></textarea>
+      <button class="btn pri sm" data-act="bcmt" data-id="${b.id}|">Gửi</button></div>`;
+    const loc = ui.bLog || '';
+    h += `<div class="chips" style="margin:10px 0">${[['', 'Tất cả'], ['cmt', '💬 Trao đổi'], ['hist', '🕘 Thay đổi']].map(([k, l]) =>
+      `<button class="btn sm ${loc === k ? 'pri' : ''}" data-act="blog" data-id="${k}">${l}</button>`).join('')}</div>`;
+    h += bNoteList(notes.filter(n => !loc || n.kind === loc));
+  }
+  return h;
+}
+/* Giờ ghi nhật ký (lưu UTC) → "dd/mm/yyyy hh:mm" giờ máy đang xem */
+function bLuc(at){
+  const d = new Date(at);
+  if (isNaN(d)) return '';
+  const p = n => String(n).padStart(2, '0');
+  return fmtDate(ymd(d)) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+/* Dòng thời gian của nhật ký. Bình luận gắn với một việc thì ghi kèm tên việc. */
+function bNoteList(ns){
+  if (!ns.length) return `<div class="dim">Chưa có gì.</div>`;
+  return `<div class="bd-log">${ns.map(n => {
+    const t = n.taskId ? alive(db.btasks).find(x => x.id === n.taskId) : null;
+    return `<div class="bd-li ${n.kind}" ${t ? `data-act="btask" data-id="${t.id}"` : ''}>
+      <span class="ic">${n.kind === 'cmt' ? '💬' : '🕘'}</span>
+      <div class="grow"><div class="dim bd-meta"><b>${esc(n.byName || '?')}</b> · ${esc(bLuc(n.at))}${
+        t ? ' · việc: ' + esc(cut(t.title, 50)) : n.sec && BUILD_SECS[n.sec] ? ' · ' + esc(BUILD_SECS[n.sec].label) : ''}</div>
+        <div>${esc(n.text).replace(/\n/g, '<br>')}</div></div></div>`; }).join('')}</div>`;
 }

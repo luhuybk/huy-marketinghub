@@ -787,6 +787,49 @@ sửa một dòng nào ở máy chủ — đã kiểm cả hai: nút *Xong* trê
 
 ---
 
+## 🛠 Bảng xây dựng sản phẩm
+
+Dựa vào sản phẩm bán chạy của đối thủ để cùng nhân viên dựng sản phẩm của mình —
+sản phẩm mới (gắn được ý tưởng ở Sản phẩm mới) hoặc sản phẩm đang bán cần làm lại.
+Quyền riêng **Xây dựng SP** (`build`).
+
+- **Ghim đối thủ làm mốc:** ở Theo dõi đối thủ, bấm một sản phẩm → **📌 Ghim vào
+  bảng xây dựng** (vào bảng có sẵn hoặc tạo bảng mới). Hub **chụp lại** sản phẩm
+  lúc ghim: số Metric, ảnh, từng phân loại kèm giá cuối, voucher, nhãn khuyến mãi —
+  để nhân viên không có quyền Theo dõi đối thủ vẫn xem được mốc so. Sản phẩm
+  ngoài danh sách thì dán link + giá tay.
+- **Bốn mục, mỗi mục có danh sách việc riêng:**
+  - 🖼 **Hình ảnh** — tải ảnh thẳng lên Hub (nút, kéo thả, hoặc dán Ctrl/⌘+V).
+    Trình duyệt thu ảnh về cạnh dài 1600px, nén JPEG rồi mới gửi. Mỗi ảnh có vị
+    trí (bìa / phụ / mô tả), trạng thái Nháp → Cần sửa (bắt ghi nhận xét) → Đã
+    duyệt. Ảnh đối thủ bày ngay bên dưới để so.
+  - 💰 **Giá & phân loại** — phân loại dự kiến (giá gốc, giá bán), voucher shop %,
+    so với giá cuối thấp nhất của đối thủ đã ghim. Người có quyền **Tính chi phí**
+    điền thêm giá vốn và thấy lời/đơn + ROAS hoà vốn (bảng phí mặc định).
+  - 📜 **Chính sách** — voucher, quà tặng, combo/mua kèm, vận chuyển, đổi trả,
+    lịch sale, định hướng khác; đặt cạnh voucher và nhãn khuyến mãi của đối thủ.
+  - 📌 **Việc khác**.
+- **Giao việc:** việc gì, thuộc mục nào, giao cho ai, hạn, trạng thái (Cần làm →
+  Đang làm → Chờ duyệt → Xong). Mở một việc là có khung trao đổi riêng của việc
+  đó. Trang danh sách có **Việc của tôi**; số đỏ cạnh mục là việc của mình đã tới
+  hạn. Chưa nhắc qua Telegram.
+- **Nhật ký:** trao đổi chung của bảng + **lịch sử thay đổi tự ghi** (ai, lúc nào):
+  giá cũ → giá mới, thêm/bỏ phân loại, voucher %, chính sách câu cũ → câu mới, đổi
+  trạng thái việc, duyệt / trả ảnh, ghim / bỏ ghim đối thủ. Giá vốn **không** ghi
+  vào nhật ký (ai có quyền Xây dựng SP cũng đọc được nhật ký).
+
+**Dữ liệu** — năm bộ đồng bộ riêng, mỗi thứ một bản ghi để hai người cùng thao
+tác không ghi đè nhau (đồng bộ theo kiểu ai sửa sau thắng, từng bản ghi):
+`builds` (bảng + đối thủ đã chụp + phân loại + chính sách), `btasks`, `bnotes`
+(chỉ thêm), `bimgs` (thông tin ảnh), `bcosts` (giá vốn phân loại, quyền `cost`).
+**Ảnh** nằm trong file SQLite riêng `kolhub-img.sqlite` cạnh file dữ liệu chính
+(không làm phình bản sao lưu / lượt đồng bộ), tải lên bằng `bimg_up` (máy chủ
+kiểm mấy byte đầu là JPEG/PNG/WEBP, tối đa 3 MB), trả về qua `api/img.php?id=`
+(GET kèm cookie phiên, kiểm quyền `build`, cho trình duyệt giữ lâu vì ảnh không
+bao giờ bị sửa — sửa = tải ảnh mới).
+
+---
+
 ## 🔌 Số liệu quảng cáo tự động
 
 Tác vụ **"Báo cáo quảng cáo Shopee 8h45"** (Claude, chạy theo lịch) mỗi sáng kéo
@@ -962,9 +1005,16 @@ Ngoài theo dõi theo từ khoá, trang này có thẻ **🏪 Gian hàng đối 
   45 ngày của mỗi gian hàng tự vào danh sách đọc trang Shopee (bước 4 của
   `tools/quet-doi-thu.md`), nên bấm vào là có bảng giá chi tiết và từng phân
   loại như bên từ khoá.
-- **Giới hạn:** chỉ thấy 5 sản phẩm bán chạy nhất mỗi shop. Muốn top 20 của một
-  shop thì phải phân tích riêng shop đó ở trang Phân tích (dán link shop), tốn 1
-  lượt mỗi shop — chưa làm.
+- **Quét sâu (thêm 14/11/2026):** trang Theo dõi chỉ có 5 sản phẩm bán chạy mỗi
+  shop. Quét sâu = phân tích riêng từng shop ở trang Phân tích (gõ link shop vào
+  ô từ khoá): **1 lượt mỗi shop**, mỗi trang 20 sản phẩm, lật trang 2–3 không tốn
+  thêm lượt (kiểm 14/11/2026), nên giữ tới **60 sản phẩm** (`RV_SH_SAU`). Chọn
+  tần suất cho từng shop ngay trong trang (mỗi tuần / 2 tuần / mỗi tháng / tắt,
+  mặc định 2 tuần — `rv_shop.every`). Bảng `rv_shdeep`, cổng `do:"shopdeep"`,
+  bước 2c của `tools/quet-doi-thu.md`. Có quét sâu thì bảng bán chạy của shop
+  dùng top 60 và hiện thêm khoảng giá bán chạy của riêng shop đó; "Điều gì vừa
+  đổi" chỉ báo quanh 20 hạng đầu để khỏi ngập. 10 sản phẩm đầu của lần quét sâu
+  vào danh sách đọc trang Shopee.
 
 
 ## 🚀 Hàng mới về
@@ -1088,6 +1138,10 @@ Danh sách quyền phải khớp ở **ba chỗ**: `PERMS` trong `js/state.js`, 
 trong `api/lib.php`, và `KH_PERMS` trong `serve.js`. Lệch một dòng thì giao
 diện mở một mục mà máy chủ không trả dữ liệu — người dùng thấy trang trống mà
 không hiểu vì sao.
+
+**Quyền thêm ngày 14/11/2026:** **Xây dựng SP** (`build`) — bảng xây dựng sản phẩm
+(xem mục 🛠). Không tự cấp cho ai; chủ tick cho nhân viên cần dùng. Giá vốn của
+phân loại dự kiến vẫn cần thêm `cost`.
 
 **Ba quyền thêm ngày 12/11/2026:**
 

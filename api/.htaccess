@@ -1,4 +1,4 @@
-# Chỉ index.php, cron.php, tg.php, ingest.php và rival.php được gọi từ ngoài.
+# Chỉ index.php, cron.php, tg.php, ingest.php, rival.php và img.php được gọi từ ngoài.
 # push_hub.py chỉ phát qua ingest.php?script=1 (đã điền sẵn địa chỉ Hub).
 # Cấu hình, thư viện dùng chung và dữ liệu thì không.
 
@@ -11,6 +11,10 @@
 <IfModule mod_headers.c>
   Header always set Cache-Control "no-store"
   Header always set X-Content-Type-Options "nosniff"
+  # Ảnh của bảng xây dựng: mã ảnh không bao giờ đổi nội dung → cho trình duyệt giữ lâu
+  <FilesMatch "^img\.php$">
+    Header always set Cache-Control "private, max-age=31536000, immutable"
+  </FilesMatch>
 </IfModule>
 
 Options -Indexes

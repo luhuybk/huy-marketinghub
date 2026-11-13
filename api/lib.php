@@ -203,7 +203,7 @@ function khTachAds(PDO $pdo): void {
    Danh sách này phải khớp PERMS trong js/state.js. */
 const KH_PERMS = ['dash','pipeline','kols','clips','postfb','posttt','ads',
                   'improve','newprod','compare','resources','cost','launch',
-                  'adreport','keywords','rival'];
+                  'adreport','keywords','rival','build'];
 
 /* Bộ dữ liệu nào cần quyền nào. Có MỘT trong số quyền liệt kê là đọc được.
 
@@ -238,6 +238,14 @@ const KH_KIND_PERM = [
   'launches'  => ['launch'],
   'lsteps'    => ['launch'],
   'lmarks'    => ['launch'],
+  /* Bảng xây dựng sản phẩm (thêm 14/11/2026). Giá vốn của các phân loại dự
+     kiến tách ra bộ riêng `bcosts` — người dựng hình, dựng giá không cần biết
+     mua vào bao nhiêu, cùng lý do `costs` tách khỏi `products`. */
+  'builds'    => ['build'],
+  'btasks'    => ['build'],
+  'bnotes'    => ['build'],
+  'bimgs'     => ['build'],
+  'bcosts'    => ['cost'],
 ];
 
 function khNorm(string $s): string {
@@ -1162,6 +1170,11 @@ function rvTables(PDO $pdo): void {
   $pdo->exec('CREATE TABLE IF NOT EXISTS rv_shop (id TEXT PRIMARY KEY, name TEXT, shops TEXT, created TEXT)');
   $pdo->exec('CREATE TABLE IF NOT EXISTS rv_shscan (shop_id TEXT NOT NULL, date TEXT NOT NULL, d_from TEXT, d_to TEXT,
       at TEXT, data TEXT, PRIMARY KEY (shop_id, date))');
+  /* Quét sâu từng gian hàng (thêm 14/11/2026) — xem rvShopDeepSave() */
+  $pdo->exec('CREATE TABLE IF NOT EXISTS rv_shdeep (shop_id TEXT NOT NULL, date TEXT NOT NULL, d_from TEXT, d_to TEXT,
+      at TEXT, data TEXT, extra TEXT, PRIMARY KEY (shop_id, date))');
+  if (!in_array('every', array_column($pdo->query('PRAGMA table_info(rv_shop)')->fetchAll(), 'name'), true))
+    $pdo->exec('ALTER TABLE rv_shop ADD COLUMN every INTEGER DEFAULT ' . RV_SH_SAU_MD);
 }
 function rvTan($v): int {
   return in_array((int)$v, RV_TAN, true) ? (int)$v : 7;
@@ -1492,6 +1505,19 @@ function rvSpList(): array {
       if (!in_array($nhan, $out[$id]['kws'], true)) $out[$id]['kws'][] = $nhan;
     }
   }
+  /* …và RV_SP_TOP sản phẩm đầu của lần quét sâu gần nhất mỗi gian hàng */
+  foreach (rvShopScans(1, 1) as $sh) {
+    $dp = $sh['deep'][0] ?? null;
+    if (!$dp) continue;
+    foreach (array_slice($dp['items'], 0, RV_SP_TOP) as $x) {
+      $id = (string)($x['id'] ?? '');
+      if ($id === '' || empty($x['url'])) continue;
+      if (!isset($out[$id])) $out[$id] = ['id' => $id, 'sid' => (string)($x['sid'] ?? ''), 'url' => (string)$x['url'],
+                                          'shop' => (string)($x['shop'] ?? ''), 'kws' => []];
+      $nhan = 'Gian hàng: ' . $sh['name'];
+      if (!in_array($nhan, $out[$id]['kws'], true)) $out[$id]['kws'][] = $nhan;
+    }
+  }
   if ($out) {
     $st = $pdo->prepare('SELECT item_id FROM rv_sp WHERE date = ?');
     $st->execute([$nay]);
@@ -1547,6 +1573,15 @@ function rvScanIds(array $scans, int $lan = 8): array {
 const RV_SH_GIU = 10;          // mỗi danh sách giữ tối đa mấy sản phẩm của một gian hàng
 const RV_SH_TAN = 7;           // bao nhiêu ngày quét gian hàng một lần
 const RV_SH_MOI_NGAY = 45;     // sản phẩm lên kệ trong chừng này ngày thì đọc trang Shopee
+/* Quét sâu: trang "Theo dõi đối thủ" của Metric chỉ trả 5 sản phẩm bán chạy mỗi
+   gian hàng. Muốn nhiều hơn thì phân tích riêng từng gian hàng ở trang Phân
+   tích, gõ link shop vào ô từ khoá: 1 lượt mỗi gian hàng, trả 20 sản phẩm một
+   trang, lật trang 2, 3 KHÔNG tốn thêm lượt (kiểm 14/11/2026: 290 → 289 sau
+   khi phân tích rồi lật sang trang 2 và 3). Giữ tối đa RV_SH_SAU sản phẩm.
+   Tần suất chọn riêng cho từng gian hàng: 0 = không quét sâu. */
+const RV_SH_SAU = 60;
+const RV_SH_SAU_TAN = [0, 7, 14, 30];
+const RV_SH_SAU_MD = 14;
 function rvShopSave(array $in): array {
   $pdo = db(); rvTables($pdo);
   $d = is_array($in['data'] ?? null) ? $in['data'] : [];
@@ -1609,12 +1644,22 @@ function rvShopSave(array $in): array {
   if (!$xong) return ['error' => 'Không đọc được gian hàng nào trong gói gửi lên.'];
   return ['ok' => true, 'date' => $date, 'from' => $tu, 'to' => $den, 'n' => count($xong), 'shops' => $xong];
 }
-/* Mọi gian hàng kèm $max bản chụp mới nhất của từng cái (mới nhất trước) */
-function rvShopScans(int $max = 12): array {
+/* Mọi gian hàng kèm $max bản chụp mới nhất của từng cái (mới nhất trước), và
+   $maxSau lần quét sâu mới nhất: deep = [{date, from, to, at, items, extra}] */
+function rvShopScans(int $max = 12, int $maxSau = 8): array {
   $pdo = db(); rvTables($pdo);
   $out = [];
   $st = $pdo->prepare('SELECT date, d_from, d_to, at, data FROM rv_shscan WHERE shop_id = ? ORDER BY date DESC LIMIT ' . (int)$max);
+  $stS = $pdo->prepare('SELECT date, d_from, d_to, at, data, extra FROM rv_shdeep WHERE shop_id = ? ORDER BY date DESC LIMIT ' . (int)$maxSau);
   foreach ($pdo->query('SELECT * FROM rv_shop ORDER BY created, id')->fetchAll() as $r) {
+    $stS->execute([(string)$r['id']]);
+    $deep = [];
+    foreach ($stS->fetchAll() as $s) {
+      $d = json_decode((string)$s['data'], true);
+      if (!is_array($d)) continue;
+      $deep[] = ['date' => (string)$s['date'], 'from' => (string)$s['d_from'], 'to' => (string)$s['d_to'], 'at' => (string)$s['at'],
+                 'items' => $d, 'extra' => json_decode((string)($s['extra'] ?? ''), true) ?: null];
+    }
     $st->execute([(string)$r['id']]);
     $scans = [];
     foreach ($st->fetchAll() as $s) {
@@ -1625,9 +1670,51 @@ function rvShopScans(int $max = 12): array {
                   'top' => is_array($d['top'] ?? null) ? $d['top'] : [], 'new' => is_array($d['new'] ?? null) ? $d['new'] : []];
     }
     $sh = json_decode((string)$r['shops'], true);
-    $out[] = ['id' => (string)$r['id'], 'name' => (string)$r['name'], 'shops' => is_array($sh) ? $sh : [], 'scans' => $scans];
+    $out[] = ['id' => (string)$r['id'], 'name' => (string)$r['name'], 'shops' => is_array($sh) ? $sh : [], 'scans' => $scans,
+              'every' => rvShSauTan($r['every'] ?? RV_SH_SAU_MD), 'deep' => $deep];
   }
   return $out;
+}
+function rvShSauTan($v): int {
+  return in_array((int)$v, RV_SH_SAU_TAN, true) ? (int)$v : RV_SH_SAU_MD;
+}
+/* Ghi một lần quét sâu của MỘT gian hàng (trang Phân tích, gõ link shop).
+   Kết quả phải đúng là của gian hàng đó: mỗi câu tìm là link của một shop
+   trong nhóm, và chỉ giữ sản phẩm của các shop đó. */
+function rvShopDeepSave(array $in): array {
+  $pdo = db(); rvTables($pdo);
+  $gid = (string)($in['shop_id'] ?? '');
+  $st = $pdo->prepare('SELECT * FROM rv_shop WHERE id = ?');
+  $st->execute([$gid]);
+  $sh = $st->fetch();
+  if (!$sh) return ['error' => 'Không thấy gian hàng này trong Hub — quét trang Theo dõi đối thủ (do:"shops") trước.'];
+  $sids = array_column(json_decode((string)$sh['shops'], true) ?: [], 'sid');
+  $qs = (array)($in['query'] ?? []);
+  $qSid = [];
+  foreach ($qs as $q) if (preg_match('~shopee\.vn/shop/(\d+)~', (string)$q, $m) || preg_match('~^\s*(\d{5,})\s*$~', (string)$q, $m)) $qSid[] = $m[1];
+  sort($qSid); $muon = $sids; sort($muon);
+  if (!$qs || count($qSid) !== count($qs) || array_diff($qSid, $muon))
+    return ['error' => 'Kết quả gửi lên là của "' . implode(', ', array_map('strval', $qs)) . '", không phải link shop của "' . $sh['name'] .
+                       '" (' . implode(', ', array_map(fn($x) => 'https://shopee.vn/shop/' . $x, $sids)) . ').'];
+  $items = [];
+  foreach ((array)($in['products'] ?? []) as $p) {
+    $x = is_array($p) ? rvItem($p) : null;
+    if ($x && in_array($x['sid'], $sids, true)) $items[$x['id']] = $x;
+  }
+  if (!$items) return ['error' => 'Không có sản phẩm nào của gian hàng này trong kết quả.'];
+  $items = array_values($items);
+  usort($items, fn($a, $b) => $b['r'] <=> $a['r']);
+  $items = array_slice($items, 0, RV_SH_SAU);
+  $date = rvNgayQuet($in);
+  $tu = rvNgay((string)($in['from'] ?? '')); $den = rvNgay((string)($in['to'] ?? ''));
+  $extra = rvExtra($in);
+  $pdo->prepare('INSERT INTO rv_shdeep (shop_id, date, d_from, d_to, at, data, extra) VALUES (?,?,?,?,?,?,?)
+      ON CONFLICT(shop_id, date) DO UPDATE SET d_from=excluded.d_from, d_to=excluded.d_to, at=excluded.at,
+      data=excluded.data, extra=COALESCE(excluded.extra, rv_shdeep.extra)')
+      ->execute([$gid, $date, $tu, $den, gmdate('c'), json_encode($items, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                 $extra ? json_encode($extra, JSON_UNESCAPED_UNICODE) : null]);
+  return ['ok' => true, 'shop_id' => $gid, 'name' => (string)$sh['name'], 'date' => $date, 'from' => $tu, 'to' => $den,
+          'n' => count($items), 'top' => mb_substr($items[0]['n'], 0, 50, 'UTF-8')];
 }
 /* Tình hình quét gian hàng cho tác vụ: có mấy gian hàng, lần gần nhất, đã tới hạn chưa */
 function rvShopHan(): array {
@@ -1636,12 +1723,26 @@ function rvShopHan(): array {
   $last = (string)($pdo->query('SELECT MAX(date) FROM rv_shscan')->fetchColumn() ?: '');
   $nay = (new DateTime('now', new DateTimeZone(KH_TZ)))->format('Y-m-d');
   [$due, $next] = rvKwHan($last, RV_SH_TAN, false, $nay);
-  return ['n' => $n, 'last' => $last, 'every' => RV_SH_TAN, 'due' => $due, 'next' => $next];
+  /* Từng gian hàng: link để gõ vào ô từ khoá, và lần quét sâu đã tới hạn chưa */
+  $list = [];
+  foreach ($pdo->query('SELECT s.*, (SELECT MAX(date) FROM rv_shdeep d WHERE d.shop_id = s.id) last FROM rv_shop s ORDER BY s.created, s.id')->fetchAll() as $r) {
+    $every = rvShSauTan($r['every'] ?? RV_SH_SAU_MD);
+    $l = (string)($r['last'] ?? '');
+    [$d2, $n2] = $every ? rvKwHan($l, $every, false, $nay) : [false, ''];
+    $list[] = ['id' => (string)$r['id'], 'name' => (string)$r['name'],
+               'links' => array_map(fn($x) => 'https://shopee.vn/shop/' . $x['sid'], json_decode((string)$r['shops'], true) ?: []),
+               'every' => $every, 'last' => $l, 'due' => $d2, 'next' => $n2];
+  }
+  return ['n' => $n, 'last' => $last, 'every' => RV_SH_TAN, 'due' => $due, 'next' => $next, 'list' => $list];
 }
 function rvShopIds(array $shops, int $lan = 6): array {
   $ids = [];
-  foreach ($shops as $sh) foreach (array_slice($sh['scans'], 0, $lan) as $s)
-    foreach (array_merge($s['top'], $s['new']) as $x) $ids[(string)($x['id'] ?? '')] = 1;
+  foreach ($shops as $sh) {
+    foreach (array_slice($sh['scans'], 0, $lan) as $s)
+      foreach (array_merge($s['top'], $s['new']) as $x) $ids[(string)($x['id'] ?? '')] = 1;
+    foreach (array_slice($sh['deep'] ?? [], 0, 2) as $s)
+      foreach ($s['items'] as $x) $ids[(string)($x['id'] ?? '')] = 1;
+  }
   return array_keys($ids);
 }
 /* Vé quét: tác vụ đổi token thiết bị lấy một vé ngắn hạn, rồi trang Metric
@@ -1656,4 +1757,69 @@ function rvTicketOk(string $t): bool {
   $v = kvGet('rv_ticket', null);
   return is_array($v) && strlen($t) >= 32 && (int)($v['exp'] ?? 0) > time()
       && hash_equals((string)($v['hash'] ?? ''), hash('sha256', $t));
+}
+
+/* ============================================================
+   ẢNH CỦA BẢNG XÂY DỰNG SẢN PHẨM
+
+   Ảnh nhân viên tải lên (ảnh bìa nháp, ảnh phụ, ảnh mô tả). Nằm trong một
+   file SQLite RIÊNG cạnh file dữ liệu chính — để file chính không phình lên
+   vài trăm MB, sao lưu / kéo đồng bộ vẫn nhẹ như cũ.
+
+   Trình duyệt đã thu ảnh về cạnh dài ≤ 1600px và nén JPEG trước khi gửi, nên
+   ở đây chỉ còn việc kiểm: đúng là ảnh (JPEG/PNG/WEBP theo mấy byte đầu), không
+   quá IMG_MAX byte. Không tin đuôi file, không tin kiểu MIME trình duyệt khai.
+   Thông tin ảnh (thuộc bảng nào, vị trí, duyệt chưa) nằm ở bộ `bimgs` đồng bộ
+   như mọi bản ghi khác; ở đây chỉ giữ chính cái ảnh.
+   ============================================================ */
+const IMG_MAX = 3 * 1024 * 1024;
+function imgDb(): PDO {
+  static $p = null;
+  if ($p) return $p;
+  global $DB_FILE;
+  db();                                     // dựng thư mục + .htaccess chặn tải nếu chưa có
+  $p = new PDO('sqlite:' . dirname($DB_FILE) . '/kolhub-img.sqlite', null, null, [
+    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
+  $p->exec('CREATE TABLE IF NOT EXISTS img (id TEXT PRIMARY KEY, build TEXT, mime TEXT, w INTEGER, h INTEGER,
+      size INTEGER, data BLOB, by_name TEXT, at TEXT)');
+  return $p;
+}
+function imgMime(string $b): string {
+  if (strncmp($b, "\xFF\xD8\xFF", 3) === 0) return 'image/jpeg';
+  if (strncmp($b, "\x89PNG\r\n\x1A\n", 8) === 0) return 'image/png';
+  if (strncmp($b, 'RIFF', 4) === 0 && substr($b, 8, 4) === 'WEBP') return 'image/webp';
+  return '';
+}
+/* Trả ['id'=>…] hoặc ['error'=>…] */
+function imgSave(string $build, string $dataUrl, string $byName): array {
+  $build = preg_replace('/[^A-Za-z0-9_-]/', '', $build);
+  if ($build === '') return ['error' => 'Thiếu bảng xây dựng.'];
+  $b64 = preg_replace('~^data:[^,]*,~', '', $dataUrl);
+  $bin = base64_decode((string)$b64, true);
+  if ($bin === false || $bin === '') return ['error' => 'Không đọc được ảnh.'];
+  if (strlen($bin) > IMG_MAX) return ['error' => 'Ảnh quá nặng (' . round(strlen($bin) / 1048576, 1) . ' MB, tối đa 3 MB).'];
+  $mime = imgMime($bin);
+  if ($mime === '') return ['error' => 'File này không phải ảnh JPEG, PNG hay WEBP.'];
+  $w = $h = 0;
+  if (function_exists('getimagesizefromstring')) {
+    $sz = @getimagesizefromstring($bin);
+    if (!$sz) return ['error' => 'Ảnh hỏng, không đọc được kích thước.'];
+    [$w, $h] = $sz;
+  }
+  $id = 'im' . bin2hex(random_bytes(8));
+  $st = imgDb()->prepare('INSERT INTO img (id, build, mime, w, h, size, data, by_name, at) VALUES (?,?,?,?,?,?,?,?,?)');
+  $st->bindValue(1, $id); $st->bindValue(2, $build); $st->bindValue(3, $mime);
+  $st->bindValue(4, (int)$w, PDO::PARAM_INT); $st->bindValue(5, (int)$h, PDO::PARAM_INT);
+  $st->bindValue(6, strlen($bin), PDO::PARAM_INT); $st->bindValue(7, $bin, PDO::PARAM_LOB);
+  $st->bindValue(8, mb_substr($byName, 0, 60, 'UTF-8')); $st->bindValue(9, gmdate('c'));
+  $st->execute();
+  return ['id' => $id, 'w' => (int)$w, 'h' => (int)$h, 'size' => strlen($bin), 'mime' => $mime];
+}
+function imgGet(string $id): ?array {
+  $st = imgDb()->prepare('SELECT mime, data FROM img WHERE id = ?');
+  $st->execute([$id]);
+  return $st->fetch() ?: null;
+}
+function imgDel(string $id): void {
+  imgDb()->prepare('DELETE FROM img WHERE id = ?')->execute([$id]);
 }

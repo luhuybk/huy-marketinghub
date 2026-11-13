@@ -100,7 +100,7 @@ function khTachAds(store){
    nói "được" còn máy chủ thật nói "không" — hoặc tệ hơn, ngược lại. */
 const KH_PERMS = ['dash','pipeline','kols','clips','postfb','posttt','ads',
                   'improve','newprod','compare','resources','cost','launch',
-                  'adreport','keywords','rival'];
+                  'adreport','keywords','rival','build'];
 const KH_KIND_PERM = {
   kols:['kols','pipeline'], statuses:['kols','pipeline'], templates:['kols','pipeline'],
   bookings:['pipeline','kols','clips'], clips:['clips','pipeline','kols'],
@@ -110,7 +110,9 @@ const KH_KIND_PERM = {
   orderstats:['ads','adreport'], adfixes:['ads','adreport'], keywords:['ads','keywords'], kwranks:['ads','keywords'],
   spweeks:['improve','ads','adreport'],
   impacts:['improve'], ideas:['newprod'],
-  launches:['launch'], lsteps:['launch'], lmarks:['launch']
+  launches:['launch'], lsteps:['launch'], lmarks:['launch'],
+  /* Bảng xây dựng sản phẩm — xem KH_KIND_PERM bên PHP */
+  builds:['build'], btasks:['build'], bnotes:['build'], bimgs:['build'], bcosts:['cost']
 };
 const khNorm = s => String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
 function khMakeHash(pw){
@@ -620,10 +622,29 @@ function api(req, res, body){
       const shops = rvShopScans();
       return send({ok:true, shops, han:rvShopHan(), sp:rvSps(rvShopIds(shops))});
     }
+    /* Ảnh của bảng xây dựng — xem imgSave() bên PHP */
+    case 'bimg_up': {
+      if (!perm('build')) return;
+      const r = imgSave(String(inp.build || ''), String(inp.data || ''), String(me.name || ''));
+      return r.error ? fail(r.error) : send(Object.assign({ok:true}, r));
+    }
+    case 'bimg_del': {
+      if (!perm('build')) return;
+      imgDb().prepare('DELETE FROM img WHERE id = ?').run(String(inp.id || ''));
+      return send({ok:true});
+    }
+    case 'rival_shop_save': {
+      if (!owner()) return;
+      const D = db(); rvTables(D);
+      const r = D.prepare('UPDATE rv_shop SET every = ? WHERE id = ?').run(rvShSauTan(inp.every), String(inp.id || ''));
+      if (!r.changes) return fail('Không thấy gian hàng này.', 404);
+      return send({ok:true});
+    }
     case 'rival_shop_del': {
       if (!owner()) return;
       const D = db(); rvTables(D);
       D.prepare('DELETE FROM rv_shscan WHERE shop_id = ?').run(String(inp.id || ''));
+      D.prepare('DELETE FROM rv_shdeep WHERE shop_id = ?').run(String(inp.id || ''));
       D.prepare('DELETE FROM rv_shop WHERE id = ?').run(String(inp.id || ''));
       return send({ok:true});
     }
@@ -1417,7 +1438,10 @@ function rvTables(D){
   if (!D.prepare('PRAGMA table_info(rv_kw)').all().some(r => r.name === 'every')) D.exec('ALTER TABLE rv_kw ADD COLUMN every INTEGER DEFAULT 7');
   D.exec(`CREATE TABLE IF NOT EXISTS rv_shop (id TEXT PRIMARY KEY, name TEXT, shops TEXT, created TEXT);
     CREATE TABLE IF NOT EXISTS rv_shscan (shop_id TEXT NOT NULL, date TEXT NOT NULL, d_from TEXT, d_to TEXT,
-      at TEXT, data TEXT, PRIMARY KEY (shop_id, date))`);
+      at TEXT, data TEXT, PRIMARY KEY (shop_id, date));
+    CREATE TABLE IF NOT EXISTS rv_shdeep (shop_id TEXT NOT NULL, date TEXT NOT NULL, d_from TEXT, d_to TEXT,
+      at TEXT, data TEXT, extra TEXT, PRIMARY KEY (shop_id, date))`);
+  if (!D.prepare('PRAGMA table_info(rv_shop)').all().some(r => r.name === 'every')) D.exec('ALTER TABLE rv_shop ADD COLUMN every INTEGER DEFAULT 14');
 }
 const rvTan = v => RV_TAN.includes(Math.trunc(+v)) ? Math.trunc(+v) : 7;
 const rvCong = (d, n) => new Date(Date.parse(d + 'T00:00:00Z') + n * 864e5).toISOString().slice(0, 10);
@@ -1625,6 +1649,17 @@ function rvSpList(){
       if (!out.get(id).kws.includes(nhan)) out.get(id).kws.push(nhan);
     });
   });
+  rvShopScans(1, 1).forEach(sh => {
+    const dp = sh.deep[0];
+    if (!dp) return;
+    dp.items.slice(0, RV_SP_TOP).forEach(x => {
+      const id = String(x.id || '');
+      if (!id || !x.url) return;
+      if (!out.has(id)) out.set(id, {id, sid:String(x.sid || ''), url:String(x.url), shop:String(x.shop || ''), kws:[]});
+      const nhan = 'Gian hàng: ' + sh.name;
+      if (!out.get(id).kws.includes(nhan)) out.get(id).kws.push(nhan);
+    });
+  });
   if (out.size){
     const xong = new Set(D.prepare('SELECT item_id FROM rv_sp WHERE date = ?').all(vnNow().date).map(r => String(r.item_id)));
     out.forEach(o => { o.done = xong.has(o.id); });
@@ -1651,6 +1686,8 @@ function rvSps(ids, max = 8){
 const rvScanIds = (scans, lan = 8) => [...new Set(scans.slice(0, lan).flatMap(s => s.items.map(x => String(x.id || ''))))];
 /* Gian hàng đối thủ — xem chú thích ở rvShopSave() … rvShopIds() bên PHP */
 const RV_SH_GIU = 10, RV_SH_TAN = 7, RV_SH_MOI_NGAY = 45;
+const RV_SH_SAU = 60, RV_SH_SAU_TAN = [0, 7, 14, 30], RV_SH_SAU_MD = 14;     // xem RV_SH_SAU bên PHP
+const rvShSauTan = v => { const n = v == null ? NaN : Math.trunc(+v); return RV_SH_SAU_TAN.includes(n) ? n : RV_SH_SAU_MD; };
 function rvShopSave(inp){
   const D = db(); rvTables(D);
   const d = inp.data && typeof inp.data === 'object' ? inp.data : {};
@@ -1708,10 +1745,18 @@ function rvShopSave(inp){
   if (!xong.length) return {error:'Không đọc được gian hàng nào trong gói gửi lên.'};
   return {ok:true, date, from:tu, to:den, n:xong.length, shops:xong};
 }
-function rvShopScans(max = 12){
+function rvShopScans(max = 12, maxSau = 8){
   const D = db(); rvTables(D);
   const st = D.prepare('SELECT date, d_from, d_to, at, data FROM rv_shscan WHERE shop_id = ? ORDER BY date DESC LIMIT ' + Math.trunc(max));
+  const stS = D.prepare('SELECT date, d_from, d_to, at, data, extra FROM rv_shdeep WHERE shop_id = ? ORDER BY date DESC LIMIT ' + Math.trunc(maxSau));
   return D.prepare('SELECT * FROM rv_shop ORDER BY created, id').all().map(r => {
+    const deep = [];
+    stS.all(String(r.id)).forEach(s => {
+      let d = null; try { d = JSON.parse(s.data); } catch(e){}
+      if (!Array.isArray(d)) return;
+      let ex = null; try { ex = JSON.parse(s.extra || 'null'); } catch(e){}
+      deep.push({date:String(s.date), from:String(s.d_from || ''), to:String(s.d_to || ''), at:String(s.at || ''), items:d, extra:ex || null});
+    });
     const scans = [];
     st.all(String(r.id)).forEach(s => {
       let d = null; try { d = JSON.parse(s.data); } catch(e){}
@@ -1720,17 +1765,47 @@ function rvShopScans(max = 12){
                   sum:d.sum && typeof d.sum === 'object' ? d.sum : {}, top:Array.isArray(d.top) ? d.top : [], new:Array.isArray(d.new) ? d.new : []});
     });
     let sh = []; try { sh = JSON.parse(r.shops || '[]'); } catch(e){}
-    return {id:String(r.id), name:String(r.name || ''), shops:Array.isArray(sh) ? sh : [], scans};
+    return {id:String(r.id), name:String(r.name || ''), shops:Array.isArray(sh) ? sh : [], scans, every:rvShSauTan(r.every), deep};
   });
+}
+function rvShopDeepSave(inp){
+  const D = db(); rvTables(D);
+  const gid = String(inp.shop_id || '');
+  const sh = D.prepare('SELECT * FROM rv_shop WHERE id = ?').get(gid);
+  if (!sh) return {error:'Không thấy gian hàng này trong Hub — quét trang Theo dõi đối thủ (do:"shops") trước.'};
+  let ds = []; try { ds = JSON.parse(sh.shops || '[]'); } catch(e){}
+  const sids = ds.map(x => String(x.sid));
+  const qs = Array.isArray(inp.query) ? inp.query : [];
+  const qSid = qs.map(q => { const m = String(q).match(/shopee\.vn\/shop\/(\d+)/) || String(q).match(/^\s*(\d{5,})\s*$/); return m ? m[1] : null; }).filter(Boolean);
+  if (!qs.length || qSid.length !== qs.length || qSid.some(x => !sids.includes(x)))
+    return {error:'Kết quả gửi lên là của "' + qs.map(String).join(', ') + '", không phải link shop của "' + sh.name +
+                  '" (' + sids.map(x => 'https://shopee.vn/shop/' + x).join(', ') + ').'};
+  const m = new Map();
+  (Array.isArray(inp.products) ? inp.products : []).forEach(p => { const x = p && typeof p === 'object' ? rvItem(p) : null; if (x && sids.includes(x.sid)) m.set(x.id, x); });
+  if (!m.size) return {error:'Không có sản phẩm nào của gian hàng này trong kết quả.'};
+  const items = [...m.values()].sort((a, b) => b.r - a.r).slice(0, RV_SH_SAU);
+  const date = rvNgayQuet(inp), tu = rvNgay(inp.from), den = rvNgay(inp.to), extra = rvExtra(inp);
+  D.prepare(`INSERT INTO rv_shdeep (shop_id, date, d_from, d_to, at, data, extra) VALUES (?,?,?,?,?,?,?)
+      ON CONFLICT(shop_id, date) DO UPDATE SET d_from=excluded.d_from, d_to=excluded.d_to, at=excluded.at,
+      data=excluded.data, extra=COALESCE(excluded.extra, rv_shdeep.extra)`)
+    .run(gid, date, tu, den, iso(), JSON.stringify(items), extra ? JSON.stringify(extra) : null);
+  return {ok:true, shop_id:gid, name:String(sh.name), date, from:tu, to:den, n:items.length, top:[...items[0].n].slice(0, 50).join('')};
 }
 function rvShopHan(){
   const D = db(); rvTables(D);
   const n = D.prepare('SELECT COUNT(*) c FROM rv_shop').get().c;
   const last = String(D.prepare('SELECT MAX(date) d FROM rv_shscan').get().d || '');
   const [due, next] = rvKwHan(last, RV_SH_TAN, false, vnNow().date);
-  return {n, last, every:RV_SH_TAN, due, next};
+  const list = D.prepare('SELECT s.*, (SELECT MAX(date) FROM rv_shdeep d WHERE d.shop_id = s.id) last FROM rv_shop s ORDER BY s.created, s.id').all().map(r => {
+    const every = rvShSauTan(r.every), l = String(r.last || '');
+    const [d2, n2] = every ? rvKwHan(l, every, false, vnNow().date) : [false, ''];
+    let ds = []; try { ds = JSON.parse(r.shops || '[]'); } catch(e){}
+    return {id:String(r.id), name:String(r.name || ''), links:ds.map(x => 'https://shopee.vn/shop/' + x.sid), every, last:l, due:d2, next:n2};
+  });
+  return {n, last, every:RV_SH_TAN, due, next, list};
 }
-const rvShopIds = (shops, lan = 6) => [...new Set(shops.flatMap(sh => sh.scans.slice(0, lan).flatMap(s => s.top.concat(s.new).map(x => String(x.id || '')))))];
+const rvShopIds = (shops, lan = 6) => [...new Set(shops.flatMap(sh => sh.scans.slice(0, lan).flatMap(s => s.top.concat(s.new))
+  .concat((sh.deep || []).slice(0, 2).flatMap(s => s.items)).map(x => String(x.id || ''))))];
 function rvTicketNew(){
   const t = crypto.randomBytes(20).toString('hex');
   kvSet('rv_ticket', {hash:sha(t), exp:Math.floor(Date.now() / 1000) + RV_TICKET_GIO * 3600});
@@ -1763,6 +1838,11 @@ function rivalRoute(req, res, body){
     const r = rvShopSave(inp);
     return r.error ? out({ok:false, error:r.error}, 400) : out(r);
   }
+  if (inp.do === 'shopdeep'){
+    if (!rvTicketOk(inp.ticket)) return out({ok:false, error:'Vé quét không đúng hoặc đã hết hạn — xin vé mới bằng do:"kws".'}, 403);
+    const r = rvShopDeepSave(inp);
+    return r.error ? out({ok:false, error:r.error}, 400) : out(r);
+  }
   if (inp.do === 'scan'){
     if (!rvTicketOk(inp.ticket)) return out({ok:false, error:'Vé quét không đúng hoặc đã hết hạn — xin vé mới bằng do:"kws".'}, 403);
     const r = rvScanSave(inp);
@@ -1782,9 +1862,62 @@ function rivalRoute(req, res, body){
   return out({ok:false, error:'Không hiểu yêu cầu.'}, 400);
 }
 
+/* ---------------- ảnh của bảng xây dựng: bản Node của imgSave()/img.php ---------------- */
+let imgStore = null;
+function imgDb(){
+  if (imgStore) return imgStore;
+  db();
+  const {DatabaseSync} = require('node:sqlite');
+  imgStore = new DatabaseSync(path.join(__dirname, 'api/data', 'kolhub-img.sqlite'));
+  imgStore.exec(`CREATE TABLE IF NOT EXISTS img (id TEXT PRIMARY KEY, build TEXT, mime TEXT, w INTEGER, h INTEGER,
+      size INTEGER, data BLOB, by_name TEXT, at TEXT)`);
+  return imgStore;
+}
+const IMG_MAX = 3 * 1024 * 1024;
+function imgMime(b){
+  if (b.length > 3 && b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF) return 'image/jpeg';
+  if (b.length > 8 && b.slice(0, 8).equals(Buffer.from([0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A]))) return 'image/png';
+  if (b.length > 12 && b.slice(0, 4).toString() === 'RIFF' && b.slice(8, 12).toString() === 'WEBP') return 'image/webp';
+  return '';
+}
+function imgSave(build, dataUrl, byName){
+  build = build.replace(/[^A-Za-z0-9_-]/g, '');
+  if (!build) return {error:'Thiếu bảng xây dựng.'};
+  const b64 = dataUrl.replace(/^data:[^,]*,/, '');
+  if (!/^[A-Za-z0-9+/=\s]+$/.test(b64)) return {error:'Không đọc được ảnh.'};
+  const bin = Buffer.from(b64, 'base64');
+  if (!bin.length) return {error:'Không đọc được ảnh.'};
+  if (bin.length > IMG_MAX) return {error:'Ảnh quá nặng (' + (bin.length / 1048576).toFixed(1) + ' MB, tối đa 3 MB).'};
+  const mime = imgMime(bin);
+  if (!mime) return {error:'File này không phải ảnh JPEG, PNG hay WEBP.'};
+  const id = 'im' + crypto.randomBytes(8).toString('hex');
+  imgDb().prepare('INSERT INTO img (id, build, mime, w, h, size, data, by_name, at) VALUES (?,?,?,?,?,?,?,?,?)')
+    .run(id, build, mime, 0, 0, bin.length, bin, [...byName].slice(0, 60).join(''), iso());
+  return {id, w:0, h:0, size:bin.length, mime};
+}
+function imgRoute(req, res){
+  const no = (c, m) => { res.writeHead(c, {'Content-Type':'text/plain; charset=utf-8', 'Cache-Control':'no-store'}); res.end(m); };
+  const s = session(req);
+  if (!s) return no(401, 'Chưa đăng nhập');
+  let u = khUserById(String(s.user_id || ''));
+  if (!u && !s.user_id) u = {role:s.role === 'staff' ? 'staff' : 'owner', perms:JSON.stringify(KH_PERMS), disabled:0};
+  if (!u || u.disabled === 1) return no(401, 'Tài khoản đã bị khoá');
+  if (!khMay(u, 'build')) return no(403, 'Chưa được cấp quyền Xây dựng sản phẩm');
+  const id = String(new URL(req.url, 'http://x').searchParams.get('id') || '').replace(/[^A-Za-z0-9]/g, '');
+  const r = id ? imgDb().prepare('SELECT mime, data FROM img WHERE id = ?').get(id) : null;
+  if (!r) return no(404, 'Không có ảnh này');
+  res.writeHead(200, {'Content-Type':r.mime, 'Cache-Control':'private, max-age=31536000, immutable', 'Content-Length':r.data.length});
+  res.end(Buffer.from(r.data));
+}
+
 /* ---------------- máy chủ ---------------- */
 http.createServer((req, res) => {
   let p = decodeURIComponent(req.url.split('?')[0]);
+
+  if (p === '/api/img.php'){
+    try { imgRoute(req, res); } catch(e){ res.writeHead(500); res.end('lỗi: ' + e.message); }
+    return;
+  }
 
   if (p === '/api/cron.php'){
     cron(req, res).catch(e => { res.writeHead(500); res.end('lỗi: ' + e.message); });
