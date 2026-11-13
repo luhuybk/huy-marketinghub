@@ -496,6 +496,19 @@ switch ($action) {
     out(['ok' => true, 'scans' => $scans, 'vols' => rvVols((string)($in['kw_id'] ?? '')),
          'sp' => (object)rvSps(rvScanIds($scans))]);
   }
+  /* Lần quét gần nhất của MỌI từ khoá (chính + sản phẩm) — cho hộp "Ghim thêm"
+     của bảng xây dựng, khỏi phải tải lịch sử từng từ khoá một */
+  case 'rival_latest': {
+    requirePerm('rival');
+    $kws = []; $ids = [];
+    foreach (rvKwList(true) as $k) {
+      $s = rvScans($k['id'], 1);
+      if (!$s) continue;
+      $kws[] = ['id' => $k['id'], 'kw' => $k['kw'], 'kind' => $k['kind'], 'date' => $s[0]['date'], 'items' => $s[0]['items']];
+      foreach ($s[0]['items'] as $x) if (isset($x['id'])) $ids[] = (string)$x['id'];
+    }
+    out(['ok' => true, 'kws' => $kws, 'sp' => (object)rvSps(array_values(array_unique($ids)), 1)]);
+  }
   /* Gian hàng đối thủ: mọi gian hàng kèm các lần quét, và bản chụp trang Shopee của sản phẩm trong đó */
   case 'rival_shops': {
     requirePerm('rival');

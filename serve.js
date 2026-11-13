@@ -617,6 +617,17 @@ function api(req, res, body){
       }
       return send({ok:true, id});
     }
+    case 'rival_latest': {
+      if (!perm('rival')) return;
+      const kws = [], ids = new Set();
+      rvKwList(true).forEach(k => {
+        const s = rvScans(k.id, 1);
+        if (!s.length) return;
+        kws.push({id: k.id, kw: k.kw, kind: k.kind, date: s[0].date, items: s[0].items});
+        s[0].items.forEach(x => { if (x && x.id) ids.add(String(x.id)); });
+      });
+      return send({ok:true, kws, sp:rvSps([...ids], 1)});
+    }
     case 'rival_shops': {
       if (!perm('rival')) return;
       const shops = rvShopScans();

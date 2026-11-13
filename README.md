@@ -798,8 +798,10 @@ Quyền riêng **Xây dựng SP** (`build`).
   lúc ghim: số Metric, ảnh, từng phân loại kèm giá cuối, voucher, nhãn khuyến mãi —
   để nhân viên không có quyền Theo dõi đối thủ vẫn xem được mốc so. Một bảng ghim
   được **nhiều đối thủ**: ngay trong bảng, **📌 Ghim thêm** mở danh sách mọi sản
-  phẩm bán chạy + mới lên kệ của các gian hàng đang theo dõi (và từ khoá đã mở),
-  tìm theo tên / lọc theo shop, tick nhiều cái rồi ghim một lần. Sản phẩm ngoài
+  phẩm bán chạy + mới lên kệ của các gian hàng đang theo dõi, cộng lần quét gần
+  nhất của **mọi từ khoá chính và từ khoá sản phẩm** (API `rival_latest`, quyền
+  `rival`); tìm theo tên, lọc theo nhóm nguồn hoặc từng shop / từ khoá, tick
+  nhiều cái rồi ghim một lần. Sản phẩm có ở nhiều nguồn được gộp làm một. Sản phẩm ngoài
   danh sách thì dán link + giá tay.
 - **Bốn mục, mỗi mục có danh sách việc riêng:**
   - 🖼 **Hình ảnh** — tải ảnh thẳng lên Hub (nút, kéo thả, hoặc dán Ctrl/⌘+V).
@@ -813,9 +815,14 @@ Quyền riêng **Xây dựng SP** (`build`).
     cuối của các đối thủ đã ghim và giá của mình từ rẻ tới đắt. Người có quyền
     **Tính chi phí** điền thêm giá vốn và thấy lời/đơn + ROAS hoà vốn (bảng phí của
     sản phẩm đã gắn, không gắn thì bảng phí mặc định), cùng khung
-    **🧮 Thử giá với ROAS thực tế**:
+    **🧮 Thử giá với ROAS thực tế**. Mỗi bảng có **gian hàng chính** (chọn ở ✎ Sửa)
+    — phí lấy từ bảng phí của gian hàng đó trong Tính chi phí. Khung Thử giá có thẻ
+    chọn gian hàng để tính, voucher shop % riêng từng gian hàng (`builds.vShop`,
+    chưa đặt thì lấy "Voucher shop đặt sẵn" của gian hàng), và bảng **So giữa các
+    gian hàng** (cùng giá thử, lời sau QC ở từng shop):
     - ROAS thực tế lấy từ: ROAS tháng gần nhất của một sản phẩm đang chạy quảng
-      cáo (mặc định sản phẩm gắn với bảng), ROAS chung cả shop, hoặc gõ tay.
+      cáo (mặc định sản phẩm gắn với bảng), ROAS chung của gian hàng đang tính,
+      hoặc gõ tay.
       Lựa chọn lưu trong `bcosts.rs`.
     - Gõ thử giá bán từng phân loại (hoặc bấm **Khớp** để giá sau voucher bằng mốc
       đối thủ) → tính lại ngay: sau voucher, lời chưa QC, ROAS hoà vốn, tiền QC mỗi
