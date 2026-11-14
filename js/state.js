@@ -543,7 +543,186 @@ const $$ = s => Array.from(document.querySelectorAll(s));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,8);
 const now = () => new Date().toISOString();
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const nl  = s => esc(s).replace(/\n/g,'<br>');
+/* ---- Danh sách trong ô chữ nhiều dòng (giống web Nhật ký giao dịch) ----
+   Gõ ở đầu dòng: "*" / "-" / "1." + dấu cách → mục "  • " / "  - " / "  1. ";
+   "[]" / "[x]" + dấu cách → ô tích ☐ / ☑; "---" + dấu cách → đường kẻ.
+   Enter → mục kế tiếp (Enter ở mục trống thì lùi ra / thoát); Tab / Shift+Tab → thụt vào / ra
+   một cấp; Shift+Enter → xuống dòng canh thẳng dưới chữ. Số thứ tự tự đánh lại liền mạch.
+   Gắn một lần cho cả trang (xem app.js), ô nào không muốn thì thêm data-no-list.
+   Lúc hiển thị, nl() vẽ mỗi mục một hàng, dòng dài canh thẳng dưới chữ, mục con lùi đúng cấp. */
+const LS = (() => {
+  const INDENT = '  ', HR = '────────────────────────';
+  const ITEM = /^(\s*)(?:(\d{1,3})([.)])|([•\-+*☐☑]))(\s+)(.*)$/;
+  const CHECK = {'[]': '☐', '[ ]': '☐', '[x]': '☑', '[X]': '☑'};
+  const isRule = l => /^\s*(-{3,}|─{3,})\s*$/.test(l);
+  const nextMark = m => m === '*' ? '•' : m === '☑' ? '☐' : m;
+  function parse(line){
+    const m = ITEM.exec(line);
+    if (!m) return null;
+    const [, indent, num, sep, mark, gap, text] = m;
+    const marker = num ? num + sep : mark;
+    return {indent, num: num ? Number(num) : null, sep: sep || '', mark: mark || '', gap, text, textCol: indent.length + marker.length + gap.length};
+  }
+  const itemLine = (indent, it, num) => indent + (it.num !== null ? (num == null ? it.num : num) + it.sep : it.mark) + it.gap + it.text;
+  function blockRange(lines, i){
+    const inB = k => lines[k].trim() !== '' && (parse(lines[k]) || /^\s/.test(lines[k]));
+    let a = i; while (a > 0 && inB(a - 1)) a--;
+    while (a < i && !parse(lines[a])) a++;
+    let b = i; while (b < lines.length - 1 && inB(b + 1)) b++;
+    return [a, b];
+  }
+  function renumber(lines, a, b){
+    const st = [];
+    for (let k = a; k <= b; k++){
+      const it = parse(lines[k]); if (!it) continue;
+      const d = it.indent.length;
+      while (st.length && st[st.length - 1].indent > d) st.pop();
+      let top = st[st.length - 1];
+      if (!top || top.indent < d){ top = {indent: d, next: null}; st.push(top); }
+      if (it.num === null){ top.next = null; continue; }
+      const n = top.next == null ? it.num : top.next;
+      if (n !== it.num) lines[k] = itemLine(it.indent, it, n);
+      top.next = n + 1;
+    }
+  }
+  function findAbove(lines, i, a, test){
+    for (let k = i - 1; k >= a; k--){ const it = parse(lines[k]); if (it && test(it.indent.length)) return it; }
+    return null;
+  }
+  function reindent(lines, i, a, it, indent){
+    const sib = findAbove(lines, i, a, d => d <= indent.length);
+    const num = it.num === null ? null : sib && sib.indent.length === indent.length && sib.num !== null ? sib.num + 1 : 1;
+    lines[i] = itemLine(indent, it, num);
+  }
+  /* key: 'space' | 'enter' | 'tab'. Trả {value, caret} mới, hoặc null nếu phím không liên quan. */
+  function applyKey(value, caret, key, shift){
+    const lineStart = value.lastIndexOf('\n', caret - 1) + 1;
+    const lines = value.split('\n');
+    const i = value.slice(0, lineStart).split('\n').length - 1;
+    const col = caret - lineStart;
+    const done = (cl, cc) => {
+      const out = lines.join('\n');
+      const pos = lines.slice(0, cl).reduce((n, l) => n + l.length + 1, 0) + cc;
+      return out === value && pos === caret ? null : {value: out, caret: pos};
+    };
+    const finish = (cl, colOf) => { const [a, b] = blockRange(lines, cl); renumber(lines, a, b); return done(cl, colOf()); };
+    if (key === 'space'){
+      if (shift) return null;
+      const head = lines[i].slice(0, col);
+      if (/^\s*-{3,}$/.test(head) && !lines[i].slice(col).trim()){ lines.splice(i, 1, HR, ''); return done(i + 1, 0); }
+      const m = /^(\s*)(\d{1,3}[.)]|\*|-|\[ ?\]|\[[xX]\])$/.exec(head);
+      if (!m) return null;
+      const marker = m[2] === '*' ? '•' : CHECK[m[2]] || m[2];
+      if (m[1] && marker === m[2]) return null;
+      const indent = m[1] || INDENT;
+      lines[i] = indent + marker + ' ' + lines[i].slice(col);
+      return finish(i, () => indent.length + marker.length + 1);
+    }
+    const it = parse(lines[i]);
+    if (key === 'enter' && shift){
+      let pad;
+      if (it) pad = ' '.repeat(it.textCol);
+      else {
+        const [a] = blockRange(lines, i);
+        if (!/^\s+\S/.test(lines[i]) || !parse(lines[a])) return null;
+        pad = lines[i].match(/^\s*/)[0];
+      }
+      if (col < pad.length && it) return null;
+      lines.splice(i, 1, lines[i].slice(0, col), pad + lines[i].slice(col).replace(/^\s+/, ''));
+      return done(i + 1, pad.length);
+    }
+    if (!it){
+      if (key !== 'enter' || !/^\s+\S/.test(lines[i])) return null;
+      const [a] = blockRange(lines, i);
+      const ow = findAbove(lines, i + 1, a, () => true);
+      if (!ow || lines[i].match(/^\s*/)[0].length < ow.textCol) return null;
+      const head = lines[i].slice(0, col), tail = lines[i].slice(col).replace(/^\s+/, '');
+      lines.splice(i, 1, head, itemLine(ow.indent, Object.assign({}, ow, {mark: nextMark(ow.mark), gap: ' ', text: tail}), ow.num === null ? null : ow.num + 1));
+      return finish(i + 1, () => parse(lines[i + 1]).textCol);
+    }
+    const [a] = blockRange(lines, i);
+    if (key === 'tab'){
+      const stay = {value, caret}, d = it.indent.length;
+      let indent;
+      if (shift){
+        const par = findAbove(lines, i, a, x => x < d);
+        if (!par) return stay;
+        indent = par.indent;
+      } else {
+        const prev = findAbove(lines, i, a, () => true);
+        if (!prev) return stay;
+        if (prev.indent.length > d) indent = prev.indent;
+        else if (prev.indent.length === d) indent = ' '.repeat(prev.textCol);
+        else return stay;
+      }
+      reindent(lines, i, a, it, indent);
+      return finish(i, () => parse(lines[i]).textCol + Math.max(0, col - it.textCol));
+    }
+    if (key === 'enter'){
+      if (col < it.textCol) return null;
+      if (!it.text.trim()){
+        const par = findAbove(lines, i, a, x => x < it.indent.length);
+        if (par){ reindent(lines, i, a, it, par.indent); return finish(i, () => parse(lines[i]).textCol); }
+        lines[i] = '';
+        return finish(i, () => 0);
+      }
+      const head = lines[i].slice(0, col), tail = lines[i].slice(col).replace(/^\s+/, '');
+      lines.splice(i, 1, head, itemLine(it.indent, Object.assign({}, it, {mark: nextMark(it.mark), gap: it.gap.length > 1 ? it.gap : ' ', text: tail}), it.num === null ? null : it.num + 1));
+      return finish(i + 1, () => parse(lines[i + 1]).textCol);
+    }
+    return null;
+  }
+  /* Chèn qua execCommand để Cmd+Z hoàn tác được; chỉ thay đúng đoạn khác nhau. */
+  function edit(el, next){
+    const old = el.value;
+    if (old === next.value && el.selectionStart === next.caret) return;
+    let p = 0; while (p < old.length && p < next.value.length && old[p] === next.value[p]) p++;
+    let s = 0; while (s < old.length - p && s < next.value.length - p && old[old.length - 1 - s] === next.value[next.value.length - 1 - s]) s++;
+    const text = next.value.slice(p, next.value.length - s);
+    el.setSelectionRange(p, old.length - s);
+    const ok = document.execCommand && (text ? document.execCommand('insertText', false, text) : document.execCommand('delete'));
+    if (!ok){ el.value = next.value; el.dispatchEvent(new Event('input', {bubbles: true})); }
+    el.setSelectionRange(next.caret, next.caret);
+  }
+  function onKey(e){
+    if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.isComposing || e.keyCode === 229) return;   // bộ gõ tiếng Việt đang ghép chữ
+    const key = e.key === ' ' ? 'space' : e.key === 'Enter' ? 'enter' : e.key === 'Tab' ? 'tab' : null;
+    if (!key) return;
+    const el = e.target;
+    if (!el || el.tagName !== 'TEXTAREA' || el.readOnly || el.disabled || el.hasAttribute('data-no-list')) return;
+    if (el.selectionStart !== el.selectionEnd) return;
+    const next = applyKey(el.value, el.selectionStart, key, e.shiftKey);
+    if (!next) return;   // Tab ngoài danh sách vẫn chuyển ô như thường
+    e.preventDefault();
+    edit(el, next);
+  }
+  /* Chữ nhiều dòng → HTML. Không có danh sách / đường kẻ thì như cũ (xuống dòng = <br>). */
+  function html(s){
+    s = s == null ? '' : String(s);
+    const lines = s.split('\n');
+    if (!lines.some(l => parse(l) || isRule(l))) return esc(s).replace(/\n/g, '<br>');
+    const out = []; let st = [], lv = -1;
+    lines.forEach(line => {
+      const it = parse(line);
+      if (it){
+        const d = it.indent.length;
+        if (lv < 0) st = [];
+        while (st.length && st[st.length - 1] > d) st.pop();
+        if (!st.length || st[st.length - 1] < d) st.push(d);
+        lv = st.length - 1;
+        const ck = it.mark === '☐' || it.mark === '☑';
+        const mk = it.num !== null ? it.num + it.sep : it.mark === '*' ? '•' : it.mark;
+        out.push(`<span class="nt-li${it.mark === '☑' ? ' nt-done' : ''}" style="--lvl:${lv}"><span class="nt-mark${ck ? ' nt-check' : ''}">${esc(mk)}</span><span class="nt-body">${esc(it.text)}</span></span>`);
+      } else if (isRule(line)){ lv = -1; out.push('<span class="nt-hr" role="separator"></span>'); }
+      else if (lv >= 0 && /^\s+\S/.test(line)) out.push(`<span class="nt-cont" style="--lvl:${lv}">${esc(line.trim())}</span>`);
+      else { if (!line.trim() || !/^\s/.test(line)) lv = -1; out.push(`<span class="nt-line">${line ? esc(line) : '&#8203;'}</span>`); }
+    });
+    return `<span class="nt">${out.join('')}</span>`;
+  }
+  return {parse, applyKey, onKey, html, isRule};
+})();
+const nl  = s => LS.html(s);
 const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 
 /* Bỏ dấu để tìm kiếm: gõ "tuan" vẫn ra "Tuấn", "linh chi" ra "Linh Chi" */

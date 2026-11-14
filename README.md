@@ -324,6 +324,18 @@ Hai việc trên chặn được chuyện mất dữ liệu do cập nhật code
 
 ---
 
+## Gõ danh sách trong ô ghi chú
+
+Mọi ô chữ nhiều dòng (ghi chú, mục tiêu, bình luận, chính sách, giao việc…) gõ
+danh sách như web Nhật ký giao dịch (`LS` trong `js/state.js`):
+
+- Đầu dòng gõ `*` hoặc `-` rồi dấu cách → mục `•` / `-`; `1.` → mục đánh số;
+  `[]` / `[x]` → ô tích ☐ / ☑; `---` → đường kẻ.
+- Enter sang mục kế tiếp, Enter ở mục trống thì lùi ra một cấp rồi thoát danh sách.
+  Tab / Shift+Tab thụt vào / đưa ra; Shift+Enter xuống dòng mà chữ canh thẳng dưới mục.
+- Lúc xem, mỗi mục một hàng, dòng dài canh thẳng dưới chữ, mục con lùi đúng cấp.
+- Ô dán bảng số liệu có `data-no-list` nên không bị đổi.
+
 ## Hai trang để làm việc, không phải để ngắm
 
 **Tổng quan** trả lời *"công việc đang thế nào"*. Hai trang này trả lời hai câu

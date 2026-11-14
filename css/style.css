@@ -1074,3 +1074,14 @@ tr.rv-dang{background:var(--bg3)}
 .bd-li .grow{min-width:0;overflow-wrap:anywhere}
 .bd-meta{font-size:11.5px;margin-bottom:2px}
 @media(max-width:640px){.bd-imgs{grid-template-columns:repeat(2,minmax(0,1fr))}.bd-cmt{flex-direction:column;align-items:stretch}}
+
+/* ---- danh sách trong chữ nhiều dòng (LS.html ở state.js) ---- */
+.nt{display:block}
+.nt-line,.nt-li,.nt-cont{display:block}
+.nt-li{display:flex;align-items:baseline;margin-left:calc(var(--lvl,0) * 1.6em + .3em)}
+.nt-mark{flex:0 0 auto;min-width:1.2em;margin-right:.45em;text-align:right;color:var(--tx3);font-variant-numeric:tabular-nums}
+.nt-body{flex:1 1 auto;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.nt-cont{margin-left:calc(var(--lvl,0) * 1.6em + .3em + 1.65em)}
+.nt-check{color:var(--acc)}
+.nt-done .nt-body{text-decoration:line-through;opacity:.6}
+.nt-hr{display:block;height:0;border-top:1px solid var(--line);margin:8px 0}

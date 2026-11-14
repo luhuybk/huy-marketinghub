@@ -2271,7 +2271,7 @@ function pasteAdsModal(presetProduct){
       <select class="inp" id="pa_prod">${ps.map(p =>
         `<option value="${p.id}" ${p.id === presetProduct ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
     <div class="fld"><label>Dán bảng vào đây</label>
-      <textarea class="inp mono" id="pa_txt" rows="7" placeholder="Tuần\tChi phí\tLượt xem\tClick\tĐơn\tGMV"></textarea></div>
+      <textarea class="inp mono" id="pa_txt" data-no-list rows="7" placeholder="Tuần\tChi phí\tLượt xem\tClick\tĐơn\tGMV"></textarea></div>
     <div id="pa_map"></div>`;
 
   const el = openModal('Dán số liệu từ Excel', body,
@@ -3165,7 +3165,7 @@ function spImportModal(presetProduct){
     <details class="det"><summary>Không tải được file? Dán bảng vào đây</summary>
       <div class="dim" style="margin:8px 0">Mở file bằng Excel/Google Sheet, bôi đen <b>cả dòng
         tiêu đề</b> lẫn dòng số liệu rồi dán. App đọc theo tên cột nên không cần bạn chỉ cột nào là gì.</div>
-      <textarea class="inp mono" id="pt" rows="4"
+      <textarea class="inp mono" id="pt" data-no-list rows="4"
         placeholder="Ngày&#9;Sản phẩm&#9;Mã sản phẩm&#9;Lượt hiển thị sản phẩm&#9;…"></textarea>
       <div class="btns" style="margin-top:8px"><button class="btn sm" id="ptgo">Đọc bảng đã dán</button></div>
     </details>
@@ -5512,6 +5512,9 @@ document.addEventListener('change', e => {
   if (my){ db.settings[my.dataset.my] = my.value.trim(); save(); return; }
 });
 
+/* ---- gõ danh sách trong mọi ô chữ nhiều dòng (xem LS ở state.js) ---- */
+document.addEventListener('keydown', LS.onKey);
+
 /* ---- phím tắt ---- */
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape'){ closeModal(); return; }
@@ -5829,7 +5832,7 @@ function btaskModal(id){
     <h3 style="margin:6px 0 4px">${esc(t.title)}</h3>
     <div class="dim">${t.whoName ? 'Giao cho <b>' + esc(t.whoName) + '</b>' : 'Chưa giao cho ai'}${t.due ? ' · hạn ' + esc(fmtDate(t.due)) + (tre > 0 ? ` <b class="bad">· trễ ${tre} ngày</b>` : '') : ''}${
       t.byName ? ' · ' + esc(t.byName) + ' tạo' : ''}</div>
-    ${t.note ? `<div class="explain" style="margin-top:10px">${esc(t.note).replace(/\n/g, '<br>')}</div>` : ''}
+    ${t.note ? `<div class="explain" style="margin-top:10px">${nl(t.note)}</div>` : ''}
     <div class="chips" style="margin:12px 0">${Object.entries(BTASK_ST).map(([k, l]) =>
       `<button class="btn sm ${t.st === k ? 'pri' : ''}" data-act="btst" data-id="${t.id}|${k}">${k === 'done' ? '✅ ' : k === 'review' ? '👀 ' : ''}${esc(l)}</button>`).join('')}</div>
     <div class="sec sm">Trao đổi về việc này<span class="ln"></span></div>
