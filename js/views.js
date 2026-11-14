@@ -4396,7 +4396,7 @@ function viewCostSp(id){
   const ghi = cb ? cb.note : (c && c.note);
   if (ghi) h += `<div class="card" style="margin-top:18px">
     <div class="sec sm">Ghi chú<span class="ln"></span></div>
-    <div class="dim" style="white-space:pre-wrap">${esc(ghi)}</div></div>`;
+    <div class="dim" style="white-space:pre-wrap">${nl(ghi)}</div></div>`;
   return h;
 }
 
@@ -4671,7 +4671,7 @@ function viewKw(id){
 
   if (k.note) h += `<div class="card" style="margin-top:18px">
     <div class="sec sm">Ghi chú<span class="ln"></span></div>
-    <div class="dim" style="white-space:pre-wrap">${esc(k.note)}</div></div>`;
+    <div class="dim" style="white-space:pre-wrap">${nl(k.note)}</div></div>`;
   return h;
 }
 
@@ -5870,7 +5870,7 @@ function viewBuildOne(b){
           sp ? ` · sản phẩm <a href="#product/${esc(sp.id)}" class="lnk">${esc(sp.name)}</a>` : ''}</div></div>
       <button class="btn sm" data-act="bedit" data-id="${b.id}">✎ Sửa</button>
     </div>`;
-  if (b.goal) h += `<div class="explain bd-goal">🎯 ${esc(b.goal).replace(/\n/g, '<br>')}</div>`;
+  if (b.goal) h += `<div class="explain bd-goal">🎯 ${nl(b.goal)}</div>`;
 
   /* ---- đối thủ đã ghim ---- */
   h += sectionTitle('Đối thủ làm mốc', `<button data-act="bpinadd" data-id="${b.id}">📌 Ghim thêm</button>`);
@@ -5972,7 +5972,7 @@ function viewBuildOne(b){
               ${Rx ? `<td class="r">${q ? `<b class="${q.lai > 0 ? 'ok' : 'bad'}">${money(q.lai)}</b>` : '<span class="dim">—</span>'}</td>` : ''}` : ''}</tr>`; }).join('')}</tbody></table></div>
         <div class="dim" style="margin-top:6px">"So với đối thủ" là giá sau voucher shop của mình so với giá cuối của dòng đối thủ đã chọn đặt cạnh (chọn trong "Sửa giá & phân loại"), chưa chọn thì so với dòng rẻ nhất.${
           coVon ? ' Lời / đơn tính bằng bảng phí ' + (sm ? 'của gian hàng ' + esc(shopName(sm)) : 'mặc định') + ' trong Tính chi phí.' : ''}</div>`;
-      if (b.priceNote) h += `<div class="explain" style="margin-top:8px">${esc(b.priceNote).replace(/\n/g, '<br>')}</div>`;
+      if (b.priceNote) h += `<div class="explain" style="margin-top:8px">${nl(b.priceNote)}</div>`;
     } else h += `<div class="dim">Chưa đặt phân loại nào. Bấm “Sửa giá & phân loại” để thêm.</div>`;
 
     /* ---- thử giá với ROAS thực tế ---- */
@@ -6003,7 +6003,7 @@ function viewBuildOne(b){
     h += viecMuc('pol');
     h += sectionTitle('Chính sách của mình', `<button data-act="bpol" data-id="${b.id}">✎ Sửa chính sách</button>`);
     const co = BUILD_POL.filter(x => (b.pol[x.k] || '').trim());
-    h += co.length ? `<div class="bd-pol">${co.map(x => `<div><span class="l">${esc(x.l)}</span><div>${esc(b.pol[x.k]).replace(/\n/g, '<br>')}</div></div>`).join('')}</div>`
+    h += co.length ? `<div class="bd-pol">${co.map(x => `<div><span class="l">${esc(x.l)}</span><div>${nl(b.pol[x.k])}</div></div>`).join('')}</div>`
       : `<div class="dim">Chưa đặt chính sách nào: voucher, quà tặng, combo, vận chuyển, đổi trả, lịch sale…</div>`;
     const cr = (b.refs || []).filter(r => (r.vouchers || []).length || (r.tags || []).length);
     if (cr.length){
@@ -6201,7 +6201,7 @@ function bNoteList(ns){
       <span class="ic">${n.kind === 'cmt' ? '💬' : '🕘'}</span>
       <div class="grow"><div class="dim bd-meta"><b>${esc(n.byName || '?')}</b> · ${esc(bLuc(n.at))}${
         t ? ' · việc: ' + esc(cut(t.title, 50)) : n.sec && BUILD_SECS[n.sec] ? ' · ' + esc(BUILD_SECS[n.sec].label) : ''}</div>
-        <div>${esc(n.text).replace(/\n/g, '<br>')}</div></div></div>`; }).join('')}</div>`;
+        <div>${nl(n.text)}</div></div></div>`; }).join('')}</div>`;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "71385955"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "a3d54620"]);
