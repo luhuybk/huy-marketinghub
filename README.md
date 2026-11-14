@@ -334,7 +334,13 @@ danh sách như web Nhật ký giao dịch (`LS` trong `js/state.js`):
 - Enter sang mục kế tiếp, Enter ở mục trống thì lùi ra một cấp rồi thoát danh sách.
   Tab / Shift+Tab thụt vào / đưa ra; Shift+Enter xuống dòng mà chữ canh thẳng dưới mục.
 - Lúc xem, mỗi mục một hàng, dòng dài canh thẳng dưới chữ, mục con lùi đúng cấp.
-- Ô dán bảng số liệu có `data-no-list` nên không bị đổi.
+  Ô ☐ bấm được để tích ☑ (và ngược lại), lưu thẳng vào bản ghi (`nlr()` + thao tác
+  `ntick`) ở: bảng xây dựng (mục tiêu, ghi chú giá, chính sách, trao đổi, ghi chú việc),
+  ghi chú KOL, ghi chú sản phẩm, hành động & cải thiện (chi tiết, đánh giá).
+- Tự viết hoa chữ đầu câu khi gõ (`AC` trong `js/state.js`): đầu ô, đầu dòng, sau dấu
+  mục và sau `. ! ?` có dấu cách; không đụng `...`, số thập phân, đường dẫn, chữ dán vào.
+  Sửa lại thành chữ thường thì để yên.
+- Ô dán bảng số liệu có `data-no-list data-no-autocap` nên không bị đổi.
 
 ## Hai trang để làm việc, không phải để ngắm
 

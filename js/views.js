@@ -646,7 +646,7 @@ function viewKol(id){
   if (!cs.length) h += `<div class="card dim">Chưa có clip nào.</div>`;
   else h += `<div class="card list">` + cs.map(c => clipRow(c, true)).join('') + `</div>`;
 
-  if (k.note) h += sectionTitle('Ghi chú') + `<div class="card note">${nl(k.note)}</div>`;
+  if (k.note) h += sectionTitle('Ghi chú') + `<div class="card note">${nlr(k.note, 'kols', k, 'note')}</div>`;
 
   const bl = byLine(k);
   if (bl) h += `<div class="card" style="margin-top:12px">${bl}</div>`;
@@ -2235,7 +2235,7 @@ function pendingCard(a){
       <span class="chip ${t.key === 'overdue' ? 'bad' : t.key === 'due' ? 'warn' : ''}">${
         t.days > 0 ? 'còn ' + t.days + ' ngày' : t.days === 0 ? 'tới hạn hôm nay' : 'quá hạn ' + (-t.days) + ' ngày'}</span>
     </div>
-    ${a.detail ? `<div class="pd-detail">${nl(a.detail)}</div>` : ''}
+    ${a.detail ? `<div class="pd-detail">${nlr(a.detail, 'actions', a, 'detail')}</div>` : ''}
     <div class="btns" style="margin-top:10px">
       ${t.key === 'waiting'
         ? `<span class="dim">Đo sớm quá thì số chưa ổn định.</span>
@@ -2363,7 +2363,7 @@ function viewProduct(id){
       <button class="btn sm" data-act="editproduct" data-id="${p.id}">Sửa sản phẩm</button>
       ${p.url ? `<a class="btn sm" href="${esc(p.url)}" target="_blank" rel="noopener">Mở link quảng cáo ↗</a>` : ''}
     </div>
-    ${p.note ? `<div class="note" style="margin-top:10px">${nl(p.note)}</div>` : ''}
+    ${p.note ? `<div class="note" style="margin-top:10px">${nlr(p.note, 'products', p, 'note')}</div>` : ''}
     ${byLine(p)}
   </div>`;
 
@@ -2527,8 +2527,8 @@ function viewProduct(id){
             ${late ? '<span class="chip warn">đến hạn xem</span>' : ''}</div>
           <div class="tl-s">${esc(fmtDate(a.date))} · ${esc(ACTION_TYPES[a.type].label)}${
             a.reviewAt && !a.done ? ' · hẹn xem ' + esc(fmtDate(a.reviewAt)) : ''}</div>
-          ${a.detail ? `<div class="tl-d">${nl(a.detail)}</div>` : ''}
-          ${a.verdictNote ? `<div class="tl-d dim">Đánh giá: ${nl(a.verdictNote)}</div>` : ''}
+          ${a.detail ? `<div class="tl-d">${nlr(a.detail, 'actions', a, 'detail')}</div>` : ''}
+          ${a.verdictNote ? `<div class="tl-d dim">Đánh giá: ${nlr(a.verdictNote, 'actions', a, 'verdictNote')}</div>` : ''}
         </div>
       </div>`;
     }
@@ -3017,7 +3017,7 @@ function viewSp(id){
           <div class="tl-s">${esc(fmtDate(im.date))} · ${esc(t.label)}${
             s ? ' · nhắm vào ' + esc(s.label.toLowerCase()) : ''}${
             im.reviewAt && !im.done ? ' · hẹn đo ' + esc(fmtDate(im.reviewAt)) : ''}</div>
-          ${im.detail ? `<div class="tl-d">${nl(im.detail)}</div>` : ''}
+          ${im.detail ? `<div class="tl-d">${nlr(im.detail, 'impacts', im, 'detail')}</div>` : ''}
           ${r.ready
             ? `<div class="tl-d ${r.suggest === 'better' ? 'ok' : r.suggest === 'worse' ? 'bad' : 'dim'}">${
                  esc(fmtShort(r.base.from) + '–' + fmtShort(r.base.to) + ' → ' +
@@ -3025,7 +3025,7 @@ function viewSp(id){
                r.note ? `<div class="tl-d dim">${esc(r.note)}</div>` : ''}`
             : `<div class="tl-d dim">${r.base ? 'Chưa có tuần nào bắt đầu sau ngày làm — nạp số liệu tuần mới là đo được.'
                                              : 'Chưa có tuần nào trước ngày làm để lấy làm mốc.'}</div>`}
-          ${im.verdictNote ? `<div class="tl-d dim">Bạn ghi: ${nl(im.verdictNote)}</div>` : ''}
+          ${im.verdictNote ? `<div class="tl-d dim">Bạn ghi: ${nlr(im.verdictNote, 'impacts', im, 'verdictNote')}</div>` : ''}
         </div>
       </div>`;
     }).join('') + `</div>`;
@@ -3050,7 +3050,7 @@ function impactCard(im){
       <span class="chip ${key === 'overdue' ? 'bad' : key === 'due' ? 'warn' : ''}">${
         d > 0 ? 'còn ' + d + ' ngày' : d === 0 ? 'tới hạn hôm nay' : 'quá hạn ' + (-d) + ' ngày'}</span>
     </div>
-    ${im.detail ? `<div class="pd-detail">${nl(im.detail)}</div>` : ''}
+    ${im.detail ? `<div class="pd-detail">${nlr(im.detail, 'impacts', im, 'detail')}</div>` : ''}
     ${r.ready ? `<div class="pd-detail ${(r.gapped || r.oddWeek) ? 'warn' : r.suggest === 'better' ? 'ok'
         : r.suggest === 'worse' ? 'bad' : ''}">
         Đã có số để đo: ${esc(r.text)}${(r.gapped || r.oddWeek) ? '<br>⚠︎ ' + esc(r.note) : ''}</div>` : ''}
@@ -5870,7 +5870,7 @@ function viewBuildOne(b){
           sp ? ` · sản phẩm <a href="#product/${esc(sp.id)}" class="lnk">${esc(sp.name)}</a>` : ''}</div></div>
       <button class="btn sm" data-act="bedit" data-id="${b.id}">✎ Sửa</button>
     </div>`;
-  if (b.goal) h += `<div class="explain bd-goal">🎯 ${nl(b.goal)}</div>`;
+  if (b.goal) h += `<div class="explain bd-goal">🎯 ${nlr(b.goal, 'builds', b, 'goal')}</div>`;
 
   /* ---- đối thủ đã ghim ---- */
   h += sectionTitle('Đối thủ làm mốc', `<button data-act="bpinadd" data-id="${b.id}">📌 Ghim thêm</button>`);
@@ -5972,7 +5972,7 @@ function viewBuildOne(b){
               ${Rx ? `<td class="r">${q ? `<b class="${q.lai > 0 ? 'ok' : 'bad'}">${money(q.lai)}</b>` : '<span class="dim">—</span>'}</td>` : ''}` : ''}</tr>`; }).join('')}</tbody></table></div>
         <div class="dim" style="margin-top:6px">"So với đối thủ" là giá sau voucher shop của mình so với giá cuối của dòng đối thủ đã chọn đặt cạnh (chọn trong "Sửa giá & phân loại"), chưa chọn thì so với dòng rẻ nhất.${
           coVon ? ' Lời / đơn tính bằng bảng phí ' + (sm ? 'của gian hàng ' + esc(shopName(sm)) : 'mặc định') + ' trong Tính chi phí.' : ''}</div>`;
-      if (b.priceNote) h += `<div class="explain" style="margin-top:8px">${nl(b.priceNote)}</div>`;
+      if (b.priceNote) h += `<div class="explain" style="margin-top:8px">${nlr(b.priceNote, 'builds', b, 'priceNote')}</div>`;
     } else h += `<div class="dim">Chưa đặt phân loại nào. Bấm “Sửa giá & phân loại” để thêm.</div>`;
 
     /* ---- thử giá với ROAS thực tế ---- */
@@ -6003,7 +6003,7 @@ function viewBuildOne(b){
     h += viecMuc('pol');
     h += sectionTitle('Chính sách của mình', `<button data-act="bpol" data-id="${b.id}">✎ Sửa chính sách</button>`);
     const co = BUILD_POL.filter(x => (b.pol[x.k] || '').trim());
-    h += co.length ? `<div class="bd-pol">${co.map(x => `<div><span class="l">${esc(x.l)}</span><div>${nl(b.pol[x.k])}</div></div>`).join('')}</div>`
+    h += co.length ? `<div class="bd-pol">${co.map(x => `<div><span class="l">${esc(x.l)}</span><div>${nlr(b.pol[x.k], 'builds', b, 'pol.' + x.k)}</div></div>`).join('')}</div>`
       : `<div class="dim">Chưa đặt chính sách nào: voucher, quà tặng, combo, vận chuyển, đổi trả, lịch sale…</div>`;
     const cr = (b.refs || []).filter(r => (r.vouchers || []).length || (r.tags || []).length);
     if (cr.length){
@@ -6201,5 +6201,5 @@ function bNoteList(ns){
       <span class="ic">${n.kind === 'cmt' ? '💬' : '🕘'}</span>
       <div class="grow"><div class="dim bd-meta"><b>${esc(n.byName || '?')}</b> · ${esc(bLuc(n.at))}${
         t ? ' · việc: ' + esc(cut(t.title, 50)) : n.sec && BUILD_SECS[n.sec] ? ' · ' + esc(BUILD_SECS[n.sec].label) : ''}</div>
-        <div>${nl(n.text)}</div></div></div>`; }).join('')}</div>`;
+        <div>${nlr(n.text, 'bnotes', n, 'text')}</div></div></div>`; }).join('')}</div>`;
 }
