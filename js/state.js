@@ -697,13 +697,14 @@ const LS = (() => {
     e.preventDefault();
     edit(el, next);
   }
-  /* Chữ nhiều dòng → HTML. Không có danh sách / đường kẻ thì như cũ (xuống dòng = <br>). */
-  function html(s){
+  /* Chữ nhiều dòng → HTML. Không có danh sách / đường kẻ thì như cũ (xuống dòng = <br>).
+     ref = "kind|id|trường" (trường lồng thì "pol.voucher") → ô ☐ / ☑ bấm được, lưu thẳng vào bản ghi. */
+  function html(s, ref){
     s = s == null ? '' : String(s);
     const lines = s.split('\n');
     if (!lines.some(l => parse(l) || isRule(l))) return esc(s).replace(/\n/g, '<br>');
     const out = []; let st = [], lv = -1;
-    lines.forEach(line => {
+    lines.forEach((line, k) => {
       const it = parse(line);
       if (it){
         const d = it.indent.length;
@@ -713,7 +714,9 @@ const LS = (() => {
         lv = st.length - 1;
         const ck = it.mark === '☐' || it.mark === '☑';
         const mk = it.num !== null ? it.num + it.sep : it.mark === '*' ? '•' : it.mark;
-        out.push(`<span class="nt-li${it.mark === '☑' ? ' nt-done' : ''}" style="--lvl:${lv}"><span class="nt-mark${ck ? ' nt-check' : ''}">${esc(mk)}</span><span class="nt-body">${esc(it.text)}</span></span>`);
+        const m = ck && ref ? `<button type="button" class="nt-mark nt-check" data-act="ntick" data-id="${esc(ref)}|${k}" title="${it.mark === '☑' ? 'Bỏ tích' : 'Tích xong'}">${mk}</button>`
+          : `<span class="nt-mark${ck ? ' nt-check' : ''}">${esc(mk)}</span>`;
+        out.push(`<span class="nt-li${it.mark === '☑' ? ' nt-done' : ''}" style="--lvl:${lv}">${m}<span class="nt-body">${esc(it.text)}</span></span>`);
       } else if (isRule(line)){ lv = -1; out.push('<span class="nt-hr" role="separator"></span>'); }
       else if (lv >= 0 && /^\s+\S/.test(line)) out.push(`<span class="nt-cont" style="--lvl:${lv}">${esc(line.trim())}</span>`);
       else { if (!line.trim() || !/^\s/.test(line)) lv = -1; out.push(`<span class="nt-line">${line ? esc(line) : '&#8203;'}</span>`); }
@@ -722,7 +725,56 @@ const LS = (() => {
   }
   return {parse, applyKey, onKey, html, isRule};
 })();
-const nl  = s => LS.html(s);
+const nl  = (s, ref) => LS.html(s, ref);
+/* nl() kèm chỗ lưu: ô ☐ trong chữ bấm tích được ngay lúc xem */
+const nlr = (s, kind, rec, f) => LS.html(s, rec && rec.id ? kind + '|' + rec.id + '|' + f : '');
+
+/* ---- Tự viết hoa chữ cái đầu câu khi gõ (giống web Nhật ký giao dịch) ----
+   Đầu ô, đầu dòng, sau dấu mục danh sách ("• ", "- ", "1. "…) và sau . ! ? có dấu cách.
+   Không đụng "..." , số thập phân, đường dẫn. Chỉ sửa khi con trỏ đứng ở CUỐI chữ đang gõ —
+   sửa lại thành chữ thường ("iPhone") thì để yên. Mọi <textarea>; ô một dòng chỉ khi có
+   data-autocap; ô nào không muốn thì data-no-autocap. */
+const AC = (() => {
+  const L = /\p{L}/u;
+  function index(value, caret){
+    let w = caret;
+    while (w > 0 && L.test(value[w - 1])) w--;
+    if (w === caret) return -1;
+    if (L.test(value[caret] || '')) return -1;
+    const ch = value[w];
+    if (ch === ch.toUpperCase() || ch !== ch.toLowerCase()) return -1;
+    const ls = value.lastIndexOf('\n', w - 1) + 1;
+    const head = value.slice(ls, w);
+    if (/^\s*$/.test(head)) return w;
+    const it = LS.parse(head + 'x');
+    if (it && it.textCol === head.length) return w;
+    if (/(^|[^.])[.!?]["'”’)\]]*[ \t]+$/.test(head)) return w;
+    return -1;
+  }
+  let busy = false;
+  function fix(el){
+    if (busy || !el || el.readOnly || el.disabled || !el.hasAttribute || el.hasAttribute('data-no-autocap')) return;
+    if (el.tagName !== 'TEXTAREA' && !(el.tagName === 'INPUT' && el.hasAttribute('data-autocap'))) return;
+    if (el.selectionStart !== el.selectionEnd) return;
+    const caret = el.selectionStart, i = index(el.value, caret);
+    if (i < 0) return;
+    const up = el.value[i].toUpperCase();
+    busy = true;
+    try {
+      el.setSelectionRange(i, i + 1);
+      const ok = document.execCommand && document.execCommand('insertText', false, up);
+      if (!ok){ el.value = el.value.slice(0, i) + up + el.value.slice(i + 1); el.dispatchEvent(new Event('input', {bubbles: true})); }
+      el.setSelectionRange(caret, caret);
+    } finally { busy = false; }
+  }
+  function onInput(e){
+    if (e.isComposing) return;
+    if (e.inputType && !/^insert(Text|ReplacementText)?$/.test(e.inputType)) return;   // dán thì để nguyên
+    fix(e.target);
+  }
+  const onCompEnd = e => setTimeout(() => fix(e.target), 0);
+  return {index, onInput, onCompEnd};
+})();
 const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 
 /* Bỏ dấu để tìm kiếm: gõ "tuan" vẫn ra "Tuấn", "linh chi" ra "Linh Chi" */
@@ -5666,4 +5718,4 @@ function rvShopChanges(row){
   return out;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "a3d54620"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "3e7ab623"]);
