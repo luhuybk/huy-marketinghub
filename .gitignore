@@ -3,3 +3,4 @@ api/data/
 dist/
 .DS_Store
 tools/.hub_token
+tools/ads-push/
