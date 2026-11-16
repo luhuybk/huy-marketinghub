@@ -628,6 +628,11 @@ function api(req, res, body){
       });
       return send({ok:true, kws, sp:rvSps([...ids], 1)});
     }
+    case 'rival_desc': {
+      if (!need()) return;
+      if (!khMay(me, 'rival') && !khMay(me, 'build')) return fail('Tài khoản này chưa được cấp quyền xem mục này.', 403);
+      return send({ok:true, desc:rvDescs(inp.ids)});
+    }
     case 'rival_shops': {
       if (!perm('rival')) return;
       const shops = rvShopScans();
@@ -1443,6 +1448,7 @@ function rvTables(D){
     CREATE TABLE IF NOT EXISTS rv_mine (shop_id TEXT PRIMARY KEY, name TEXT);
     CREATE TABLE IF NOT EXISTS rv_vol (kw_id TEXT NOT NULL, date TEXT NOT NULL, d_from TEXT, d_to TEXT,
       vol INTEGER, at TEXT, rel TEXT, PRIMARY KEY (kw_id, date));
+    CREATE TABLE IF NOT EXISTS rv_spdesc (item_id TEXT PRIMARY KEY, date TEXT, at TEXT, data TEXT);
     CREATE TABLE IF NOT EXISTS rv_sp (item_id TEXT NOT NULL, date TEXT NOT NULL, at TEXT, data TEXT,
       PRIMARY KEY (item_id, date))`);
   if (!D.prepare('PRAGMA table_info(rv_scan)').all().some(r => r.name === 'extra')) D.exec('ALTER TABLE rv_scan ADD COLUMN extra TEXT');
@@ -1617,8 +1623,26 @@ function rvSpClean(x){
     ra: Math.round(Math.max(0, Math.min(5, so(x.ra))) * 100) / 100, rc: tien(x.rc), liked: tien(x.liked),
     def: {n: chu(def.n, 120), pb: tien(def.pb), f: tien(def.f)},
     lines, models, tiers, vouchers,
-    tags: mang(x.tags).slice(0, 6).map(t => chu(t, 40)).filter(Boolean)
+    tags: mang(x.tags).slice(0, 6).map(t => chu(t, 40)).filter(Boolean),
+    dimgs: [...new Set(mang(x.dimgs).slice(0, 40).map(anh).filter(Boolean))], desc: rvMoTaSach(x.desc)
   };
+}
+/* xem rvMoTaSach() / rvDescs() bên PHP */
+function rvMoTaSach(v){
+  const t = (typeof v === 'string' || typeof v === 'number' ? String(v) : '').replace(/\r\n?/g, '\n')
+    .replace(/[^\S\n]+/gu, ' ').replace(/ *\n */g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  return [...t].slice(0, 4000).join('');
+}
+function rvDescs(ids){
+  const D = db(); rvTables(D);
+  ids = [...new Set((Array.isArray(ids) ? ids : []).map(i => String(i).replace(/\D/g, '')).filter(Boolean))].slice(0, 80);
+  const out = {};
+  if (!ids.length) return out;
+  D.prepare('SELECT item_id, date, data FROM rv_spdesc WHERE item_id IN (' + ids.map(() => '?').join(',') + ')').all(...ids).forEach(r => {
+    let d = null; try { d = JSON.parse(r.data); } catch(e){}
+    if (d && typeof d === 'object') out[String(r.item_id)] = {date: r.date, dimgs: d.dimgs || [], desc: d.desc || ''};
+  });
+  return out;
 }
 function rvSpSave(inp){
   const D = db(); rvTables(D);
@@ -1627,11 +1651,17 @@ function rvSpSave(inp){
   if (x.n === '' || (!x.models.length && !x.def.f))
     return {error:'Sản phẩm ' + x.id + ' không có tên, hoặc không có giá lẫn phân loại — trang chưa tải xong?'};
   const date = rvNgayQuet(inp);
+  const mt = {dimgs: x.dimgs, desc: x.desc};
+  delete x.dimgs; delete x.desc;
+  x.nd = mt.dimgs.length;
+  if (mt.dimgs.length || mt.desc !== '')
+    D.prepare(`INSERT INTO rv_spdesc (item_id, date, at, data) VALUES (?,?,?,?)
+        ON CONFLICT(item_id) DO UPDATE SET date=excluded.date, at=excluded.at, data=excluded.data`).run(x.id, date, iso(), JSON.stringify(mt));
   D.prepare(`INSERT INTO rv_sp (item_id, date, at, data) VALUES (?,?,?,?)
       ON CONFLICT(item_id, date) DO UPDATE SET at=excluded.at, data=excluded.data`).run(x.id, date, iso(), JSON.stringify(x));
   D.prepare('DELETE FROM rv_sp WHERE item_id = ? AND date < ?')
    .run(x.id, new Date(Date.parse(date + 'T00:00:00Z') - RV_SP_GIU * 864e5).toISOString().slice(0, 10));
-  return {ok:true, id:x.id, date, models:x.models.length, lines:x.lines.length, f:x.def.f};
+  return {ok:true, id:x.id, date, models:x.models.length, lines:x.lines.length, f:x.def.f, nd:x.nd, desc:[...mt.desc].length};
 }
 function rvSpList(){
   const D = db(); rvTables(D);

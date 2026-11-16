@@ -189,7 +189,8 @@ và lúc gửi** — tải lại trang là mất `window.__rv`, phải phân tí
 ## 4. Đọc trang sản phẩm trên Shopee (không tốn lượt Metric)
 
 Lấy thứ Metric không có: bảng **Chi tiết giá** (giá gốc → giảm giá → voucher →
-giá cuối), **từng phân loại kèm giá**, voucher shop, cả bộ ảnh. Hub tự chọn
+giá cuối), **từng phân loại kèm giá**, voucher shop, cả bộ ảnh, **mô tả (chữ +
+ảnh chèn trong mô tả)** — từ bản 6 của `shopee-quet.js`. Hub tự chọn
 sản phẩm cần đọc: 10 sản phẩm đứng đầu ở lần quét Metric gần nhất của mỗi từ
 khoá, cộng sản phẩm của shop mình trong top. Làm **sau** bước 2 để danh sách
 là top mới nhất.

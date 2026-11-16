@@ -16,7 +16,7 @@
    thì sửa đúng hàm đó. Máy chủ (rvSpClean) ép kiểu lại lần nữa.
    ============================================================ */
 (() => {
-  const BAN = 5;
+  const BAN = 6;
   if (window.__sp && window.__sp.v === BAN) return 'đã gắn sẵn (bản ' + BAN + ')';
   const cu = window.__sp || {};
   const S = window.__sp = {v: BAN, pc: cu.pc || {}, st: {run: false, n: 0, i: 0, ok: 0, skip: 0, loi: [], dung: '', xong: false}};
@@ -44,6 +44,35 @@
     };
   }
   S.gan = true;
+
+  /* ---- 2a. mô tả: chữ + ảnh chèn trong mô tả ----
+     Shop bật "mô tả có hình ảnh" thì Shopee để ở item.rich_text_description
+     (danh sách đoạn, mỗi đoạn là chữ hoặc một mã ảnh); không thì chỉ có chữ ở
+     item.description. Không bám chặt tên trường con: đi hết cây, gom mã ảnh
+     (trường có chữ img/image/pic, hoặc địa chỉ susercontent) và chữ (trường
+     text/content) theo đúng thứ tự xuất hiện. */
+  const MA_ANH = /^(?:[a-z]{2}-\d{5,10}-[A-Za-z0-9-]{4,70}|[0-9a-f]{32})$/;
+  S.moTa = it => {
+    const anh = [], chu = [];
+    const them = a => { if (a && !anh.includes(a)) anh.push(a); };
+    const quetUrl = v => { const re = /susercontent\.com\/file\/([A-Za-z0-9._-]{8,80})/g; let m; while ((m = re.exec(v))) them(m[1].replace(/(_tn|@.*)$/, '')); };
+    const di = (v, k, sau) => {
+      if (v == null || sau > 8) return;
+      if (typeof v === 'string') {
+        if (/img|image|pic/i.test(k) && MA_ANH.test(v)) { them(v); return; }
+        if (v.includes('susercontent.com/file/')) quetUrl(v);
+        if (/^(text|content)$/i.test(k) && v.trim()) chu.push(v.replace(/\s+$/, ''));
+        return;
+      }
+      if (typeof v === 'object') for (const [kk, vv] of Object.entries(v)) di(vv, Array.isArray(v) ? k : kk, sau + 1);
+    };
+    let rt = it.rich_text_description;
+    if (typeof rt === 'string') { try { rt = JSON.parse(rt); } catch (e) { quetUrl(rt); rt = null; } }
+    di(rt, '', 0);
+    const goc = typeof it.description === 'string' ? it.description : '';
+    quetUrl(goc);
+    return {dimgs: anh.slice(0, 40), desc: (chu.length ? chu.join('\n') : goc).slice(0, 4000)};
+  };
 
   /* ---- 2. rút gọn một câu trả lời get_pc ---- */
   const dong = v => Math.round((+v || 0) / 1e5);               // Shopee nhân tiền với 100000
@@ -99,7 +128,8 @@
                 start: +v.start_time || 0, end: +v.end_time || 0, used: v.fully_redeemed ? 100 : (+v.percentage_used || 0),
                 lab: (v.customised_labels || []).map(l => l && l.content).filter(Boolean).join(', ')};
       }),
-      tags: [...new Set(tags)].slice(0, 6)
+      tags: [...new Set(tags)].slice(0, 6),
+      ...S.moTa(it)
     };
   };
 

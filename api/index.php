@@ -509,6 +509,14 @@ switch ($action) {
     }
     out(['ok' => true, 'kws' => $kws, 'sp' => (object)rvSps(array_values(array_unique($ids)), 1)]);
   }
+  /* Mô tả (chữ + ảnh chèn trong mô tả) của các sản phẩm đối thủ — cho hộp chi
+     tiết ở Theo dõi đối thủ và cho đối thủ đã ghim ở bảng xây dựng, nên quyền
+     rival HOẶC build đều xem được */
+  case 'rival_desc': {
+    requireAuth();
+    if (!khMay(currentUser(), 'rival') && !khMay(currentUser(), 'build')) fail('Tài khoản này chưa được cấp quyền xem mục này.', 403);
+    out(['ok' => true, 'desc' => (object)rvDescs(is_array($in['ids'] ?? null) ? $in['ids'] : [])]);
+  }
   /* Gian hàng đối thủ: mọi gian hàng kèm các lần quét, và bản chụp trang Shopee của sản phẩm trong đó */
   case 'rival_shops': {
     requirePerm('rival');

@@ -825,7 +825,13 @@ Quyền riêng **Xây dựng SP** (`build`).
   - 🖼 **Hình ảnh** — tải ảnh thẳng lên Hub (nút, kéo thả, hoặc dán Ctrl/⌘+V).
     Trình duyệt thu ảnh về cạnh dài 1600px, nén JPEG rồi mới gửi. Mỗi ảnh có vị
     trí (bìa / phụ / mô tả), trạng thái Nháp → Cần sửa (bắt ghi nhận xét) → Đã
-    duyệt. Ảnh đối thủ bày ngay bên dưới để so.
+    duyệt. Ảnh đối thủ bày ngay bên dưới để so: bộ ảnh sản phẩm **và ảnh chèn
+    trong mô tả** (shop bật "mô tả có hình ảnh"). Nút **⬇ Tải hết về máy (zip)**
+    gói ảnh của mọi đối thủ đã ghim, mỗi đối thủ một thư mục (`anh-sp-01…`,
+    `mo-ta-01…`, `mo-ta.txt` = chữ mô tả + link); mỗi đối thủ cũng có nút tải
+    riêng. Trình duyệt tải ảnh thẳng từ máy chủ ảnh Shopee, không qua Hub.
+    Đối thủ ghim từ trước khi có mô tả thì lần mở bảng sau Hub tự bù; trong hộp
+    chi tiết đối thủ có nút **↻ Mô tả mới nhất** để lấy lại.
   - 💰 **Giá & phân loại** — phân loại dự kiến (giá gốc, giá bán), voucher shop %.
     Mỗi phân loại **đặt cạnh** một dòng đối thủ (chọn trong Sửa giá & phân loại);
     không chọn thì Hub tự đoán theo tên phân loại ("Combo 2 hộp" ↔ combo 2 hộp của
@@ -1021,7 +1027,14 @@ tốn lượt Metric.
   máy chủ (`rvSpClean`, PHP và Node) chỉ ép kiểu và chặn độ dài.
 - Bảng top có hai kiểu xem: **▤ Bảng** và **▦ Ảnh bìa** (ảnh 450px, để so cách
   đối thủ thiết kế ảnh bìa). Bấm một sản phẩm: ảnh lớn + cả bộ ảnh, chi tiết
-  giá, bảng phân loại, voucher, giá qua các lần đọc, các ảnh bìa đã từng dùng.
+  giá, bảng phân loại, voucher, giá qua các lần đọc, **mô tả trên Shopee** (ảnh
+  chèn trong mô tả + chữ, kèm nút tải hết ảnh .zip), các ảnh bìa đã từng dùng.
+- Mô tả (thêm 16/11/2026, `shopee-quet.js` bản 6): đọc từ
+  `item.rich_text_description` (ảnh + chữ) hoặc `item.description` (chỉ chữ).
+  Máy chủ giữ **một bản mới nhất** mỗi sản phẩm ở bảng `rv_spdesc` — mô tả dài
+  và ít đổi, không nhân theo từng bản chụp giá; bản chụp chỉ ghi `nd` = số ảnh.
+  Tải riêng qua `rival_desc` (quyền Theo dõi đối thủ hoặc Xây dựng sản phẩm).
+  Trang không trả mô tả thì giữ nguyên bản cũ.
 
 ---
 
