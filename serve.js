@@ -1664,7 +1664,7 @@ function rvSpSave(inp){
    .run(x.id, new Date(Date.parse(date + 'T00:00:00Z') - RV_SP_GIU * 864e5).toISOString().slice(0, 10));
   return {ok:true, id:x.id, date, models:x.models.length, lines:x.lines.length, f:x.def.f, nd:x.nd, desc:[...mt.desc].length};
 }
-function rvSpList(){
+function rvSpList(buMax = RV_SP_BU_MAX){
   const D = db(); rvTables(D);
   const mine = D.prepare('SELECT shop_id FROM rv_mine').all().map(r => String(r.shop_id));
   const out = new Map(), bu = new Map();
@@ -1724,7 +1724,7 @@ function rvSpList(){
     const can = [...bu.values()].filter(x => (cu[x.id] || '') < han || cu[x.id] === nay)
       .sort((a, b) => { const p = k(a), q = k(b); for (let i = 0; i < 3; i++) if (p[i] !== q[i]) return p[i] - q[i]; return 0; });
     rvSpBuCon = can.filter(x => cu[x.id] !== nay).length;
-    can.slice(0, RV_SP_BU_MAX).forEach(x => { delete x.hang; x.bu = true; out.set(x.id, x); });
+    can.slice(0, Math.max(0, Math.min(500, Math.trunc(+buMax) || 0))).forEach(x => { delete x.hang; x.bu = true; out.set(x.id, x); });
   }
   if (out.size){
     const xong = new Set(D.prepare('SELECT item_id FROM rv_sp WHERE date = ?').all(vnNow().date).map(r => String(r.item_id)));
@@ -1921,7 +1921,7 @@ function rivalRoute(req, res, body){
   }
   if (inp.do === 'splist' || inp.do === 'sp'){
     if (!rvTicketOk(inp.ticket)) return out({ok:false, error:'Vé quét không đúng hoặc đã hết hạn — xin vé mới bằng do:"kws".'}, 403);
-    if (inp.do === 'splist'){ const items = rvSpList(); return out({ok:true, today:vnNow().date, items, bu:rvSpBuCon}); }
+    if (inp.do === 'splist'){ const items = rvSpList(isFinite(+inp.bu) && inp.bu !== '' && inp.bu != null ? +inp.bu : RV_SP_BU_MAX); return out({ok:true, today:vnNow().date, items, bu:rvSpBuCon}); }
     const r = rvSpSave(inp);
     return r.error ? out({ok:false, error:r.error}, 400) : out(r);
   }

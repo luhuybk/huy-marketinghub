@@ -199,6 +199,8 @@ Từ 16/11/2026 danh sách có thêm tối đa **60 sản phẩm đọc bổ sun
 hạng 11–20 của từ khoá và hạng 11–60 của quét sâu gian hàng, chỉ cái chưa đọc
 bao giờ hoặc đọc cách đây hơn 7 ngày. `splist` trả thêm `bu` = số còn chờ; vài
 lượt là phủ hết. Không cần làm gì khác — vẫn chạy như dưới đây.
+Chủ dặn đọc bù cho hết thì truyền số lớn hơn: `do:"splist", bu:400` (tối đa
+500), rồi đưa danh sách đó vào `__sp.chay({…, items})`.
 
 1. Mở một tab `https://shopee.vn` trong hồ sơ "Quét đối thủ" — phải đang đăng
    nhập **tài khoản mua hàng phụ** (không đăng nhập thì Shopee không cho xem
