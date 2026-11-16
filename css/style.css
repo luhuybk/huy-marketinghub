@@ -1085,3 +1085,15 @@ tr.rv-dang{background:var(--bg3)}
 .nt-check{color:var(--acc)}
 .nt-done .nt-body{text-decoration:line-through;opacity:.6}
 .nt-hr{display:block;height:0;border-top:1px solid var(--line);margin:8px 0}
+
+/* Mô tả đối thủ: ảnh chèn trong mô tả (thường là ảnh dọc dài) + chữ */
+.rv-dimgs{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:6px;align-items:start;margin-top:4px}
+.rv-dimgs a{display:block}
+.rv-dimgs img{width:100%;height:auto;max-height:260px;object-fit:cover;object-position:top;border-radius:8px;border:1px solid var(--line);background:var(--bg3);display:block}
+.rv-desc{margin-top:8px}
+.rv-desc summary,.bd-rdm summary{cursor:pointer;color:var(--tx2);font-size:13px}
+.rv-desct{margin-top:6px;max-height:340px;overflow:auto;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg3);font-size:13px;line-height:1.5}
+.bd-rhd{display:flex;align-items:center;gap:8px;justify-content:space-between;margin:12px 0 4px}
+.bd-rdm{margin-top:4px}
+.bd-rdm0{margin-top:2px;font-size:12px}
+.sec .btn{margin-left:8px}

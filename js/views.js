@@ -5932,16 +5932,22 @@ function viewBuildOne(b){
       });
     else h += `<div class="dim" style="margin-top:8px">Chưa có ảnh nào.</div>`;
     /* ảnh đối thủ để đặt cạnh mà so */
-    const co = (b.refs || []).filter(r => (r.imgs || []).length || r.img);
+    const co = (b.refs || []).filter(r => (r.imgs || []).length || r.img || (r.dimgs || []).length);
+    bRefFillAuto(b);
     if (co.length){
-      h += sectionTitle('Ảnh của đối thủ', '<span class="dim">ảnh chụp lại lúc ghim · bấm để mở ảnh gốc</span>');
+      h += sectionTitle('Ảnh của đối thủ', `<button data-act="dzip" data-id="refs|${b.id}" title="Mỗi đối thủ một thư mục: ảnh sản phẩm, ảnh mô tả và chữ mô tả">⬇ Tải hết về máy (zip)</button>`);
+      h += `<div class="dim" style="margin:-4px 0 8px">Ảnh sản phẩm và ảnh chèn trong mô tả của từng đối thủ · bấm ảnh để mở ảnh gốc · nút Tải gói ảnh (kèm chữ mô tả) thành tệp .zip.</div>`;
       const loc = co.some(r => r.id === ui.bImgRef) ? ui.bImgRef : '';
       if (co.length > 1) h += `<div class="chips" style="margin-bottom:6px"><button class="btn sm ${loc ? '' : 'pri'}" data-act="bimgref" data-id="">Cả ${co.length} đối thủ</button>${
         co.map(r => `<button class="btn sm ${loc === r.id ? 'pri' : ''}" data-act="bimgref" data-id="${esc(r.id)}" title="${esc(r.n)}">${esc(cut((r.shop ? r.shop + ' · ' : '') + r.n, 36))}</button>`).join('')}</div>`;
       co.filter(r => !loc || r.id === loc).forEach(r => {
-        const ds = (r.imgs || []).length ? r.imgs : [r.img];
-        h += `<div class="dim" style="margin:8px 0 4px"><b>${esc(r.shop || '')}</b> — ${esc(cut(r.n, 70))}</div>
-          <div class="bd-rimgs">${ds.map(u => `<a href="${esc(rvImg(u))}" target="_blank" rel="noopener noreferrer"><img src="${esc(rvImg(u, 'tn'))}" alt="" referrerpolicy="no-referrer" loading="lazy"></a>`).join('')}</div>`;
+        const ds = (r.imgs || []).length ? r.imgs : r.img ? [r.img] : [], dm = r.dimgs || [];
+        h += `<div class="dim bd-rhd"><span><b>${esc(r.shop || '')}</b> — ${esc(cut(r.n, 70))}</span>
+            <button class="btn sm" data-act="dzip" data-id="ref|${b.id}|${esc(r.id)}">⬇ Tải ${ds.length + dm.length} ảnh</button></div>
+          ${ds.length ? `<div class="bd-rimgs">${ds.map(u => `<a href="${esc(rvImg(u))}" target="_blank" rel="noopener noreferrer"><img src="${esc(rvImg(u, 'tn'))}" alt="" referrerpolicy="no-referrer" loading="lazy"></a>`).join('')}</div>` : ''}
+          ${dm.length ? `<details class="bd-rdm"${loc ? ' open' : ''}><summary>Ảnh chèn trong mô tả · ${dm.length}</summary>
+            <div class="rv-dimgs">${dm.map(u => `<a href="${esc(rvImg(u))}" target="_blank" rel="noopener noreferrer"><img src="${esc(rvImg(u, 'md'))}" alt="" referrerpolicy="no-referrer" loading="lazy"></a>`).join('')}</div></details>`
+          : r.manual ? '' : `<div class="dim bd-rdm0">${r.dAt ? 'Mô tả không chèn ảnh.' : 'Chưa có ảnh mô tả — có sau lần quét Shopee tới.'}</div>`}`;
       });
     }
   }
@@ -6204,4 +6210,4 @@ function bNoteList(ns){
         <div>${nlr(n.text, 'bnotes', n, 'text')}</div></div></div>`; }).join('')}</div>`;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "3e7ab623"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "3e7180b7"]);

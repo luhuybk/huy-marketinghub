@@ -5344,7 +5344,7 @@ function launchAutoMarks(){
      r, o (doanh số, lượt bán trong kỳ) · rp, op (kỳ liền trước, do Metric tính)
      rev, sold (tổng từ trước tới giờ) · rc, ra (số đánh giá, điểm)
    ============================================================ */
-const rv = {state:null, scans:{}, vols:{}, sp:{}, err:'', asked:false, busy:false,
+const rv = {state:null, scans:{}, vols:{}, sp:{}, desc:{}, err:'', asked:false, busy:false,
             shops:null, shHan:null, shErr:'', shBusy:false, shLuc:0};     // gian hàng đối thủ — xem rvShopView()
 const RV_KINDS = {main:'Từ khoá chính', sp:'Từ khoá sản phẩm'};
 const RV_SHOW = 10;                       // bảng mặc định hiện top mấy
@@ -5368,6 +5368,93 @@ function rvImg(u, co){
   return goc + (co === 'tn' ? '_tn' : co === 'md' ? '@resize_w450_nl.webp' : '');
 }
 const rvPct   = (a, b) => b > 0 ? (a - b) / b * 100 : null;
+
+/* ---- Mô tả sản phẩm đối thủ: chữ + ảnh chèn trong mô tả ----
+   Máy chủ giữ một bản mới nhất mỗi sản phẩm (rv_spdesc), tải riêng khi cần —
+   không đi kèm bản chụp giá vì dài. rv.desc[mã] = {date, dimgs, desc} | null
+   (null = đã hỏi, máy chủ chưa có). */
+async function loadDescs(ids, lai){
+  const can = [...new Set(ids.map(String))].filter(i => /^\d+$/.test(i) && (lai || !(i in rv.desc)));
+  if (!can.length) return;
+  const r = await Server.rivalDesc(can);
+  can.forEach(i => { rv.desc[i] = (r.desc || {})[i] || null; });
+}
+function rvDescHtml(d, nutZip){
+  if (!d) return '';
+  const a = d.dimgs || [];
+  return `<div class="sec sm">Mô tả trên Shopee${a.length ? ' · ' + a.length + ' ảnh' : ''}<span class="ln"></span>${
+      d.date ? `<span class="dim">đọc ngày ${esc(fmtDate(d.date))}</span>` : ''}${nutZip || ''}</div>
+    ${a.length ? `<div class="rv-dimgs">${a.map(u => `<a href="${esc(rvImg(u))}" target="_blank" rel="noopener noreferrer" title="Mở ảnh gốc"><img src="${esc(rvImg(u, 'md'))}" alt="" referrerpolicy="no-referrer" loading="lazy"></a>`).join('')}</div>`
+      : '<div class="dim">Mô tả không chèn ảnh nào.</div>'}
+    ${d.desc ? `<details class="rv-desc"><summary>Chữ trong mô tả · ${d.desc.length.toLocaleString('vi-VN')} ký tự</summary><div class="rv-desct">${nl(d.desc)}</div></details>` : ''}`;
+}
+
+/* ---- Tải ảnh đối thủ về máy, gói thành một tệp .zip ----
+   Ảnh nằm ở máy chủ ảnh của Shopee (cho phép tải từ trang khác — CORS *), trình
+   duyệt tải thẳng, không qua máy chủ Hub. Zip "lưu nguyên" (ảnh vốn đã nén). */
+const CRC_T = (() => { const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++){ let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
+  return t; })();
+function crc32(b){ let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = CRC_T[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function zipBlob(files){                        // [{name, data: Uint8Array}]
+  const enc = new TextEncoder(), parts = [], cen = [];
+  const d = new Date(), gio = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+  const ngay = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+  let off = 0;
+  files.forEach(f => {
+    const nm = enc.encode(f.name), c = crc32(f.data), n = f.data.length;
+    const h = new DataView(new ArrayBuffer(30));
+    [[0, 0x04034b50, 4], [4, 20, 2], [6, 0x0800, 2], [10, gio, 2], [12, ngay, 2], [14, c, 4], [18, n, 4], [22, n, 4], [26, nm.length, 2]]
+      .forEach(([o, v, w]) => w === 4 ? h.setUint32(o, v, true) : h.setUint16(o, v, true));
+    parts.push(h.buffer, nm, f.data);
+    const e = new DataView(new ArrayBuffer(46));
+    [[0, 0x02014b50, 4], [4, 20, 2], [6, 20, 2], [8, 0x0800, 2], [12, gio, 2], [14, ngay, 2], [16, c, 4], [20, n, 4], [24, n, 4], [28, nm.length, 2], [42, off, 4]]
+      .forEach(([o, v, w]) => w === 4 ? e.setUint32(o, v, true) : e.setUint16(o, v, true));
+    cen.push(e.buffer, nm);
+    off += 30 + nm.length + n;
+  });
+  const cs = cen.reduce((a, x) => a + x.byteLength, 0), z = new DataView(new ArrayBuffer(22));
+  z.setUint32(0, 0x06054b50, true); z.setUint16(8, files.length, true); z.setUint16(10, files.length, true);
+  z.setUint32(12, cs, true); z.setUint32(16, off, true);
+  return new Blob([...parts, ...cen, z.buffer], {type: 'application/zip'});
+}
+const tenTep = s => String(s || '').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60) || 'khong-ten';
+const duoiAnh = b => b[0] === 0xFF && b[1] === 0xD8 ? 'jpg' : b[0] === 0x89 && b[1] === 0x50 ? 'png'
+  : b[0] === 0x52 && b[8] === 0x57 ? 'webp' : b[0] === 0x47 && b[1] === 0x49 ? 'gif' : 'jpg';
+/* sps: [{thu: 'thư mục' | '', n, shop, url, imgs, dimgs, desc}] — mỗi sản phẩm
+   một thư mục (tải một sản phẩm thì để thẳng ngoài). `bao(da, tong)` để báo tiến độ. */
+async function taiAnhZip(tenZip, sps, bao){
+  const viec = [], tep = [], enc = new TextEncoder();
+  sps.forEach(p => {
+    const th = p.thu ? tenTep(p.thu) + '/' : '';
+    (p.imgs || []).forEach((u, i) => viec.push({u, ten: th + 'anh-sp-' + String(i + 1).padStart(2, '0')}));
+    (p.dimgs || []).forEach((u, i) => viec.push({u, ten: th + 'mo-ta-' + String(i + 1).padStart(2, '0')}));
+    const txt = [p.n, p.shop ? 'Shop: ' + p.shop : '', p.url || '', '', p.desc || ''].filter((x, i) => x || i === 3).join('\n').trim();
+    if (txt) tep.push({name: th + 'mo-ta.txt', data: enc.encode(txt + '\n')});
+  });
+  if (!viec.length) throw new Error('Không có ảnh nào để tải.');
+  let da = 0, hong = 0, i = 0;
+  const chay = async () => {
+    while (i < viec.length){
+      const v = viec[i++];
+      try {
+        const r = await fetch(rvImg(v.u), {credentials: 'omit', referrerPolicy: 'no-referrer'});
+        if (!r.ok) throw new Error(r.status);
+        const b = new Uint8Array(await r.arrayBuffer());
+        tep.push({name: v.ten + '.' + duoiAnh(b), data: b});
+      } catch(e){ hong++; }
+      da++; if (bao) bao(da, viec.length);
+    }
+  };
+  await Promise.all([chay(), chay(), chay(), chay()]);
+  if (hong === viec.length) throw new Error('Không tải được ảnh nào (mất mạng, hay máy chủ ảnh Shopee chặn?).');
+  tep.sort((a, b) => a.name.localeCompare(b.name));
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(zipBlob(tep)); a.download = tenTep(tenZip) + '.zip';
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 10000);
+  return {n: viec.length - hong, hong};
+}
 
 /* Gian hàng của mình: chủ đã đánh dấu (theo mã shop), hoặc trùng tên với một
    gian hàng đã khai trong Hub. Đánh dấu theo mã chứ không theo tên vì tên
@@ -5718,4 +5805,4 @@ function rvShopChanges(row){
   return out;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "3e7ab623"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "3e7180b7"]);

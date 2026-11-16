@@ -240,6 +240,7 @@ const Server = (() => {
   const rivalMine    = (sid, name, on)   => call('rival_mine', {shop_id: sid, name, on});
   const rivalShops   = ()      => call('rival_shops');
   const rivalLatest  = ()      => call('rival_latest');
+  const rivalDesc    = ids     => call('rival_desc', {ids});
   const rivalShopDel = id      => call('rival_shop_del', {id});
   const rivalShopSave = (id, every) => call('rival_shop_save', {id, every});
   /* ảnh của bảng xây dựng sản phẩm */
@@ -255,7 +256,7 @@ const Server = (() => {
 
   return {probe, login, logout, logoutAll, pull, push, pushBeacon, stats,
           tgGet, tgSave, tgTest, tgReport, tgHook, remind, ingestList, ingestSet,
-          rivalState, rivalScans, rivalKwSave, rivalKwDel, rivalScanDel, rivalMine, rivalShops, rivalLatest, rivalShopDel, rivalShopSave, bimgUp, bimgDel, imgUrl, adTgUp, adTgMute,
+          rivalState, rivalScans, rivalKwSave, rivalKwDel, rivalScanDel, rivalMine, rivalShops, rivalLatest, rivalDesc, rivalShopDel, rivalShopSave, bimgUp, bimgDel, imgUrl, adTgUp, adTgMute,
           users, userNames, userSave, userDel, takeWhoChanged, notePerms,
           available, authed, state, role, isOwner, name, perms, may, call};
 })();
@@ -357,4 +358,4 @@ const Gate = (() => {
 })();
 window.Gate = Gate;
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/api.js", "3e7ab623"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/api.js", "3e7180b7"]);

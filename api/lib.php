@@ -1163,6 +1163,9 @@ function rvTables(PDO $pdo): void {
      khoá: một sản phẩm đứng top ở ba từ khoá vẫn chỉ đọc một lần. */
   $pdo->exec('CREATE TABLE IF NOT EXISTS rv_sp (item_id TEXT NOT NULL, date TEXT NOT NULL, at TEXT, data TEXT,
       PRIMARY KEY (item_id, date))');
+  /* rv_spdesc (thêm 16/11/2026): mô tả sản phẩm — chữ + ảnh chèn trong mô tả,
+     một bản mới nhất mỗi sản phẩm (xem rvSpSave) */
+  $pdo->exec('CREATE TABLE IF NOT EXISTS rv_spdesc (item_id TEXT PRIMARY KEY, date TEXT, at TEXT, data TEXT)');
   /* every (thêm sau): bao nhiêu ngày quét một lần — xem RV_TAN */
   if (!in_array('every', array_column($pdo->query('PRAGMA table_info(rv_kw)')->fetchAll(), 'name'), true))
     $pdo->exec('ALTER TABLE rv_kw ADD COLUMN every INTEGER DEFAULT 7');
@@ -1451,7 +1454,33 @@ function rvSpClean(array $x): ?array {
     'def' => ['n' => $chu($def['n'] ?? '', 120), 'pb' => $tien($def['pb'] ?? 0), 'f' => $tien($def['f'] ?? 0)],
     'lines' => $lines, 'models' => $models, 'tiers' => $tiers, 'vouchers' => $vs,
     'tags' => array_values(array_filter(array_map(fn($t) => $chu($t, 40), array_slice($mang($x['tags'] ?? null), 0, 6)))),
+    /* mô tả — rvSpSave() tách ra bảng rv_spdesc, không nằm lại trong rv_sp */
+    'dimgs' => array_values(array_unique(array_filter(array_map($anh, array_slice($mang($x['dimgs'] ?? null), 0, 40))))),
+    'desc' => rvMoTaSach($x['desc'] ?? ''),
   ];
+}
+/* Chữ mô tả: giữ xuống dòng (chủ đọc như trên Shopee), bỏ khoảng trắng thừa,
+   tối đa hai dòng trống liền nhau, cắt 4000 ký tự. */
+function rvMoTaSach($v): string {
+  $t = str_replace(["\r\n", "\r"], "\n", is_scalar($v) ? (string)$v : '');
+  $t = (string)preg_replace('/[^\S\n]+/u', ' ', $t);
+  $t = (string)preg_replace('/ *\n */u', "\n", $t);
+  $t = (string)preg_replace('/\n{3,}/u', "\n\n", $t);
+  return mb_substr(trim($t), 0, 4000, 'UTF-8');
+}
+/* Mô tả mới nhất của một loạt sản phẩm: {mã: {date, dimgs, desc}} */
+function rvDescs(array $ids): array {
+  $pdo = db(); rvTables($pdo);
+  $ids = array_slice(array_values(array_unique(array_filter(array_map(fn($i) => preg_replace('/\D/', '', (string)$i), $ids)))), 0, 80);
+  if (!$ids) return [];
+  $st = $pdo->prepare('SELECT item_id, date, data FROM rv_spdesc WHERE item_id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')');
+  $st->execute($ids);
+  $out = [];
+  foreach ($st->fetchAll() as $r) {
+    $d = json_decode((string)$r['data'], true);
+    if (is_array($d)) $out[(string)$r['item_id']] = ['date' => (string)$r['date'], 'dimgs' => $d['dimgs'] ?? [], 'desc' => $d['desc'] ?? ''];
+  }
+  return $out;
 }
 function rvSpSave(array $in): array {
   $pdo = db(); rvTables($pdo);
@@ -1460,6 +1489,16 @@ function rvSpSave(array $in): array {
   if ($x['n'] === '' || (!$x['models'] && !$x['def']['f']))
     return ['error' => 'Sản phẩm ' . $x['id'] . ' không có tên, hoặc không có giá lẫn phân loại — trang chưa tải xong?'];
   $date = rvNgayQuet($in);
+  /* Mô tả gần như không đổi, lại dài — giữ MỘT bản mới nhất ở rv_spdesc, khỏi
+     nhân lên theo từng bản chụp (rival_shops tải cả chục bản chụp mỗi sản phẩm).
+     Trang không có mô tả (Shopee đổi tên trường?) thì giữ nguyên bản cũ. */
+  $mt = ['dimgs' => $x['dimgs'], 'desc' => $x['desc']];
+  unset($x['dimgs'], $x['desc']);
+  $x['nd'] = count($mt['dimgs']);
+  if ($mt['dimgs'] || $mt['desc'] !== '')
+    $pdo->prepare('INSERT INTO rv_spdesc (item_id, date, at, data) VALUES (?,?,?,?)
+        ON CONFLICT(item_id) DO UPDATE SET date=excluded.date, at=excluded.at, data=excluded.data')
+        ->execute([$x['id'], $date, gmdate('c'), json_encode($mt, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]);
   $pdo->prepare('INSERT INTO rv_sp (item_id, date, at, data) VALUES (?,?,?,?)
       ON CONFLICT(item_id, date) DO UPDATE SET at=excluded.at, data=excluded.data')
       ->execute([$x['id'], $date, gmdate('c'), json_encode($x, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]);
@@ -1468,7 +1507,7 @@ function rvSpSave(array $in): array {
   $pdo->prepare('DELETE FROM rv_sp WHERE item_id = ? AND date < ?')
       ->execute([$x['id'], (new DateTime($date))->modify('-' . RV_SP_GIU . ' days')->format('Y-m-d')]);
   return ['ok' => true, 'id' => $x['id'], 'date' => $date, 'models' => count($x['models']),
-          'lines' => count($x['lines']), 'f' => $x['def']['f']];
+          'lines' => count($x['lines']), 'f' => $x['def']['f'], 'nd' => $x['nd'], 'desc' => mb_strlen($mt['desc'], 'UTF-8')];
 }
 /* Những sản phẩm tác vụ cần mở trên Shopee: RV_SP_TOP sản phẩm đứng đầu ở lần
    quét gần nhất của từng từ khoá đang bật, cộng sản phẩm của shop mình trong

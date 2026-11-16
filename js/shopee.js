@@ -775,4 +775,4 @@ const ShopeeFiles = (() => {
   return {read};
 })();
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/shopee.js", "3e7ab623"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/shopee.js", "3e7180b7"]);

@@ -1634,6 +1634,9 @@ function rvProdOpen(id){
     }
   }
 
+  /* ---- mô tả (chữ + ảnh chèn trong mô tả) — tải riêng, điền vào sau ---- */
+  h += `<div id="rvDesc" data-id="${esc(id)}"></div>`;
+
   /* ---- ảnh bìa qua các lần quét: chỉ hiện khi đã từng đổi ---- */
   const biaCu = [];
   his.filter(r => !r.bu).reverse().forEach(r => { if (r.img && (!biaCu.length || biaCu[biaCu.length - 1].img !== r.img)) biaCu.push({img:r.img, date:r.date}); });
@@ -1660,6 +1663,46 @@ function rvProdOpen(id){
   h += `</tbody></table></div>
     <div class="dim" style="margin-top:8px">Ô tô vàng là chỗ vừa đổi so với lần quét trước đó. Số nhỏ cạnh "Tổng đã bán" là phần bán thêm giữa hai lần quét.</div>`;
   openModal('Đối thủ', h, `<div class="btns end"><div class="grow"></div><button class="btn sm" data-act="closem">Đóng</button></div>`, true);
+  rvDescFill(id);
+}
+async function rvDescFill(id){
+  const o = () => { const e = document.getElementById('rvDesc'); return e && e.dataset.id === id ? e : null; };
+  try { await loadDescs([id]); }
+  catch(e){ const el = o(); if (el) el.innerHTML = `<div class="dim" style="margin-top:14px">Không tải được mô tả: ${esc(e.message || e)}</div>`; return; }
+  const el = o(), d = rv.desc[id];
+  if (!el) return;
+  /* ghim lúc này thì bản chụp mang theo cả mô tả */
+  if (d && rvPinSnap && rvPinSnap.id === id) Object.assign(rvPinSnap, {dimgs: d.dimgs.slice(0, 40), desc: d.desc, dAt: d.date});
+  const sp = (rv.sp[id] || [])[0];
+  el.innerHTML = d ? rvDescHtml(d, `<button class="btn sm" data-act="dzip" data-id="rv|${esc(id)}">⬇ Tải hết ảnh (zip)</button>`)
+    : sp ? `<div class="dim" style="margin-top:14px">Chưa có mô tả: lần đọc trang Shopee gần nhất (${esc(fmtDate(sp.date))}) chưa lấy mô tả — từ lần quét tới sẽ có, kể cả ảnh chèn trong mô tả.</div>
+      ${(sp.imgs || []).length ? `<div class="btns" style="margin-top:6px"><button class="btn sm" data-act="dzip" data-id="rv|${esc(id)}">⬇ Tải ${sp.imgs.length} ảnh sản phẩm (zip)</button></div>` : ''}` : '';
+}
+/* Nút "⬇ Tải hết ảnh": rv|mã (hộp chi tiết đối thủ), ref|bảng|đối thủ, refs|bảng (cả bảng) */
+async function anhZip(key, el){
+  const [k, a, c] = String(key).split('|');
+  let ten = '', sps = [];
+  const goi = (r, thu) => ({thu, n: r.n, shop: r.shop, url: r.url, imgs: (r.imgs || []).length ? r.imgs : r.img ? [r.img] : [], dimgs: r.dimgs || [], desc: r.desc || ''});
+  if (k === 'rv'){
+    const sp = (rv.sp[a] || [])[0], d = rv.desc[a];
+    if (!sp) return toast('Chưa có bản chụp trang Shopee của sản phẩm này.');
+    sps = [goi({n: sp.n, shop: sp.shop, url: 'https://shopee.vn/product/' + sp.sid + '/' + sp.id, imgs: sp.imgs, img: sp.img,
+                dimgs: d ? d.dimgs : [], desc: d ? d.desc : ''}, '')];
+    ten = (sp.shop ? sp.shop + ' - ' : '') + cut(sp.n, 40);
+  } else {
+    const b = buildOf(a);
+    if (!b) return;
+    const rs = (b.refs || []).filter(r => k === 'refs' || r.id === c);
+    sps = rs.map(r => goi(r, k === 'refs' ? (r.shop ? r.shop + ' - ' : '') + cut(r.n, 40) : '')).filter(p => p.imgs.length || p.dimgs.length);
+    ten = k === 'refs' ? 'Doi thu - ' + b.name : (rs[0] && rs[0].shop ? rs[0].shop + ' - ' : '') + cut(rs[0] ? rs[0].n : '', 40);
+  }
+  const cu = el ? el.textContent : '';
+  if (el){ if (el.disabled) return; el.disabled = true; }
+  try {
+    const r = await taiAnhZip(ten, sps, (x, n) => { if (el) el.textContent = 'Đang tải ' + x + '/' + n + '…'; });
+    toast('Đã tải ' + r.n + ' ảnh' + (r.hong ? ' — ' + r.hong + ' ảnh không tải được' : ''));
+  } catch(e){ toast(e.message || String(e)); }
+  if (el){ el.disabled = false; el.textContent = cu; }
 }
 
 /* Thiết bị gửi số liệu quảng cáo tự động — xem thẻ ingestCard() */
@@ -4976,7 +5019,7 @@ const ACTIONS = {
   rvnew:    () => isOwner() && rvKwForm(null),
   rvedit:   id => isOwner() && rvKwForm(id),
   rvprod:   id => rvProdOpen(id),
-  rvreload: () => { rv.asked = false; rv.scans = {}; rv.vols = {}; rv.sp = {}; rv.state = null; rv.shops = null; rv.shLuc = 0; render(); },
+  rvreload: () => { rv.asked = false; rv.scans = {}; rv.vols = {}; rv.sp = {}; rv.desc = {}; rv.state = null; rv.shops = null; rv.shLuc = 0; render(); },
   /* ---- Bảng xây dựng sản phẩm ---- */
   bnew:     () => buildForm(null),
   bopen:    id => { ui.bTab = 'all'; ui.bLog = ''; go('build', id); },
@@ -5033,6 +5076,8 @@ const ACTIONS = {
   },
   rvmode:   id => { ui.rvMode = id === 'img' ? 'img' : 'tbl'; render(); },
   /* đổi ảnh lớn trong hộp chi tiết đối thủ */
+  dzip:     (id, el) => anhZip(id, el),
+  brefdesc: id => bRefFill(id, true),
   rvimg:    (id, el) => {
     const big = document.getElementById('rvBig');
     if (!big) return;
@@ -5720,6 +5765,8 @@ function bRefFrom(x, sp, sum){
     created: x.created || '', mall: !!x.mall, gc: g ? g.f : 0, gpb: g ? g.pb : 0,
     models: sum ? sum.rows.slice(0, 40).map(r => ({n: r.n, p: r.p, pb: r.pb, f: r.f, ok: r.ok})) : [],
     imgs: sp && sp.imgs ? sp.imgs.slice(0, 12) : [],
+    dimgs: rv.desc[x.id] ? rv.desc[x.id].dimgs.slice(0, 40) : [], desc: rv.desc[x.id] ? rv.desc[x.id].desc : '',
+    dAt: rv.desc[x.id] ? rv.desc[x.id].date : '',
     vouchers: sp ? (sp.vouchers || []).filter(v => !v.coin).slice(0, 8).map(rvVoucherTen) : [],
     tags: sp ? (sp.tags || []).slice(0, 6) : [], spDate: sp ? sp.date || '' : '', at: today()};
 }
@@ -6132,12 +6179,52 @@ function bRefModal(bid, rid){
       r.r ? ' · DS kỳ ' + moneyShort(r.r) + ' · ' + (r.o || 0).toLocaleString('vi-VN') + ' lượt' : ''}${r.ra ? ' · ' + r.ra.toFixed(1) + '★ ' + (r.rc || 0).toLocaleString('vi-VN') : ''}</div>
     ${(r.tags || []).length ? `<div class="chips" style="margin-top:8px">${r.tags.map(t => `<span class="chip warn">${esc(t)}</span>`).join('')}</div>` : ''}
     ${(r.vouchers || []).length ? `<ul class="bd-ul">${r.vouchers.map(v => `<li>🎟 ${esc(v)}</li>`).join('')}</ul>` : ''}
+    ${r.manual ? '' : r.dAt ? rvDescHtml({date: r.dAt, dimgs: r.dimgs || [], desc: r.desc || ''})
+      : `<div class="dim" style="margin-top:10px">Chưa có mô tả của sản phẩm này (chữ và ảnh chèn trong mô tả) — có sau khi tác vụ quét đọc lại trang Shopee của nó.</div>`}
     ${(r.models || []).length ? `<div class="sec sm">${r.models.length} phân loại<span class="ln"></span></div>
       <div class="tblwrap"><table class="tbl sm"><thead><tr><th>Phân loại</th><th class="r">Giá bán</th><th class="r">Giá cuối</th></tr></thead><tbody>${
       r.models.map(m => `<tr><td>${esc(m.n || '—')}</td><td class="r">${money(m.p)}</td><td class="r"><b>${m.f ? money(m.f) : '—'}</b></td></tr>`).join('')}</tbody></table></div>` : ''}`;
   openModal('Đối thủ làm mốc', body, `<div class="btns end"><button class="btn sm dngr" data-act="bunpin" data-id="${bid}|${esc(rid)}">Bỏ ghim</button>
-    <div class="grow"></div>${r.url ? `<a class="btn sm" href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">Mở trên Shopee ↗</a>` : ''}
+    <div class="grow"></div>${r.manual ? '' : `<button class="btn sm" data-act="brefdesc" data-id="${bid}" title="Lấy chữ và ảnh mô tả mới nhất mà tác vụ quét đã đọc">↻ Mô tả mới nhất</button>`}
+    ${ds.length || (r.dimgs || []).length ? `<button class="btn sm" data-act="dzip" data-id="ref|${bid}|${esc(rid)}">⬇ Tải hết ảnh (zip)</button>` : ''}
+    ${r.url ? `<a class="btn sm" href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">Mở trên Shopee ↗</a>` : ''}
     <button class="btn sm" data-act="closem">Đóng</button></div>`, true);
+}
+/* Điền mô tả (chữ + ảnh) vào các đối thủ đã ghim. Ghim trước khi có mô tả (hay
+   ghim lúc tác vụ chưa đọc) thì lần mở bảng sau tự bù — mỗi bảng hỏi máy chủ
+   một lần mỗi phiên; bấm "↻ Mô tả mới nhất" thì hỏi lại cả những cái đã có. */
+const bDescHoi = new Set();
+async function bRefFill(bid, lai){
+  const b0 = buildOf(bid);
+  const can = ((b0 && b0.refs) || []).filter(r => !r.manual && /^\d+$/.test(String(r.id)) && (lai || !r.dAt));
+  if (!can.length){ if (lai) toast('Bảng này không có đối thủ nào ghim từ Shopee.'); return; }
+  bDescHoi.add(bid);
+  try { await loadDescs(can.map(r => r.id), true); }
+  catch(e){ if (lai) toast('Không tải được mô tả: ' + (e.message || e)); return; }
+  const b = db.builds.find(y => y.id === bid && !y.deleted);
+  if (!b) return;
+  let n = 0, co = 0;
+  (b.refs || []).forEach(r => {
+    const d = can.some(x => x.id === r.id) ? rv.desc[String(r.id)] : null;
+    if (!d) return;
+    co++;
+    const dimgs = (d.dimgs || []).slice(0, 40), desc = String(d.desc || '').slice(0, 4000);
+    if (r.dAt === d.date && (r.dimgs || []).join() === dimgs.join() && (r.desc || '') === desc) return;
+    Object.assign(r, {dimgs, desc, dAt: d.date}); n++;
+  });
+  if (n){ touch(b); save(); }
+  if (lai) toast(n ? 'Đã cập nhật mô tả của ' + n + ' đối thủ' : co ? 'Mô tả vẫn như lần lấy trước' : 'Tác vụ quét chưa đọc mô tả của đối thủ nào trong bảng — đợi lần quét Shopee tới');
+  if (n || lai){
+    const m = document.querySelector('.modal [data-act="bunpin"]');
+    if (m && lai){ const [x, y] = m.dataset.id.split('|'); closeAllModals(); bRefModal(x, y); }
+    render();
+  }
+}
+function bRefFillAuto(b){
+  if (!b || bDescHoi.has(b.id) || !(window.Server && Server.authed())) return;
+  if (!(b.refs || []).some(r => !r.manual && /^\d+$/.test(String(r.id)) && !r.dAt)) return;
+  bDescHoi.add(b.id);
+  setTimeout(() => bRefFill(b.id), 50);
 }
 function bUnpin(bid, rid){
   const b = db.builds.find(y => y.id === bid && !y.deleted), r = b && (b.refs || []).find(x => x.id === rid);
@@ -6333,4 +6420,4 @@ document.addEventListener('paste', e => {
   bUpload(z.dataset.bid, fs);
 });
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "3e7ab623"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "3e7180b7"]);
