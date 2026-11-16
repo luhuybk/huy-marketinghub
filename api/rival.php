@@ -106,7 +106,12 @@ if ($do === 'splist' || $do === 'sp') {
   if (!rvTicketOk((string)($in['ticket'] ?? '')))
     rvOut(['ok' => false, 'error' => 'Vé quét không đúng hoặc đã hết hạn — xin vé mới bằng do:"kws".'], 403);
   if ($do === 'splist')
-    rvOut(['ok' => true, 'today' => (new DateTime('now', new DateTimeZone(KH_TZ)))->format('Y-m-d'), 'items' => rvSpList()]);
+  {
+    $items = rvSpList();
+    /* bu: số sản phẩm ngoài top 10 còn chờ đọc bổ sung (cả phần chưa vào lượt này) */
+    rvOut(['ok' => true, 'today' => (new DateTime('now', new DateTimeZone(KH_TZ)))->format('Y-m-d'), 'items' => $items,
+           'bu' => (int)($GLOBALS['rvSpBuCon'] ?? 0)]);
+  }
   $r = rvSpSave($in);
   rvOut(isset($r['error']) ? ['ok' => false, 'error' => $r['error']] : $r, isset($r['error']) ? 400 : 200);
 }
