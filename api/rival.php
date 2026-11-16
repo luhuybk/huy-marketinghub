@@ -107,7 +107,9 @@ if ($do === 'splist' || $do === 'sp') {
     rvOut(['ok' => false, 'error' => 'Vé quét không đúng hoặc đã hết hạn — xin vé mới bằng do:"kws".'], 403);
   if ($do === 'splist')
   {
-    $items = rvSpList();
+    /* bu (tuỳ chọn): đọc bổ sung tối đa bao nhiêu cái trong lượt này — chủ dặn
+       "đọc bù cho hết" thì tác vụ truyền số lớn hơn RV_SP_BU_MAX */
+    $items = rvSpList(isset($in['bu']) && is_numeric($in['bu']) ? (int)$in['bu'] : RV_SP_BU_MAX);
     /* bu: số sản phẩm ngoài top 10 còn chờ đọc bổ sung (cả phần chưa vào lượt này) */
     rvOut(['ok' => true, 'today' => (new DateTime('now', new DateTimeZone(KH_TZ)))->format('Y-m-d'), 'items' => $items,
            'bu' => (int)($GLOBALS['rvSpBuCon'] ?? 0)]);

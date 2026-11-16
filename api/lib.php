@@ -1520,7 +1520,7 @@ function rvSpSave(array $in): array {
 /* Những sản phẩm tác vụ cần mở trên Shopee: RV_SP_TOP sản phẩm đứng đầu ở lần
    quét gần nhất của từng từ khoá đang bật, cộng sản phẩm của shop mình trong
    top. `done` = hôm nay đã đọc rồi (chạy lại giữa chừng thì bỏ qua). */
-function rvSpList(): array {
+function rvSpList(int $buMax = RV_SP_BU_MAX): array {
   $pdo = db(); rvTables($pdo);
   $mine = array_column($pdo->query('SELECT shop_id FROM rv_mine')->fetchAll(), 'shop_id');
   $nay = (new DateTime('now', new DateTimeZone(KH_TZ)))->format('Y-m-d');
@@ -1591,7 +1591,7 @@ function rvSpList(): array {
     $k = fn($x) => [($cu[$x['id']] ?? '') === $nay ? 0 : 1, isset($cu[$x['id']]) ? 1 : 0, $x['hang']];
     usort($can, fn($a, $b) => $k($a) <=> $k($b));
     $GLOBALS['rvSpBuCon'] = count(array_filter($can, fn($x) => ($cu[$x['id']] ?? '') !== $nay));
-    foreach (array_slice($can, 0, RV_SP_BU_MAX) as $x) { unset($x['hang']); $x['bu'] = true; $out[$x['id']] = $x; }
+    foreach (array_slice($can, 0, max(0, min(500, $buMax))) as $x) { unset($x['hang']); $x['bu'] = true; $out[$x['id']] = $x; }
   }
   if ($out) {
     $st = $pdo->prepare('SELECT item_id FROM rv_sp WHERE date = ?');
