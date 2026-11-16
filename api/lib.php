@@ -1134,6 +1134,14 @@ const RV_TOP = 20;            // Metric trả 20 sản phẩm đầu cho mỗi l
 const RV_TICKET_GIO = 6;      // vé quét sống bao lâu
 const RV_SP_TOP = 10;          // mỗi từ khoá đọc trang Shopee của mấy sản phẩm đứng đầu
 const RV_SP_GIU = 400;         // bản chụp trang Shopee giữ bao nhiêu ngày
+/* Đọc bổ sung (thêm 16/11/2026): sản phẩm NGOÀI RV_SP_TOP — hạng 11–20 của từ
+   khoá, hạng 11–60 của quét sâu gian hàng — trước kia không bao giờ được đọc
+   nên cứ "chưa đọc" giá. Giờ đọc dần: chỉ cái chưa có bản chụp hoặc bản chụp
+   cũ hơn RV_SP_BU_NGAY ngày, mỗi lượt tối đa RV_SP_BU_MAX cái (chưa đọc bao giờ
+   trước, rồi hạng cao trước) — vài lượt là phủ hết mà không lượt nào dài quá
+   để Shopee đòi xác minh. */
+const RV_SP_BU_NGAY = 7;
+const RV_SP_BU_MAX = 60;
 /* Bao lâu quét một từ khoá (ngày). Từ khoá ít biến động quét thưa để đỡ tốn
    lượt Metric. Tới hạn sớm hơn RV_HAN_SOM ngày cho đợt quét xê dịch một hai
    hôm vẫn bắt kịp: đợt hằng tuần quét từ khoá "mỗi tháng" ở đợt thứ tư (28 ngày). */
@@ -1516,13 +1524,21 @@ function rvSpList(): array {
   $pdo = db(); rvTables($pdo);
   $mine = array_column($pdo->query('SELECT shop_id FROM rv_mine')->fetchAll(), 'shop_id');
   $nay = (new DateTime('now', new DateTimeZone(KH_TZ)))->format('Y-m-d');
-  $out = [];
+  $out = []; $bu = [];
+  $buThem = function (array $x, int $hang, string $nhan) use (&$bu) {
+    $id = (string)($x['id'] ?? '');
+    if ($id === '' || empty($x['url'])) return;
+    if (!isset($bu[$id])) $bu[$id] = ['id' => $id, 'sid' => (string)($x['sid'] ?? ''), 'url' => (string)$x['url'],
+                                      'shop' => (string)($x['shop'] ?? ''), 'kws' => [], 'hang' => $hang];
+    $bu[$id]['hang'] = min($bu[$id]['hang'], $hang);
+    if (!in_array($nhan, $bu[$id]['kws'], true)) $bu[$id]['kws'][] = $nhan;
+  };
   foreach (rvKwList(false) as $k) {
     $st = $pdo->prepare('SELECT data FROM rv_scan WHERE kw_id = ? ORDER BY date DESC LIMIT 1');
     $st->execute([$k['id']]);
     $items = json_decode((string)$st->fetchColumn(), true);
     foreach ((is_array($items) ? $items : []) as $i => $x) {
-      if ($i >= RV_SP_TOP && !in_array((string)($x['sid'] ?? ''), $mine, true)) continue;
+      if ($i >= RV_SP_TOP && !in_array((string)($x['sid'] ?? ''), $mine, true)) { $buThem($x, $i, $k['kw']); continue; }
       $id = (string)($x['id'] ?? '');
       if ($id === '' || empty($x['url'])) continue;
       if (!isset($out[$id])) $out[$id] = ['id' => $id, 'sid' => (string)($x['sid'] ?? ''), 'url' => (string)$x['url'],
@@ -1548,6 +1564,7 @@ function rvSpList(): array {
   foreach (rvShopScans(1, 1) as $sh) {
     $dp = $sh['deep'][0] ?? null;
     if (!$dp) continue;
+    foreach (array_slice($dp['items'], RV_SP_TOP) as $i => $x) $buThem($x, RV_SP_TOP + $i, 'Gian hàng: ' . $sh['name']);
     foreach (array_slice($dp['items'], 0, RV_SP_TOP) as $x) {
       $id = (string)($x['id'] ?? '');
       if ($id === '' || empty($x['url'])) continue;
@@ -1556,6 +1573,25 @@ function rvSpList(): array {
       $nhan = 'Gian hàng: ' . $sh['name'];
       if (!in_array($nhan, $out[$id]['kws'], true)) $out[$id]['kws'][] = $nhan;
     }
+  }
+  /* đọc bổ sung — xem RV_SP_BU_NGAY */
+  $bu = array_diff_key($bu, $out);
+  $GLOBALS['rvSpBuCon'] = 0;
+  if ($bu) {
+    $cu = [];
+    foreach (array_chunk(array_keys($bu), 300) as $lo) {
+      $st = $pdo->prepare('SELECT item_id, MAX(date) d FROM rv_sp WHERE item_id IN (' . implode(',', array_fill(0, count($lo), '?')) . ') GROUP BY item_id');
+      $st->execute(array_map('strval', $lo));
+      foreach ($st->fetchAll() as $r) $cu[(string)$r['item_id']] = (string)$r['d'];
+    }
+    $han = (new DateTime($nay))->modify('-' . RV_SP_BU_NGAY . ' days')->format('Y-m-d');
+    /* cái đã đọc bổ sung HÔM NAY vẫn giữ trong danh sách (done) và tính vào
+       RV_SP_BU_MAX — chạy lại giữa chừng không kéo thêm 60 cái mới */
+    $can = array_filter($bu, fn($x) => ($cu[$x['id']] ?? '') < $han || ($cu[$x['id']] ?? '') === $nay);
+    $k = fn($x) => [($cu[$x['id']] ?? '') === $nay ? 0 : 1, isset($cu[$x['id']]) ? 1 : 0, $x['hang']];
+    usort($can, fn($a, $b) => $k($a) <=> $k($b));
+    $GLOBALS['rvSpBuCon'] = count(array_filter($can, fn($x) => ($cu[$x['id']] ?? '') !== $nay));
+    foreach (array_slice($can, 0, RV_SP_BU_MAX) as $x) { unset($x['hang']); $x['bu'] = true; $out[$x['id']] = $x; }
   }
   if ($out) {
     $st = $pdo->prepare('SELECT item_id FROM rv_sp WHERE date = ?');

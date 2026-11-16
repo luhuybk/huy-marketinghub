@@ -1435,7 +1435,8 @@ function ingestRoute(req, res, body){
 }
 
 /* ---------------- Theo dõi đối thủ: bản Node của các hàm rv… trong api/lib.php ---------------- */
-const RV_TOP = 20, RV_TICKET_GIO = 6, RV_SP_TOP = 10, RV_SP_GIU = 400;
+const RV_TOP = 20, RV_TICKET_GIO = 6, RV_SP_TOP = 10, RV_SP_GIU = 400, RV_SP_BU_NGAY = 7, RV_SP_BU_MAX = 60;   // xem RV_SP_BU_NGAY bên PHP
+let rvSpBuCon = 0;
 const RV_TAN = [7, 14, 30], RV_HAN_SOM = 2;      // xem RV_TAN bên api/lib.php
 const rvDaTao = new WeakSet();          // kho nào đã dựng bảng rv… rồi
 function rvTables(D){
@@ -1666,12 +1667,19 @@ function rvSpSave(inp){
 function rvSpList(){
   const D = db(); rvTables(D);
   const mine = D.prepare('SELECT shop_id FROM rv_mine').all().map(r => String(r.shop_id));
-  const out = new Map();
+  const out = new Map(), bu = new Map();
+  const buThem = (x, hang, nhan) => {
+    const id = String(x.id || '');
+    if (!id || !x.url) return;
+    if (!bu.has(id)) bu.set(id, {id, sid:String(x.sid || ''), url:String(x.url), shop:String(x.shop || ''), kws:[], hang});
+    const b = bu.get(id); b.hang = Math.min(b.hang, hang);
+    if (!b.kws.includes(nhan)) b.kws.push(nhan);
+  };
   rvKwList(false).forEach(k => {
     const r = D.prepare('SELECT data FROM rv_scan WHERE kw_id = ? ORDER BY date DESC LIMIT 1').get(k.id);
     let items = []; try { items = JSON.parse((r && r.data) || '[]'); } catch(e){}
     (Array.isArray(items) ? items : []).forEach((x, i) => {
-      if (i >= RV_SP_TOP && !mine.includes(String(x.sid || ''))) return;
+      if (i >= RV_SP_TOP && !mine.includes(String(x.sid || ''))) return buThem(x, i, k.kw);
       const id = String(x.id || '');
       if (!id || !x.url) return;
       if (!out.has(id)) out.set(id, {id, sid:String(x.sid || ''), url:String(x.url), shop:String(x.shop || ''), kws:[]});
@@ -1693,6 +1701,7 @@ function rvSpList(){
   rvShopScans(1, 1).forEach(sh => {
     const dp = sh.deep[0];
     if (!dp) return;
+    dp.items.slice(RV_SP_TOP).forEach((x, i) => buThem(x, RV_SP_TOP + i, 'Gian hàng: ' + sh.name));
     dp.items.slice(0, RV_SP_TOP).forEach(x => {
       const id = String(x.id || '');
       if (!id || !x.url) return;
@@ -1701,6 +1710,22 @@ function rvSpList(){
       if (!out.get(id).kws.includes(nhan)) out.get(id).kws.push(nhan);
     });
   });
+  /* đọc bổ sung — xem RV_SP_BU_NGAY bên PHP */
+  out.forEach((v, id) => bu.delete(id));
+  rvSpBuCon = 0;
+  if (bu.size){
+    const nay = vnNow().date, han = rvCong(nay, -RV_SP_BU_NGAY), cu = {}, ids = [...bu.keys()];
+    for (let i = 0; i < ids.length; i += 300){
+      const lo = ids.slice(i, i + 300);
+      D.prepare('SELECT item_id, MAX(date) d FROM rv_sp WHERE item_id IN (' + lo.map(() => '?').join(',') + ') GROUP BY item_id').all(...lo)
+        .forEach(r => { cu[String(r.item_id)] = String(r.d); });
+    }
+    const k = x => [cu[x.id] === nay ? 0 : 1, cu[x.id] ? 1 : 0, x.hang];
+    const can = [...bu.values()].filter(x => (cu[x.id] || '') < han || cu[x.id] === nay)
+      .sort((a, b) => { const p = k(a), q = k(b); for (let i = 0; i < 3; i++) if (p[i] !== q[i]) return p[i] - q[i]; return 0; });
+    rvSpBuCon = can.filter(x => cu[x.id] !== nay).length;
+    can.slice(0, RV_SP_BU_MAX).forEach(x => { delete x.hang; x.bu = true; out.set(x.id, x); });
+  }
   if (out.size){
     const xong = new Set(D.prepare('SELECT item_id FROM rv_sp WHERE date = ?').all(vnNow().date).map(r => String(r.item_id)));
     out.forEach(o => { o.done = xong.has(o.id); });
@@ -1896,7 +1921,7 @@ function rivalRoute(req, res, body){
   }
   if (inp.do === 'splist' || inp.do === 'sp'){
     if (!rvTicketOk(inp.ticket)) return out({ok:false, error:'Vé quét không đúng hoặc đã hết hạn — xin vé mới bằng do:"kws".'}, 403);
-    if (inp.do === 'splist') return out({ok:true, today:vnNow().date, items:rvSpList()});
+    if (inp.do === 'splist'){ const items = rvSpList(); return out({ok:true, today:vnNow().date, items, bu:rvSpBuCon}); }
     const r = rvSpSave(inp);
     return r.error ? out({ok:false, error:r.error}, 400) : out(r);
   }

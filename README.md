@@ -1029,6 +1029,12 @@ tốn lượt Metric.
   đối thủ thiết kế ảnh bìa). Bấm một sản phẩm: ảnh lớn + cả bộ ảnh, chi tiết
   giá, bảng phân loại, voucher, giá qua các lần đọc, **mô tả trên Shopee** (ảnh
   chèn trong mô tả + chữ, kèm nút tải hết ảnh .zip), các ảnh bìa đã từng dùng.
+- Đọc bổ sung (thêm 16/11/2026): trước kia chỉ 10 sản phẩm đầu mỗi từ khoá /
+  mỗi lần quét sâu được đọc trang Shopee, hạng 11 trở đi mãi "chưa đọc". Giờ mỗi
+  lượt đọc thêm tối đa `RV_SP_BU_MAX` = 60 sản phẩm ngoài top 10 (chưa đọc bao
+  giờ trước, rồi hạng cao trước), cái nào đọc rồi thì 7 ngày (`RV_SP_BU_NGAY`)
+  mới đọc lại. Đã đọc bổ sung hôm nay vẫn tính vào 60 — chạy lại giữa chừng
+  không kéo thêm.
 - Mô tả (thêm 16/11/2026, `shopee-quet.js` bản 6): đọc từ
   `item.rich_text_description` (ảnh + chữ) hoặc `item.description` (chỉ chữ).
   Máy chủ giữ **một bản mới nhất** mỗi sản phẩm ở bảng `rv_spdesc` — mô tả dài

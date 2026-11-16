@@ -195,6 +195,11 @@ sản phẩm cần đọc: 10 sản phẩm đứng đầu ở lần quét Metric
 khoá, cộng sản phẩm của shop mình trong top. Làm **sau** bước 2 để danh sách
 là top mới nhất.
 
+Từ 16/11/2026 danh sách có thêm tối đa **60 sản phẩm đọc bổ sung** (`bu: true`):
+hạng 11–20 của từ khoá và hạng 11–60 của quét sâu gian hàng, chỉ cái chưa đọc
+bao giờ hoặc đọc cách đây hơn 7 ngày. `splist` trả thêm `bu` = số còn chờ; vài
+lượt là phủ hết. Không cần làm gì khác — vẫn chạy như dưới đây.
+
 1. Mở một tab `https://shopee.vn` trong hồ sơ "Quét đối thủ" — phải đang đăng
    nhập **tài khoản mua hàng phụ** (không đăng nhập thì Shopee không cho xem
    trang sản phẩm). Chưa đăng nhập: dừng, báo chủ đăng nhập trong cửa sổ hồ sơ
