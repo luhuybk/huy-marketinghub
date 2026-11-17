@@ -348,7 +348,10 @@ select.inp{appearance:none;padding-right:26px;
 .mbody{padding:14px 16px;overflow-y:auto;flex:1}
 .mft{padding:11px 16px;border-top:1px solid var(--line);padding-bottom:calc(11px + env(safe-area-inset-bottom))}
 
-.form{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+.form{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:11px}
+/* khối xem trước / bảng gắn thêm vào cuối biểu mẫu: trải hết hai cột, bảng rộng
+   thì cuộn trong khung của nó chứ không kéo cả hộp sang ngang */
+.form>.explain,.form>.fwide{grid-column:1/-1;min-width:0}
 .fld{grid-column:span 2;display:flex;flex-direction:column;gap:5px}
 .fld.half{grid-column:span 1}
 @media(max-width:520px){.fld.half{grid-column:span 2}}
@@ -1124,6 +1127,31 @@ tr.rv-dang{background:var(--bg3)}
 .si-nv th:nth-child(n+2){width:1%;white-space:nowrap}
 @media (max-width:600px){ .si-nv td,.si-nv th{padding-left:8px;padding-right:8px} }
 .si-roas{font-size:12px;line-height:1.45}
+/* bảng "bán lẻ Shopee theo shop" trong hộp sửa giá sỉ: mỗi shop một hàng lưới,
+   màn hẹp tự xuống dòng — không bao giờ phải kéo ngang */
+.si-shops{border:1px solid var(--line);border-radius:var(--r);background:var(--bg2);overflow:hidden}
+.si-shop{display:grid;grid-template-columns:minmax(0,1.25fr) repeat(4,minmax(0,1fr));gap:4px 10px;padding:9px 11px;
+  border-top:1px solid var(--line);font-size:12px;align-items:start}
+.si-shop:first-child{border-top:0}
+.si-shn{font-weight:700;color:var(--tx);overflow-wrap:anywhere}
+.si-shop>div>span{display:block;font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.3px;font-weight:650}
+.si-shop>div>i{display:block;font-style:normal;font-size:10.5px;color:var(--tx3)}
+.tbl.si-fit{min-width:0}
+/* hộp "Hãng đổi giá" trên điện thoại: mỗi mã một khối, 4 ô nhập xếp 2×2 */
+@media(max-width:600px){
+  .tbl.si-bulk{min-width:0}
+  .si-bulk thead{display:none}
+  .si-bulk tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 10px;padding:10px 11px;border-bottom:1px solid var(--line)}
+  .si-bulk tr:last-child{border-bottom:0}
+  .si-bulk td{padding:0;border:0;text-align:left;min-width:0}
+  .si-bulk td:first-child{grid-column:1/-1}
+  .si-bulk td[data-h]::before{content:attr(data-h);display:block;font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.3px;font-weight:650;margin-bottom:3px}
+  .si-bulk input.inp{width:100%}
+}
+@media(max-width:600px){
+  .si-shop{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .si-shn{grid-column:1/-1}
+}
 .si-rs{white-space:nowrap}
 /* Giá sỉ: ô tìm to + khối thương hiệu thu gọn được */
 .si-search{display:flex;align-items:center;gap:8px;margin:4px 0 14px;position:relative}
