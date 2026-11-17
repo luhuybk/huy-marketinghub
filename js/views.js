@@ -6318,14 +6318,17 @@ function viewAdBot(){
         <div class="tiles mini bot4" style="margin-top:10px">
           ${(() => { const dat = (cfg.san || {})[key], cho = dat != null && Math.abs(dat - (c.floor || 0)) >= 0.05;
             return tile('ROAS sàn', botR(dat != null ? dat : c.floor) + (chu ? ` <button class="btn xs" data-act="botsan" data-id="${esc(key)}" title="Đặt ROAS sàn cho chiến dịch này">✎</button>` : ''),
-                        dat != null ? 'bạn đặt' + (cho ? ' · chờ bot nhận' : '') : 'tự tính'); })()}
-          ${tile('Target đang đặt', botR(c.cur), doiGoc == null ? '' : 'gốc ' + botR(c.base) + ' · ' + (doiGoc >= 0 ? '+' : '') + doiGoc.toFixed(0) + '%')}
+                        (dat != null || c.sanSrc === 'cfg' ? 'bạn đặt' + (cho ? ' · chờ bot nhận' : '') : 'tự tính') +
+                        (c.kDN && c.kDN < 1 && c.floorT ? '<br>target ≥ ' + botR(c.floorT) + ' (÷' + botR(c.kDN) + ')' : '')); })()}
+          ${tile('Target đang đặt', botR(c.cur), (c.base ? 'Giữ ' + botR(c.base) : '') + (doiGoc != null && Math.abs(doiGoc) >= 1 ? ' · ' + (doiGoc >= 0 ? '+' : '') + doiGoc.toFixed(0) + '%' : '') +
+                 (c.std && c.base ? '<br>= chuẩn × ' + botR(c.heSoGiu || 1.1) + (c.kDN && c.kDN < 1 ? ' ÷ ' + botR(c.kDN) : '') : ''))}
           ${tile('ROAS thực hôm nay', botR(c.roas),
                  (c.cost != null ? 'chi ' + moneyShort(c.cost) : '') + (c.roas != null && c.std ? ' · ' + botSoChuan(c.roas, c.std) : '') +
                  (c.at ? '<br>cập nhật ' + esc(botHm(c.at)) : ''),
                  c.roas != null && c.floor && c.roas < c.floor ? 'bad' : c.roas != null && c.std && c.roas >= c.std ? 'ok' : '')}
           ${tile('ROAS chuẩn 30 ngày', botR(c.std),
-                 c.std30 ? 'chi ' + moneyShort(c.std30.cost) + ' · ' + num(c.std30.orders || 0) + ' đơn' : c.std ? 'số cấu hình' : '')}
+                 c.std30 ? 'chi ' + moneyShort(c.std30.cost) + ' · ' + num(c.std30.orders || 0) + ' đơn' +
+                   (c.std30.days ? '<br>' + c.std30.days + ' ngày' + (c.std30.skip ? ', bỏ ' + c.std30.skip + ' ngày sale' : '') : '') : c.std ? 'số cấu hình' : '')}
         </div>
         ${strip}
         <div class="dim" style="font-size:12px;margin-top:8px">${lan ? 'Chỉnh gần nhất ' + esc(botHm(lan.at)) + ': ' + botR(lan.old) + ' → ' + botR(lan.new) : 'Chưa chỉnh lần nào'}${
