@@ -348,6 +348,22 @@ Bán sỉ là bán ngoài sàn nên không chia theo gian hàng Shopee.
   size / giá lẻ chụp lại và bỏ dòng của size đã xoá.
 - Ghi bù một mốc cũ hơn mốc mới nhất chỉ thêm vào lịch sử, không đổi giá đang dùng.
 
+**ROAS hoà vốn theo shop** (thêm 17/11): cột trong bảng của chủ + bảng "Bán lẻ
+Shopee theo shop" trong hộp sửa giá sỉ — mỗi gian hàng: giá treo, ROAS hoà vốn,
+lời/đơn chưa QC và sau QC (ROAS thực tế tháng gần nhất của gian hàng, `bRoasShop`),
+đặt cạnh lời/sp bán sỉ. Gian hàng của bảng giá vốn dùng % phí ngành, phí đóng
+gói, voucher riêng của sản phẩm; gian hàng khác dùng bảng phí của nó
+(`siRoasShops` trong state.js). Đỏ = ROAS thực tế < hoà vốn.
+
+**Tin đăng phụ (`products.goc`)**: tin đăng Shopee thứ hai của cùng món hàng
+(vd "PJ - Butterfly") trỏ `goc` về sản phẩm chính → không hiện trong Giá sỉ
+(cả bảng chủ lẫn nhân viên); quảng cáo, giá vốn, Tính chi phí của tin vẫn như cũ.
+
+**Danh mục gộp 3 nguồn (17/11/2026)**: Sapo (đoạn chat "Shopee | Phân tích tồn
+kho", kỳ 2/11) + app kho + Hub → 158 sản phẩm, tên đầy đủ, gộp bản trùng, thêm
+hàng đang bán còn thiếu (giá vốn để trống). Trang duyệt:
+https://claude.ai/artifact/2Rxtx8RrWxFieyyKSckpSP
+
 **Sửa giá (chủ)**
 - Giá vốn là đúng con số của Tính chi phí — sửa ở đây là ghi Sổ giá vốn, lãi
   Shopee và ROAS hoà vốn đổi theo.

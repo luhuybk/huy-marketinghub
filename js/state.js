@@ -3075,7 +3075,9 @@ function siUnits(){
   const out = [];
   costAllRows().forEach(r => {
     const c = r.c;
-    if (!c) return;
+    /* Tin đăng Shopee phụ (vd "PJ - Butterfly") trỏ về sản phẩm gốc qua p.goc:
+       cùng một món hàng nên giá sỉ chỉ điền ở sản phẩm gốc, không hiện 2–3 dòng. */
+    if (!c || r.p.goc) return;
     const gs = giasiOf(r.p.id);
     const them = (sid, nhan, o, le) => {
       const ls = costLogsOf(r.p.id, sid), lc = ls[ls.length - 1] || null;
@@ -3095,6 +3097,28 @@ function siUnits(){
   });
   return out.sort(siXep);
 }
+/* ROAS hoà vốn của một mã giá sỉ khi bán lẻ ở TỪNG gian hàng — để lúc điền giá
+   sỉ thấy luôn bán lẻ Shopee (sau phí + quảng cáo) lời hơn hay bán sỉ lời hơn.
+   Giá treo: giữ giá hãng thì tính lại theo voucher của gian hàng đó, không thì
+   giá đã lưu (size hoặc sản phẩm). Gian hàng của bảng giá vốn dùng % phí ngành,
+   phí đóng gói, voucher riêng của sản phẩm; gian hàng khác dùng bảng phí của nó.
+   `thuc` = ROAS chung mọi chiến dịch tháng gần nhất của gian hàng đó. */
+const shopTenNgan = sh => String(sh ? sh.name : '').replace(/^waxshop\s*-\s*/i, '') || 'shop';
+function siRoasShops(u, von){
+  const c = u.c, sz = u.sid ? (c.sizes || []).find(x => x.sid === u.sid) : null;
+  von = von === undefined ? u.von : von;
+  return shops().map(sh => {
+    const minh = (c.shopId || '') === sh.id, F = shopFees(sh);
+    const vPct = minh ? (c.voucherPct || 0) : (+F.voucherPct || 0);
+    const hang = c.giuGia ? (sz ? sz.giaHang : c.giaHang) : 0;
+    const gia = hang ? giaShopee(hang, vPct) : (sz ? sz.price : parseMoney(u.p.price)) || u.le || 0;
+    const x = von > 0 ? costFrom({gia, F, vPct, feePct: minh ? c.feePct : 0, pack: minh ? c.packCost : 0, von, gift: c.gift || 0}) : null;
+    const t = bRoasShop(sh.id);
+    const sau = x && t ? bSauQc(x, t.m.roas) : null;
+    return {sh, ten: shopTenNgan(sh), gia, x, roas: x && !x.lo ? x.roas : null, lo: !!(x && x.lo),
+            thuc: t ? t.m.roas : null, ym: t ? t.ym : '', sau};
+  });
+}
 const siXep = (a, b) => (a.brand ? 0 : 1) - (b.brand ? 0 : 1) || norm(a.brand).localeCompare(norm(b.brand), 'vi') ||
                         norm(a.p.name).localeCompare(norm(b.p.name), 'vi');
 /* Đơn vị cho nhân viên: chỉ từ bộ giasi + products — không đụng tới giá vốn */
@@ -3102,7 +3126,7 @@ function giasiUnits(){
   const out = [];
   giasis().forEach(g => {
     const p = productOf(g.productId);
-    if (!p || p.archived) return;
+    if (!p || p.archived || p.goc) return;
     g.rows.forEach(r => {
       if (!r.si1 && !r.si2) return;
       const ls = g.log.filter(l => l.sid === r.sid), l = ls[ls.length - 1] || null;
