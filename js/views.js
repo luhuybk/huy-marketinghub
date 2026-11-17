@@ -3377,6 +3377,7 @@ function viewCost(){
   const pj = ui.costTab === 'pj';
   const hero = ui.costTab === 'hero';
   const so   = ui.costTab === 'log';
+  const si   = ui.costTab === 'si';
   const nPj = projects().length;
   const nHero = costs().filter(c => c.hero).length;
 
@@ -3386,7 +3387,8 @@ function viewCost(){
      của nó". Tách ra là sớm muộn có hai bảng phí lệch nhau. */
   let h = `<div class="toolbar">
     <div class="tabs">
-      <button class="tab ${!pj && !hero && !so ? 'on' : ''}" data-act="costtab" data-id="sp">Giá vốn sản phẩm</button>
+      <button class="tab ${!pj && !hero && !so && !si ? 'on' : ''}" data-act="costtab" data-id="sp">Giá vốn sản phẩm</button>
+      <button class="tab ${si ? 'on' : ''}" data-act="costtab" data-id="si">🏷 Bảng giá sỉ</button>
       <button class="tab ${so ? 'on' : ''}" data-act="costtab" data-id="log">📒 Sổ giá vốn</button>
       <button class="tab ${pj ? 'on' : ''}" data-act="costtab" data-id="pj">⚔ Dự án${
         nPj ? ' (' + nPj + ')' : ''}</button>
@@ -3398,6 +3400,10 @@ function viewCost(){
            placeholder="Tìm sản phẩm, size, combo…" style="max-width:230px">
     ${ui.costQ ? `<button class="btn sm" data-act="costqclear" title="Xoá ô tìm">✕</button>` : ''}
   </div>`;
+
+  /* Bảng giá sỉ không chia theo gian hàng Shopee: bán sỉ là bán ngoài sàn,
+     một con hàng một giá sỉ dù nó treo ở gian hàng nào. */
+  if (si) return h + viewSiList();
 
   h += `<div class="toolbar">
     <div class="tabs">${
@@ -3425,6 +3431,59 @@ function viewCost(){
 
   h += feeBlock(ds, cur);
   return h + viewCostList(cur);
+}
+
+/* ---- 🏷 Bảng giá sỉ — xem siUnits() ---- */
+function viewSiList(){
+  const k = norm(ui.costQ || '');
+  const tat = siUnits();
+  if (!tat.length)
+    return `<div class="empty"><b>Chưa có sản phẩm nào có giá vốn</b>
+      Thêm sản phẩm ở tab <b>Giá vốn sản phẩm</b> — mọi sản phẩm ở đó tự hiện sang bảng này để điền giá sỉ.
+      <div style="margin-top:14px" class="btns center"><button class="btn pri" data-act="newcostsp">+ Thêm sản phẩm</button></div></div>`;
+  const ds = k ? tat.filter(u => costMatch({p: u.p, c: u.c}, k) || norm(u.nhan).includes(k)) : tat;
+  if (!ds.length)
+    return `<div class="empty"><b>Không có mã nào khớp “${esc(ui.costQ)}”</b>
+      <div style="margin-top:14px" class="btns center"><button class="btn" data-act="costqclear">✕ Xoá ô tìm</button></div></div>`;
+
+  const nDu = ds.filter(u => u.si1 && u.si2).length, nChua = ds.filter(u => !u.si1 && !u.si2).length;
+  const nLech = ds.filter(u => u.lech).length, nDuoi = ds.filter(u => u.duoiVon).length;
+  const laiTxt = (g, v) => { const l = siLai(g, v); return l == null ? '' : `<div class="si-lai ${l <= 0 ? 'bad' : ''}">${l > 0 ? 'lãi ' : ''}${pctText(l, 0)}</div>`; };
+
+  let h = `<div class="mod">` + moduleHead('🏷', 'Bảng giá sỉ',
+    (k ? ds.length + '/' + tat.length + ' mã khớp “' + esc(ui.costQ) + '”' : ds.length + ' mã') + ' · bấm một dòng để sửa, bấm ✎ Hãng đổi giá để sửa cả thương hiệu một lần',
+    `<button class="btn sm" data-act="sicopy" data-id="si1" title="Chép bảng giá sỉ cấp 1 (không kèm giá vốn) để dán Zalo">📋 Chép giá sỉ cấp 1</button>
+     <button class="btn sm" data-act="sicopy" data-id="si2" title="Chép bảng giá sỉ thường (không kèm giá vốn)">📋 Chép giá sỉ thường</button>`);
+  h += `<div class="tiles" style="margin-bottom:12px">
+    ${tile('Đủ hai giá sỉ', dem(nDu) + '/' + dem(ds.length), nChua ? nChua + ' mã chưa điền giá sỉ nào' : 'mã nào cũng có giá sỉ', nChua ? '' : 'ok')}
+    ${tile('Vốn đổi, giá sỉ chưa chỉnh', dem(nLech), nLech ? 'hãng đổi giá sau lần chỉnh giá sỉ cuối' : 'giá sỉ theo kịp giá vốn', nLech ? 'warn' : 'ok')}
+    ${tile('Giá sỉ ≤ giá vốn', dem(nDuoi), nDuoi ? 'bán sỉ là lỗ' : 'không mã nào bán lỗ', nDuoi ? 'bad' : 'ok')}
+  </div>`;
+
+  h += `<div class="tblwrap"><table class="tbl sm ptbl stick si-tbl"><thead><tr>
+    <th class="nw">Sản phẩm / size</th><th class="r">Giá vốn</th><th class="r">Sỉ cấp 1 / NV</th><th class="r">Sỉ thường</th>
+    <th class="r" title="Giá niêm yết của hãng; chưa có thì giá treo Shopee">Giá lẻ</th><th class="nw">Giá sỉ chỉnh lần cuối</th></tr></thead><tbody>`;
+  let bCu = null;
+  ds.forEach(u => {
+    if (u.brand !== bCu){
+      bCu = u.brand;
+      const n = ds.filter(x => x.brand === u.brand).length;
+      h += `<tr class="si-bh"><td colspan="6"><b>${esc(u.brand || 'Chưa gắn thương hiệu')}</b> <span class="dim">· ${n} mã</span>
+        <button class="btn sm" data-act="sibrand" data-id="${esc(u.brand)}">✎ Hãng đổi giá</button></td></tr>`;
+    }
+    h += `<tr data-act="siedit" data-id="${u.p.id}|${esc(u.sid)}" class="${u.lech ? 'si-lech' : ''}">
+      <td><b>${esc(u.p.name)}</b>${u.sid ? ' <span class="dim">· ' + esc(u.nhan) + '</span>' : ''}${
+        u.lech ? ` <span class="chip warn" title="Giá vốn đổi ngày ${esc(fmtDate(u.vonAt))}, giá sỉ chỉnh lần cuối ${esc(fmtDate(u.siAt))}">vốn đổi ${esc(fmtDate(u.vonAt).slice(0, 5))} — xem lại giá sỉ</span>` : ''}</td>
+      <td class="r">${u.von ? money(u.von) : '<span class="dim">—</span>'}${u.vonAt ? `<div class="dim si-lai">từ ${esc(fmtDate(u.vonAt).slice(0, 5))}</div>` : ''}</td>
+      <td class="r">${u.si1 ? '<b>' + money(u.si1) + '</b>' + laiTxt(u.si1, u.von) : '<span class="dim">chưa điền</span>'}</td>
+      <td class="r">${u.si2 ? '<b>' + money(u.si2) + '</b>' + laiTxt(u.si2, u.von) : '<span class="dim">chưa điền</span>'}</td>
+      <td class="r">${u.le ? money(u.le) : '<span class="dim">—</span>'}</td>
+      <td class="nw">${u.siAt ? esc(fmtDate(u.siAt)) : '<span class="dim">—</span>'}</td></tr>`;
+  });
+  h += `</tbody></table></div>
+    <div class="dim" style="margin-top:8px">Giá vốn ở đây là đúng con số của tab Giá vốn sản phẩm — sửa ở đây thì Sổ giá vốn, lãi Shopee
+      và ROAS hoà vốn đổi theo. "Lãi %" tính trên giá vốn. Hai nút 📋 chép bảng giá sỉ (không có giá vốn) để gửi nhân viên hoặc khách sỉ.</div></div>`;
+  return h;
 }
 
 /* ---- bảng phí, dùng chung cho cả bảng giá vốn lẫn dự án ---- */
@@ -6442,4 +6501,4 @@ function botHoursView(rows, vn, logs){
   return h;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "fe82d665"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "aa327b31"]);

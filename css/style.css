@@ -1105,3 +1105,16 @@ tr.rv-dang{background:var(--bg3)}
 .tiles.bot4{grid-template-columns:repeat(4,1fr)}
 @media(max-width:520px){.tiles.bot4{grid-template-columns:repeat(2,1fr)}}
 .tiles .t-v .btn.xs{padding:0 6px;font-size:11px;vertical-align:middle;line-height:18px}
+
+/* 🏷 Bảng giá sỉ */
+.si-tbl td{vertical-align:top}
+.si-tbl tr[data-act]{cursor:pointer}
+.si-lai{font-size:11px;color:var(--tx3);font-weight:400}
+.si-lai.bad{color:var(--bad);font-weight:700}
+.si-bh td{background:var(--bg3);padding-top:9px;padding-bottom:9px}
+.si-bh .btn{margin-left:10px}
+.si-lech td{background:color-mix(in srgb,var(--warn) 7%,transparent)}
+.si-bulk td{vertical-align:middle}
+.si-bulk input.inp{width:108px;text-align:right}
+.si-bulk .dim{font-size:11px}
+@media (max-width:600px){ .si-bulk input.inp{width:88px;padding-left:6px;padding-right:6px} }
