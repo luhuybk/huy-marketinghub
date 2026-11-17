@@ -495,7 +495,7 @@ select.inp{appearance:none;padding-right:26px;
   color:#fff;font-size:27px;font-weight:300;line-height:1;box-shadow:var(--shadow);
   display:grid;place-items:center}
 .fab:active{transform:scale(.93)}
-body.locked .fab{display:none}
+body.locked .fab,body.nofab .fab{display:none}
 .toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));transform:translateX(-50%);
   z-index:200;background:var(--bg4);color:var(--tx);padding:10px 16px;border-radius:11px;
   font-size:13px;font-weight:600;box-shadow:var(--shadow);max-width:88vw;text-align:center;
@@ -1118,3 +1118,8 @@ tr.rv-dang{background:var(--bg3)}
 .si-bulk input.inp{width:108px;text-align:right}
 .si-bulk .dim{font-size:11px}
 @media (max-width:600px){ .si-bulk input.inp{width:88px;padding-left:6px;padding-right:6px} }
+.si-tang,.si-giam{color:var(--tx2)}
+.tbl.si-nv{min-width:0}
+.si-nv tbody tr{cursor:default}
+.si-nv th:nth-child(n+2){width:1%;white-space:nowrap}
+@media (max-width:600px){ .si-nv td,.si-nv th{padding-left:8px;padding-right:8px} }

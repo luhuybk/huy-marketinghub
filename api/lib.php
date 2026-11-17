@@ -203,7 +203,7 @@ function khTachAds(PDO $pdo): void {
    Danh sách này phải khớp PERMS trong js/state.js. */
 const KH_PERMS = ['dash','pipeline','kols','clips','postfb','posttt','ads',
                   'improve','newprod','compare','resources','cost','launch',
-                  'adreport','keywords','rival','build'];
+                  'adreport','keywords','rival','build','giasi'];
 
 /* Bộ dữ liệu nào cần quyền nào. Có MỘT trong số quyền liệt kê là đọc được.
 
@@ -246,6 +246,9 @@ const KH_KIND_PERM = [
   'bnotes'    => ['build'],
   'bimgs'     => ['build'],
   'bcosts'    => ['cost'],
+  /* Bảng giá sỉ (thêm 17/11/2026): nhân viên bán sỉ (quyền giasi) ĐỌC được,
+     không có giá vốn trong đó. Ghi thì phải có quyền cost — xem KH_KIND_GHI. */
+  'giasi'     => ['cost','giasi'],
 ];
 
 function khNorm(string $s): string {
@@ -275,8 +278,14 @@ function khMay(array $u, string $perm): bool {
    `posts` xét theo LUỒNG nằm trong dữ liệu: bài Facebook cần quyền postfb,
    bài TikTok cần posttt. Đây chính là chỗ hai bạn nhân viên không nhìn thấy
    phần của nhau — một dòng của luồng kia không bao giờ rời khỏi máy chủ. */
-function khMayRow(array $u, string $kind, $data): bool {
+/* Bộ dữ liệu mà quyền GHI hẹp hơn quyền đọc. Không khai = ghi theo KH_KIND_PERM. */
+const KH_KIND_GHI = ['giasi' => ['cost']];
+function khMayRow(array $u, string $kind, $data, bool $ghi = false): bool {
   if (($u['role'] ?? '') === 'owner') return true;
+  if ($ghi && isset(KH_KIND_GHI[$kind])) {
+    foreach (KH_KIND_GHI[$kind] as $p) if (khMay($u, $p)) return true;
+    return false;
+  }
   if ($kind === 'posts') {
     $flow = is_array($data) ? (string)($data['flow'] ?? 'fb') : 'fb';
     return khMay($u, $flow === 'tt' ? 'posttt' : 'postfb');

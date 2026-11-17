@@ -324,25 +324,41 @@ Hai việc trên chặn được chuyện mất dữ liệu do cập nhật code
 
 ---
 
-## 🏷 Bảng giá sỉ (Tính chi phí → tab thứ hai, thêm 17/11/2026)
+## 🏷 Giá sỉ (mục riêng trên thanh bên, thêm 17/11/2026)
 
-Một chỗ tra nhanh ba mức giá của mọi mã, mọi gian hàng, xếp theo thương hiệu:
-**giá vốn**, **sỉ cấp 1 / NV** (giá đưa nhân viên bán sỉ), **sỉ thường**, kèm
-% lãi trên vốn và giá lẻ (giá hãng, chưa có thì giá treo Shopee).
+Một chỗ tra nhanh giá sỉ của mọi mã, mọi gian hàng, xếp theo thương hiệu.
+Bán sỉ là bán ngoài sàn nên không chia theo gian hàng Shopee.
 
-- Giá vốn là đúng con số của tab Giá vốn sản phẩm — sửa ở đây là ghi Sổ giá vốn,
-  lãi Shopee và ROAS hoà vốn đổi theo. Giá sỉ lưu trong bản ghi giá vốn
-  (`si1`, `si2`; con có size thì ở từng size) + lịch sử `siLog`.
+**Ai thấy gì**
+- Có quyền **Tính chi phí** (chủ): hai tab — *Bảng giá sỉ (có giá vốn)* để sửa,
+  và *👁 Nhân viên thấy* (đúng thứ nhân viên thấy).
+- Chỉ có quyền **Xem giá sỉ** (Cài đặt → Tài khoản): chỉ bảng xem — sỉ cấp 1 /
+  NV, sỉ thường, giá lẻ, nhãn "giá mới từ dd/mm" + số tăng/giảm nếu đổi trong
+  14 ngày. Không có giá vốn, không sửa được.
+
+**Dữ liệu**
+- Giá sỉ ở bộ riêng `giasi` (một bản ghi mỗi sản phẩm, id `gs` + mã sản phẩm):
+  `rows` = giá đang dùng từng size + tên size và giá lẻ chụp lại (nhân viên
+  không đọc được bộ `costs` nên không tự tra tên size), `log` = lịch sử.
+- Máy chủ: đọc cần `cost` HOẶC `giasi`; ghi phải có `cost` (`KH_KIND_GHI`).
+  Đã kiểm: tài khoản chỉ có `giasi` kéo về products, brands, giasi — không có
+  costs; đẩy sửa giasi lên bị chặn.
+- Giá sỉ điền hôm 17/11 (khi còn để trong bộ `costs`) tự chuyển sang `giasi`
+  lần đầu chủ mở trang (giasiDongBo). Mỗi lần chủ mở trang cũng cập nhật tên
+  size / giá lẻ chụp lại và bỏ dòng của size đã xoá.
+- Ghi bù một mốc cũ hơn mốc mới nhất chỉ thêm vào lịch sử, không đổi giá đang dùng.
+
+**Sửa giá (chủ)**
+- Giá vốn là đúng con số của Tính chi phí — sửa ở đây là ghi Sổ giá vốn, lãi
+  Shopee và ROAS hoà vốn đổi theo.
 - Bấm một dòng: sửa ba giá + ngày áp dụng + lý do. Gõ vốn mới là hộp gợi ý giá
   sỉ **giữ nguyên % lãi cũ** (tròn nghìn), một nút là điền.
 - **✎ Hãng đổi giá** ở đầu mỗi thương hiệu: sửa cả thương hiệu một lần — ô
   "đổi tất cả theo %" điền vốn mới, tick "giữ % lãi" thì giá sỉ tự tính theo
   (ô giá sỉ đã sửa tay thì không bị đè).
-- Mã nào vốn đổi **sau** lần chỉnh giá sỉ cuối thì tô vàng, ghi "vốn đổi dd/mm —
-  xem lại giá sỉ"; giá sỉ ≤ vốn thì báo đỏ.
-- **📋 Chép giá sỉ cấp 1 / sỉ thường**: chép bảng giá (KHÔNG kèm giá vốn) để dán
-  Zalo cho nhân viên / khách sỉ. Ô tìm ở trên lọc luôn phần được chép.
-- Cần quyền Tính chi phí (vì có giá vốn).
+- Mã nào vốn đổi **sau** lần chỉnh giá sỉ cuối thì tô vàng; giá sỉ ≤ vốn báo đỏ.
+- **📋 Chép giá sỉ cấp 1 / sỉ thường**: chép bảng giá (không kèm giá vốn) để dán
+  Zalo. Ô tìm lọc luôn phần được chép.
 
 ## Gõ danh sách trong ô ghi chú
 

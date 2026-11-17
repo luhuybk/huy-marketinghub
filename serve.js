@@ -100,7 +100,7 @@ function khTachAds(store){
    nói "được" còn máy chủ thật nói "không" — hoặc tệ hơn, ngược lại. */
 const KH_PERMS = ['dash','pipeline','kols','clips','postfb','posttt','ads',
                   'improve','newprod','compare','resources','cost','launch',
-                  'adreport','keywords','rival','build'];
+                  'adreport','keywords','rival','build','giasi'];
 const KH_KIND_PERM = {
   kols:['kols','pipeline'], statuses:['kols','pipeline'], templates:['kols','pipeline'],
   bookings:['pipeline','kols','clips'], clips:['clips','pipeline','kols'],
@@ -112,7 +112,8 @@ const KH_KIND_PERM = {
   impacts:['improve'], ideas:['newprod'],
   launches:['launch'], lsteps:['launch'], lmarks:['launch'],
   /* Bảng xây dựng sản phẩm — xem KH_KIND_PERM bên PHP */
-  builds:['build'], btasks:['build'], bnotes:['build'], bimgs:['build'], bcosts:['cost']
+  builds:['build'], btasks:['build'], bnotes:['build'], bimgs:['build'], bcosts:['cost'],
+  giasi:['cost','giasi']        // xem KH_KIND_GHI bên PHP: ghi phải có cost
 };
 const khNorm = s => String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
 function khMakeHash(pw){
@@ -130,9 +131,11 @@ function khPerms(u){
 const khMay = (u, perm) => !!u && (u.role === 'owner' || khPerms(u).includes(perm));
 /* posts xét theo LUỒNG nằm trong dữ liệu — đây là chỗ hai bạn nhân viên
    không nhìn thấy phần của nhau. */
-function khMayRow(u, kind, data){
+const KH_KIND_GHI = {giasi:['cost']};
+function khMayRow(u, kind, data, ghi = false){
   if (!u) return false;
   if (u.role === 'owner') return true;
+  if (ghi && KH_KIND_GHI[kind]) return KH_KIND_GHI[kind].some(p => khMay(u, p));
   if (kind === 'posts')
     return khMay(u, (data && data.flow) === 'tt' ? 'posttt' : 'postfb');
   const need = KH_KIND_PERM[kind];
@@ -497,10 +500,10 @@ function api(req, res, body){
              thẳng vào đây. Và xét cả bản ĐANG CÓ trên máy chủ, chứ không chỉ
              bản vừa gửi lên: nếu không thì đổi flow là chiếm được dòng của
              người khác. */
-          if (!khMayRow(me, kind, r.data ?? null)){
+          if (!khMayRow(me, kind, r.data ?? null, true)){
             if (blocked.length < 200) blocked.push({kind, item_id:id}); continue; }
           const oRow = db().prepare('SELECT data FROM items WHERE kind=? AND item_id=?').get(kind, id);
-          if (oRow && !khMayRow(me, kind, JSON.parse(oRow.data))){
+          if (oRow && !khMayRow(me, kind, JSON.parse(oRow.data), true)){
             if (blocked.length < 200) blocked.push({kind, item_id:id}); continue; }
           /* trả về đúng dòng bị chặn, xem chú thích bên api/index.php */
           if (del && !mayDelete){ if (blocked.length < 200) blocked.push({kind, item_id:id}); continue; }

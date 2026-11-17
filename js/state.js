@@ -1018,7 +1018,10 @@ const PERMS = [
      Người chạy quảng cáo cần biết chi bao nhiêu, không cần biết mua vào bao
      nhiêu. Bộ `costs` cũng vì thế mà tách khỏi `products` — `products` không
      khai quyền nên chảy về máy mọi nhân viên, để giá vốn vào đó là lộ. */
-  {id:'cost',      label:'Tính chi phí',  hint:'giá vốn, lãi mỗi đơn, ngưỡng ROAS'}
+  {id:'cost',      label:'Tính chi phí',  hint:'giá vốn, lãi mỗi đơn, ngưỡng ROAS'},
+  /* Chỉ XEM bảng giá sỉ (bộ `giasi` — không có giá vốn). Sửa giá sỉ vẫn phải có
+     `cost`: máy chủ chặn ghi ở KH_KIND_GHI. */
+  {id:'giasi',     label:'Xem giá sỉ',    hint:'bảng giá sỉ cấp 1 và sỉ thường để bán sỉ — không thấy giá vốn'}
 ];
 const PERM_IDS = PERMS.map(p => p.id);
 const PERM = Object.fromEntries(PERMS.map(p => [p.id, p]));
@@ -1056,14 +1059,14 @@ const KEY = 'kolhub.v1';
 const COLLECTIONS = ['kols','bookings','clips','products','adperiods','actions','brands','statuses',
                      'templates','spweeks','impacts','ideas','posts','adcamps','shops','addays',
                      'orderstats','adfixes','keywords','kwranks','costs','projects','costlogs',
-                     'launches','lsteps','lmarks','builds','btasks','bnotes','bimgs','bcosts'];
+                     'launches','lsteps','lmarks','builds','btasks','bnotes','bimgs','bcosts','giasi'];
 
 function blank(){
   return {
     kols:[], bookings:[], clips:[], products:[], adperiods:[], actions:[], brands:[], statuses:[],
     templates:[], spweeks:[], impacts:[], ideas:[], posts:[], adcamps:[], shops:[], addays:[],
     orderstats:[], adfixes:[], keywords:[], kwranks:[], costs:[], projects:[], costlogs:[],
-    launches:[], lsteps:[], lmarks:[], builds:[], btasks:[], bnotes:[], bimgs:[], bcosts:[],
+    launches:[], lsteps:[], lmarks:[], builds:[], btasks:[], bnotes:[], bimgs:[], bcosts:[], giasi:[],
     settings:{
       theme:'dark',
       myName:'',
@@ -1421,11 +1424,9 @@ function ensure(){
        (giaShopee). Không phải con nào cũng bị bắt, nên đây là một dấu riêng. */
     c.giuGia  = !!c.giuGia;
     c.giaHang = parseMoney(c.giaHang);
-    /* 🏷 Giá sỉ (thêm 17/11/2026): si1 = sỉ cấp 1 / giá đưa nhân viên bán sỉ,
-       si2 = sỉ thường. Con có size thì giá sỉ nằm ở từng size, hai ô này bỏ
-       trống. siLog = lịch sử đổi giá sỉ {sid, date, si1, si2, note, by} — để
-       trong bản ghi chứ không tách bộ riêng (ít dòng, và đi cùng quyền Tính
-       chi phí); lịch sử giá vốn thì vẫn ở Sổ giá vốn như cũ. */
+    /* si1 / si2 / siLog: giá sỉ ĐỢT ĐẦU (17/11/2026) để ở đây; từ bản sau nằm ở
+       bộ `giasi` (nhân viên đọc được mà không thấy giá vốn). Còn đọc chỉ để
+       giasiDongBo() chuyển sang rồi xoá. */
     c.si1 = parseMoney(c.si1);
     c.si2 = parseMoney(c.si2);
     c.siLog = (Array.isArray(c.siLog) ? c.siLog : []).filter(l => l && typeof l === 'object' && /^\d{4}-\d{2}-\d{2}$/.test(l.date || ''))
@@ -1502,6 +1503,19 @@ function ensure(){
      Không đánh dấu xoá ở đây khi sản phẩm mất: ensure() chạy trên mọi máy mà
      không đóng dấu giờ, nên xoá ở đây không bao giờ tới máy chủ. Dòng mồ côi
      chỉ bị lọc lúc đọc (costLogsOf). */
+  /* 🏷 giasi — một bản ghi mỗi sản phẩm (id 'gs' + mã sản phẩm, để hai máy cùng
+     tạo thì trùng làm một). rows = giá sỉ đang dùng của từng size ('' = không
+     size) kèm tên size và giá lẻ chụp lại — nhân viên không đọc được bộ costs
+     nên không tự tra ra tên size được. log = lịch sử đổi giá sỉ. */
+  db.giasi.forEach(g => {
+    g.productId = String(g.productId || '');
+    g.rows = (Array.isArray(g.rows) ? g.rows : []).filter(r => r && typeof r === 'object').map(r => ({
+      sid: String(r.sid || ''), nhan: String(r.nhan || ''), si1: parseMoney(r.si1), si2: parseMoney(r.si2), le: parseMoney(r.le)}));
+    g.log = (Array.isArray(g.log) ? g.log : []).filter(l => l && typeof l === 'object' && /^\d{4}-\d{2}-\d{2}$/.test(l.date || ''))
+      .map(l => ({sid: String(l.sid || ''), date: l.date, si1: parseMoney(l.si1), si2: parseMoney(l.si2),
+                  note: String(l.note || '').slice(0, 200), by: String(l.by || '')}))
+      .sort((a, b) => a.date.localeCompare(b.date)).slice(-400);
+  });
   db.costlogs.forEach(l => {
     ['productId','sid','note'].forEach(f => { if (typeof l[f] !== 'string') l[f] = String(l[f] == null ? '' : l[f]); });
     l.cost = parseMoney(l.cost);
@@ -3054,46 +3068,122 @@ const SI_LV = [['si1', 'Sỉ cấp 1 / NV'], ['si2', 'Sỉ thường']];
 const siLai = (gia, von) => gia && von ? (gia - von) / von * 100 : null;
 /* Giữ % lãi cũ khi vốn đổi: giá mới = giá cũ × vốn mới / vốn cũ, tròn nghìn */
 const siGoiY = (gia, vonCu, vonMoi) => gia && vonCu && vonMoi ? Math.round(gia * vonMoi / vonCu / 1000) * 1000 : 0;
+const giasis  = () => alive(db.giasi);
+const giasiOf = pid => giasis().find(g => g.productId === pid) || null;
+/* Đơn vị cho trang của chủ (cần bộ costs): giá vốn + giá sỉ (bộ giasi) */
 function siUnits(){
   const out = [];
   costAllRows().forEach(r => {
     const c = r.c;
     if (!c) return;
+    const gs = giasiOf(r.p.id);
     const them = (sid, nhan, o, le) => {
       const ls = costLogsOf(r.p.id, sid), lc = ls[ls.length - 1] || null;
-      const sl = (c.siLog || []).filter(l => l.sid === sid), lsi = sl[sl.length - 1] || null;
+      const row = gs ? gs.rows.find(x => x.sid === sid) : null;
+      const sl = gs ? gs.log.filter(l => l.sid === sid) : [], lsi = sl[sl.length - 1] || null;
+      const si1 = row ? row.si1 : 0, si2 = row ? row.si2 : 0;
       const vonAt = lc && lc.cost === (o.cost || 0) ? lc.date : '';
       const siAt = lsi ? lsi.date : '';
-      out.push({p: r.p, c, sid, nhan, von: o.cost || 0, si1: o.si1 || 0, si2: o.si2 || 0, le,
+      out.push({p: r.p, c, sid, nhan, von: o.cost || 0, si1, si2, le,
                 vonAt, siAt, siLogs: sl, brand: r.p.brand || '',
                 /* vốn đổi sau lần chỉnh giá sỉ cuối → giá sỉ có thể đã lỗi thời */
-                lech: !!((o.si1 || o.si2) && vonAt && siAt && vonAt > siAt),
-                duoiVon: !!(o.cost && ((o.si1 && o.si1 <= o.cost) || (o.si2 && o.si2 <= o.cost)))});
+                lech: !!((si1 || si2) && vonAt && siAt && vonAt > siAt),
+                duoiVon: !!(o.cost && ((si1 && si1 <= o.cost) || (si2 && si2 <= o.cost)))});
     };
     if ((c.sizes || []).length) c.sizes.forEach(sz => them(sz.sid, sz.name || 'Size chưa đặt tên', sz, sz.giaHang || sz.price || 0));
     else them('', '', c, c.giaHang || r.p.price || 0);
   });
-  return out.sort((a, b) => (a.brand ? 0 : 1) - (b.brand ? 0 : 1) || norm(a.brand).localeCompare(norm(b.brand), 'vi') ||
-                            norm(a.p.name).localeCompare(norm(b.p.name), 'vi'));
+  return out.sort(siXep);
+}
+const siXep = (a, b) => (a.brand ? 0 : 1) - (b.brand ? 0 : 1) || norm(a.brand).localeCompare(norm(b.brand), 'vi') ||
+                        norm(a.p.name).localeCompare(norm(b.p.name), 'vi');
+/* Đơn vị cho nhân viên: chỉ từ bộ giasi + products — không đụng tới giá vốn */
+function giasiUnits(){
+  const out = [];
+  giasis().forEach(g => {
+    const p = productOf(g.productId);
+    if (!p || p.archived) return;
+    g.rows.forEach(r => {
+      if (!r.si1 && !r.si2) return;
+      const ls = g.log.filter(l => l.sid === r.sid), l = ls[ls.length - 1] || null;
+      /* lần đổi gần nhất: dòng lịch sử cuối khác giá với dòng trước nó */
+      let truoc = null;
+      if (l) for (let i = ls.length - 2; i >= 0; i--) if (ls[i].si1 !== l.si1 || ls[i].si2 !== l.si2){ truoc = ls[i]; break; }
+      out.push({p, sid: r.sid, nhan: r.nhan, si1: r.si1, si2: r.si2, le: r.le || (r.sid ? 0 : p.price || 0),
+                brand: p.brand || '', at: l ? l.date : '', truoc});
+    });
+  });
+  return out.sort(siXep);
 }
 /* Ghi giá sỉ cho một mã + một dòng lịch sử. Cùng mã cùng ngày thì sửa dòng đó. */
-function siSet(pid, sid, si1, si2, date, note){
-  const c0 = costOf(pid), rec = c0 ? db.costs.find(x => x.id === c0.id) : null;
-  if (!rec) return false;
-  const o = sid ? (rec.sizes || []).find(x => x.sid === sid) : rec;
-  if (!o) return false;
+function siSet(pid, sid, si1, si2, date, note, nhan, le){
+  if (!pid) return false;
+  sid = sid || '';
   si1 = parseMoney(si1); si2 = parseMoney(si2);
-  if ((o.si1 || 0) === si1 && (o.si2 || 0) === si2) return false;
-  o.si1 = si1; o.si2 = si2;
-  if (!Array.isArray(rec.siLog)) rec.siLog = [];
+  let rec = db.giasi.find(x => x.id === 'gs' + pid);
+  const moi = !rec;
+  if (moi) rec = {id: 'gs' + pid, productId: pid, rows: [], log: []};
   date = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : today();
-  const cung = rec.siLog.find(l => l.sid === (sid || '') && l.date === date);
+  let row = rec.rows.find(x => x.sid === sid);
+  /* Ghi bù một mốc CŨ hơn mốc mới nhất chỉ thêm vào lịch sử — không kéo giá
+     đang dùng lùi về quá khứ (giống Sổ giá vốn). */
+  const moiNhat = rec.log.filter(l => l.sid === sid && l.date > date).length === 0;
+  if (moiNhat && !rec.deleted && row && row.si1 === si1 && row.si2 === si2) return false;
+  if (!si1 && !si2 && !row) return false;
+  if (!row){ row = {sid, nhan: '', si1: 0, si2: 0, le: 0}; rec.rows.push(row); }
+  if (moiNhat) Object.assign(row, {si1, si2});
+  if (nhan != null) row.nhan = String(nhan);
+  if (le != null) row.le = parseMoney(le);
+  const cung = rec.log.find(l => l.sid === sid && l.date === date);
   const by = typeof whoAmI === 'function' ? whoAmI() : '';
   if (cung) Object.assign(cung, {si1, si2, note: note ? String(note) : cung.note, by});
-  else rec.siLog.push({sid: sid || '', date, si1, si2, note: String(note || ''), by});
-  rec.siLog.sort((a, b) => a.date.localeCompare(b.date));
+  else rec.log.push({sid, date, si1, si2, note: String(note || ''), by});
+  rec.log.sort((a, b) => a.date.localeCompare(b.date));
+  rec.deleted = false;
   stamp(rec);
+  if (moi) db.giasi.push(rec);
   return true;
+}
+/* Chạy khi người có quyền Tính chi phí mở trang Giá sỉ — ĐÓNG DẤU nên tới
+   được máy chủ (ensure() thì không):
+   1. chuyển giá sỉ cũ (17/11 còn để trong bộ costs) sang bộ giasi rồi xoá ở costs;
+   2. cập nhật tên size + giá lẻ chụp trong giasi cho nhân viên thấy đúng;
+   3. bỏ dòng của size đã xoá. Chỉ ghi khi thật sự có gì khác. */
+function giasiDongBo(){
+  if (!may('cost')) return 0;
+  let n = 0;
+  costAllRows().forEach(r => {
+    const c = r.c;
+    if (!c) return;
+    const rec = db.costs.find(x => x.id === c.id);
+    const szs = c.sizes || [];
+    /* 1. dữ liệu cũ trong costs */
+    const cuCo = c.si1 || c.si2 || (c.siLog || []).length || szs.some(z => z.si1 || z.si2);
+    if (cuCo && rec){
+      if (!db.giasi.some(x => x.id === 'gs' + r.p.id)){
+        const units = szs.length ? szs.map(z => ({sid: z.sid, nhan: z.name || '', si1: z.si1, si2: z.si2, le: z.giaHang || z.price || 0}))
+                                 : [{sid: '', nhan: '', si1: c.si1, si2: c.si2, le: c.giaHang || r.p.price || 0}];
+        const g = {id: 'gs' + r.p.id, productId: r.p.id, rows: units.filter(u => u.si1 || u.si2),
+                   log: (c.siLog || []).map(l => Object.assign({}, l))};
+        if (g.rows.length || g.log.length){ stamp(g); db.giasi.push(g); }
+      }
+      delete rec.si1; delete rec.si2; delete rec.siLog;
+      (rec.sizes || []).forEach(z => { delete z.si1; delete z.si2; });
+      stamp(rec); n++;
+    }
+    /* 2 + 3. ảnh chụp tên size / giá lẻ */
+    const g = db.giasi.find(x => x.id === 'gs' + r.p.id && !x.deleted);
+    if (!g) return;
+    const can = szs.length ? szs.map(z => ({sid: z.sid, nhan: z.name || 'Size chưa đặt tên', le: z.giaHang || z.price || 0}))
+                           : [{sid: '', nhan: '', le: c.giaHang || r.p.price || 0}];
+    let doi = false;
+    const giu = g.rows.filter(x => can.some(k => k.sid === x.sid));
+    if (giu.length !== g.rows.length){ g.rows = giu; doi = true; }
+    g.rows.forEach(x => { const k = can.find(y => y.sid === x.sid); if (k && (x.nhan !== k.nhan || x.le !== k.le)){ x.nhan = k.nhan; x.le = k.le; doi = true; } });
+    if (doi){ touch(g); n++; }
+  });
+  if (n) save();
+  return n;
 }
 /* Chữ để dán Zalo cho nhân viên / khách sỉ — KHÔNG kèm giá vốn. */
 function siText(us, lv){

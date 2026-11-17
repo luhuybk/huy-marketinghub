@@ -413,7 +413,7 @@ switch ($action) {
            nhân viên luồng Facebook vẫn xoá trắng được bài TikTok của người
            kia bằng cách gọi thẳng vào đây — họ không nhìn thấy dòng đó,
            nhưng đoán được id thì vẫn ghi lên nó. */
-        if (!khMayRow($u, $kind, $r['data'] ?? null)) {
+        if (!khMayRow($u, $kind, $r['data'] ?? null, true)) {
           if (count($blockedRows) < 200) $blockedRows[] = ['kind' => $kind, 'item_id' => $id];
           continue;
         }
@@ -423,7 +423,7 @@ switch ($action) {
         $old = $pdo->prepare('SELECT data FROM items WHERE kind = ? AND item_id = ?');
         $old->execute([$kind, $id]);
         if ($oRow = $old->fetch()) {
-          if (!khMayRow($u, $kind, json_decode((string)$oRow['data'], true))) {
+          if (!khMayRow($u, $kind, json_decode((string)$oRow['data'], true), true)) {
             if (count($blockedRows) < 200) $blockedRows[] = ['kind' => $kind, 'item_id' => $id];
             continue;
           }
