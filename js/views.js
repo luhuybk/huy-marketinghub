@@ -3546,7 +3546,7 @@ function viewSiList(){
   });
   h += `</tbody></table></div>
     <div class="dim" style="margin-top:8px">ROAS hoà vốn theo shop: bán lẻ ở gian hàng đó cần ROAS quảng cáo tối thiểu bao nhiêu để không lỗ
-      (tính từ giá lẻ, giá vốn và bảng phí từng gian hàng). Số <b class="bad">đỏ</b> = ROAS thực tế tháng gần nhất của gian hàng đang thấp hơn —
+      (tính từ giá lẻ, giá vốn và bảng phí từng gian hàng; chỉ hiện các shop Waxshop và shop mang tên thương hiệu đó). Số <b class="bad">đỏ</b> = ROAS thực tế tháng gần nhất của gian hàng đang thấp hơn —
       bán lẻ có quảng cáo đang lỗ, giá sỉ càng nên giữ chắc. Bấm một dòng để xem lời mỗi đơn bán lẻ so với bán sỉ.</div>
     <div class="dim" style="margin-top:8px">Giá vốn ở đây là đúng con số của tab Giá vốn sản phẩm — sửa ở đây thì Sổ giá vốn, lãi Shopee
       và ROAS hoà vốn đổi theo. "Lãi %" tính trên giá vốn. Giá sỉ lưu riêng, không kèm giá vốn — nhân viên có quyền
