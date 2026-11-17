@@ -355,6 +355,13 @@ lời/đơn chưa QC và sau QC (ROAS thực tế tháng gần nhất của gian
 gói, voucher riêng của sản phẩm; gian hàng khác dùng bảng phí của nó
 (`siRoasShops` trong state.js). Đỏ = ROAS thực tế < hoà vốn.
 
+**Giá bán (17/11)**: `giasi.rows[].ban` = giá khách trả SAU voucher shop, gõ ở hộp
+sửa giá sỉ hoặc cột cuối hộp "Hãng đổi giá" (`siBanSet`, không ghi lịch sử giá sỉ).
+Có giá bán thì ROAS tính cho MỌI gian hàng, giá treo mỗi shop = giá bán ÷ (1 −
+voucher shop), không làm tròn (100k, voucher 10% → 111.111). Chưa có thì như cũ:
+giá treo đã lưu, chỉ shop Waxshop + shop mang tên hãng. Dòng chỉ có giá bán
+(si1 = si2 = 0) nhân viên không thấy.
+
 **Giao diện (17/11)**: ô tìm to riêng một hàng (`ui.siQ`, không cần dấu); mỗi
 thương hiệu là một khối thu gọn / mở ra (`siKhoi`), khối đang mở nhớ trong
 localStorage `kolhub.siMo`, đang tìm thì mọi hãng khớp tự mở; hàng nút hãng

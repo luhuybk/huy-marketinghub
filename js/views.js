@@ -3583,7 +3583,7 @@ function viewSiList(){
       <span class="dim">${co}/${us.length} có giá sỉ</span>${lech ? ` <span class="chip warn">${lech} vốn đổi</span>` : ''}${duoi ? ` <span class="chip bad">${duoi} bán lỗ</span>` : ''}`;
     let bang = `<table class="tbl sm ptbl si-tbl"><thead><tr>
       <th class="nw">Sản phẩm / size</th><th class="r">Giá vốn</th><th class="r">Sỉ cấp 1 / NV</th><th class="r">Sỉ thường</th>
-      <th class="r" title="Giá niêm yết của hãng; chưa có thì giá treo Shopee">Giá lẻ</th>
+      <th class="r" title="Giá bán = khách trả sau voucher shop (gõ ở hộp sửa) — dùng để tính ROAS cả 5 shop. Dòng dưới: giá lẻ của hãng / giá treo đã lưu">Giá bán / giá lẻ</th>
       <th class="nw" title="ROAS tối thiểu để bán lẻ ở từng gian hàng không lỗ (sau phí Shopee + quảng cáo). Đỏ = ROAS thực tế tháng gần nhất của gian hàng đang thấp hơn mức này">ROAS hoà vốn theo shop</th>
       <th class="nw">Giá sỉ chỉnh lần cuối</th></tr></thead><tbody>`;
     us.forEach(u => {
@@ -3593,7 +3593,8 @@ function viewSiList(){
         <td class="r">${u.von ? money(u.von) : '<span class="dim">—</span>'}${u.vonAt ? `<div class="dim si-lai">từ ${esc(fmtDate(u.vonAt).slice(0, 5))}</div>` : ''}</td>
         <td class="r">${u.si1 ? '<b>' + money(u.si1) + '</b>' + laiTxt(u.si1, u.von) : '<span class="dim">chưa điền</span>'}</td>
         <td class="r">${u.si2 ? '<b>' + money(u.si2) + '</b>' + laiTxt(u.si2, u.von) : '<span class="dim">chưa điền</span>'}</td>
-        <td class="r">${u.le ? money(u.le) : '<span class="dim">—</span>'}</td>
+        <td class="r">${u.ban ? '<b>' + money(u.ban) + '</b><div class="dim si-lai">' + (u.le ? 'lẻ ' + money(u.le) : 'giá bán') + '</div>'
+                           : u.le ? money(u.le) + '<div class="dim si-lai">chưa có giá bán</div>' : '<span class="dim">—</span>'}</td>
         <td class="nw si-roas">${siRoasCell(u)}</td>
         <td class="nw">${u.siAt ? esc(fmtDate(u.siAt)) : '<span class="dim">—</span>'}</td></tr>`;
     });
@@ -3602,7 +3603,8 @@ function viewSiList(){
   });
   h += `</div>
     <div class="dim" style="margin-top:8px">ROAS hoà vốn theo shop: bán lẻ ở gian hàng đó cần ROAS quảng cáo tối thiểu bao nhiêu để không lỗ
-      (tính từ giá lẻ, giá vốn và bảng phí từng gian hàng; chỉ hiện các shop Waxshop và shop mang tên thương hiệu đó). Số <b class="bad">đỏ</b> = ROAS thực tế tháng gần nhất của gian hàng đang thấp hơn —
+      (tính từ giá vốn và bảng phí từng gian hàng). Mã có <b>giá bán</b> (khách trả sau voucher) thì tính đủ mọi shop, giá treo mỗi shop =
+      giá bán ÷ (1 − voucher của shop); chưa có thì dùng giá treo đã lưu, chỉ hiện shop Waxshop và shop mang tên thương hiệu đó. Số <b class="bad">đỏ</b> = ROAS thực tế tháng gần nhất của gian hàng đang thấp hơn —
       bán lẻ có quảng cáo đang lỗ, giá sỉ càng nên giữ chắc. Bấm một dòng để xem lời mỗi đơn bán lẻ so với bán sỉ.</div>
     <div class="dim" style="margin-top:8px">Giá vốn ở đây là đúng con số của tab Giá vốn sản phẩm — sửa ở đây thì Sổ giá vốn, lãi Shopee
       và ROAS hoà vốn đổi theo. "Lãi %" tính trên giá vốn. Giá sỉ lưu riêng, không kèm giá vốn — nhân viên có quyền

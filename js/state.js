@@ -1510,7 +1510,7 @@ function ensure(){
   db.giasi.forEach(g => {
     g.productId = String(g.productId || '');
     g.rows = (Array.isArray(g.rows) ? g.rows : []).filter(r => r && typeof r === 'object').map(r => ({
-      sid: String(r.sid || ''), nhan: String(r.nhan || ''), si1: parseMoney(r.si1), si2: parseMoney(r.si2), le: parseMoney(r.le)}));
+      sid: String(r.sid || ''), nhan: String(r.nhan || ''), si1: parseMoney(r.si1), si2: parseMoney(r.si2), le: parseMoney(r.le), ban: parseMoney(r.ban)}));
     g.log = (Array.isArray(g.log) ? g.log : []).filter(l => l && typeof l === 'object' && /^\d{4}-\d{2}-\d{2}$/.test(l.date || ''))
       .map(l => ({sid: String(l.sid || ''), date: l.date, si1: parseMoney(l.si1), si2: parseMoney(l.si2),
                   note: String(l.note || '').slice(0, 200), by: String(l.by || '')}))
@@ -3083,10 +3083,10 @@ function siUnits(){
       const ls = costLogsOf(r.p.id, sid), lc = ls[ls.length - 1] || null;
       const row = gs ? gs.rows.find(x => x.sid === sid) : null;
       const sl = gs ? gs.log.filter(l => l.sid === sid) : [], lsi = sl[sl.length - 1] || null;
-      const si1 = row ? row.si1 : 0, si2 = row ? row.si2 : 0;
+      const si1 = row ? row.si1 : 0, si2 = row ? row.si2 : 0, ban = row ? row.ban || 0 : 0;
       const vonAt = lc && lc.cost === (o.cost || 0) ? lc.date : '';
       const siAt = lsi ? lsi.date : '';
-      out.push({p: r.p, c, sid, nhan, von: o.cost || 0, si1, si2, le,
+      out.push({p: r.p, c, sid, nhan, von: o.cost || 0, si1, si2, le, ban,
                 vonAt, siAt, siLogs: sl, brand: r.p.brand || '',
                 /* vốn đổi sau lần chỉnh giá sỉ cuối → giá sỉ có thể đã lỗi thời */
                 lech: !!((si1 || si2) && vonAt && siAt && vonAt > siAt),
@@ -3104,24 +3104,29 @@ function siUnits(){
    phí đóng gói, voucher riêng của sản phẩm; gian hàng khác dùng bảng phí của nó.
    `thuc` = ROAS chung mọi chiến dịch tháng gần nhất của gian hàng đó. */
 const shopTenNgan = sh => String(sh ? sh.name : '').replace(/^waxshop\s*-\s*/i, '') || 'shop';
-function siRoasShops(u, von){
+function siRoasShops(u, von, ban){
   const c = u.c, sz = u.sid ? (c.sizes || []).find(x => x.sid === u.sid) : null;
   von = von === undefined ? u.von : von;
-  /* Chỉ những gian hàng con này thật sự bán: gian hàng ghi trong giá vốn, các
-     gian hàng Waxshop (bán đa thương hiệu), và gian hàng mang tên chính thương
-     hiệu đó (vd "Cinplus Store" cho Cinplus). Shop của hãng khác thì bỏ. */
+  ban = parseMoney(ban === undefined ? u.ban : ban);
+  /* Có GIÁ BÁN (khách trả sau voucher shop) → tính đủ mọi gian hàng: giá treo
+     ở mỗi shop = giá bán ÷ (1 − voucher của shop đó), KHÔNG làm tròn — để giá bán
+     thực sau voucher đúng bằng con số đã gõ (100k, voucher 10% → treo 111.111).
+     Chưa có thì chỉ những gian hàng con này thật sự bán: gian hàng ghi trong giá
+     vốn, các gian hàng Waxshop (bán đa thương hiệu), và gian hàng mang tên chính
+     thương hiệu đó (vd "Cinplus Store" cho Cinplus). Shop của hãng khác thì bỏ. */
   const hieu = norm(u.brand || '').split(' ')[0];
-  const ban = sh => (c.shopId || '') === sh.id || /waxshop/i.test(sh.name) || (hieu.length > 2 && norm(sh.name).includes(hieu));
-  const ds = shops().filter(ban);
+  const loc = sh => (c.shopId || '') === sh.id || /waxshop/i.test(sh.name) || (hieu.length > 2 && norm(sh.name).includes(hieu));
+  const ds = ban ? [] : shops().filter(loc);
   return (ds.length ? ds : shops()).map(sh => {
     const minh = (c.shopId || '') === sh.id, F = shopFees(sh);
     const vPct = minh ? (c.voucherPct || 0) : (+F.voucherPct || 0);
     const hang = c.giuGia ? (sz ? sz.giaHang : c.giaHang) : 0;
-    const gia = hang ? giaShopee(hang, vPct) : (sz ? sz.price : parseMoney(u.p.price)) || u.le || 0;
+    const gia = ban ? Math.round(ban / (1 - Math.min(vPct, 90) / 100))
+              : hang ? giaShopee(hang, vPct) : (sz ? sz.price : parseMoney(u.p.price)) || u.le || 0;
     const x = von > 0 ? costFrom({gia, F, vPct, feePct: minh ? c.feePct : 0, pack: minh ? c.packCost : 0, von, gift: c.gift || 0}) : null;
     const t = bRoasShop(sh.id);
     const sau = x && t ? bSauQc(x, t.m.roas) : null;
-    return {sh, ten: shopTenNgan(sh), gia, x, roas: x && !x.lo ? x.roas : null, lo: !!(x && x.lo),
+    return {sh, ten: shopTenNgan(sh), gia, vPct, theoBan: !!ban, x, roas: x && !x.lo ? x.roas : null, lo: !!(x && x.lo),
             thuc: t ? t.m.roas : null, ym: t ? t.ym : '', sau};
   });
 }
@@ -3169,6 +3174,24 @@ function siSet(pid, sid, si1, si2, date, note, nhan, le){
   if (cung) Object.assign(cung, {si1, si2, note: note ? String(note) : cung.note, by});
   else rec.log.push({sid, date, si1, si2, note: String(note || ''), by});
   rec.log.sort((a, b) => a.date.localeCompare(b.date));
+  rec.deleted = false;
+  stamp(rec);
+  if (moi) db.giasi.push(rec);
+  return true;
+}
+/* Giá bán lẻ mục tiêu (khách trả sau voucher shop) của một mã — chỉ để tính
+   ROAS theo từng gian hàng ở bảng giá sỉ. Không phải giá sỉ nên không ghi lịch sử. */
+function siBanSet(pid, sid, ban, nhan, le){
+  if (!pid) return false;
+  sid = sid || ''; ban = parseMoney(ban);
+  let rec = db.giasi.find(x => x.id === 'gs' + pid);
+  let row = rec ? rec.rows.find(x => x.sid === sid) : null;
+  if ((row ? row.ban || 0 : 0) === ban && !(rec && rec.deleted)) return false;
+  if (!ban && !row) return false;
+  const moi = !rec;
+  if (moi) rec = {id: 'gs' + pid, productId: pid, rows: [], log: []};
+  if (!row){ row = {sid, nhan: String(nhan || ''), si1: 0, si2: 0, le: parseMoney(le)}; rec.rows.push(row); }
+  row.ban = ban;
   rec.deleted = false;
   stamp(rec);
   if (moi) db.giasi.push(rec);
