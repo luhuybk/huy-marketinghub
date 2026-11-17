@@ -2006,9 +2006,11 @@ function botSave(array $in): array {
             'mode' => botTxt($c['mode'] ?? '', 10), 'roas' => botNum($c['roas'] ?? null),
             'cost' => botNum($c['cost'] ?? null), 'gmv' => botNum($c['gmv'] ?? null), 'budget' => botNum($c['budget'] ?? null),
             'boost' => !empty($c['boost']), 'next' => botTxt($c['next'] ?? '', 60), 'note' => botTxt($c['note'] ?? '', 300),
-            'plan' => $plan, 'bien' => botNum($c['bien'] ?? null),
+            'plan' => $plan, 'bien' => botNum($c['bien'] ?? null), 'floorT' => botNum($c['floorT'] ?? null),
+            'sanSrc' => botTxt($c['sanSrc'] ?? '', 8), 'heSoGiu' => botNum($c['heSoGiu'] ?? null), 'kDN' => botNum($c['kDN'] ?? null),
             'std30' => is_array($c['std30'] ?? null) ? ['cost' => botNum($c['std30']['cost'] ?? null), 'gmv' => botNum($c['std30']['gmv'] ?? null),
-                         'orders' => botNum($c['std30']['orders'] ?? null), 'roas' => botNum($c['std30']['roas'] ?? null)] : null];
+                         'orders' => botNum($c['std30']['orders'] ?? null), 'roas' => botNum($c['std30']['roas'] ?? null),
+                         'days' => botNum($c['std30']['days'] ?? null), 'skip' => botNum($c['std30']['skip'] ?? null)] : null];
       $ins->execute([$shop, $cid, json_encode($d, JSON_UNESCAPED_UNICODE), $now]);
       $n++;
     }
