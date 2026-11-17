@@ -2078,6 +2078,24 @@ function botView(): array {
   return ['cfg' => botCfgOut(), 'seen' => kvGet('bot_seen', null), 'camps' => $camps, 'logs' => $logs, 'hours' => $hours,
           'now' => gmdate('Y-m-d\TH:i:s\Z')];
 }
+/* Thẻ thiết bị ở Cài đặt đọc lastAt/last — trước đây chỉ ingest.php ghi, nên bot
+   gửi đều mà thẻ vẫn đứng ở giờ gửi đầu tiên, trông như Hub không nhận.
+   Lượt chỉ hỏi cờ (cfg) chỉ dời giờ, không đè con số của lượt gửi số. */
+function botTouch(string $id, array $in): void {
+  $devs = ingestDevs();
+  if (!isset($devs[$id])) return;
+  $devs[$id]['lastAt'] = gmdate('c');
+  $do = (string)($in['do'] ?? '');
+  $ds = $do === 'state' ? ($in['camps'] ?? []) : ($do === 'log' ? ($in['entries'] ?? []) : ($do === 'hours' ? ($in['rows'] ?? []) : null));
+  if (is_array($ds) && count($ds)) {
+    $shops = $do === 'hours' ? [(string)($in['shop'] ?? '')] : array_values(array_unique(array_map(fn($x) => (string)($x['shop'] ?? ''), $ds)));
+    $dates = $do === 'hours' ? array_map(fn($x) => (string)($x['date'] ?? ''), $ds) : [];
+    sort($dates);
+    $devs[$id]['last'] = ['rows' => count($ds), 'shops' => array_values(array_filter($shops)),
+                          'dates' => $dates ? [$dates[0], end($dates)] : null, 'bot' => $do];
+  }
+  kvSet('ingest_devs', $devs);
+}
 /* Chủ bấm dừng/chạy lại — cả bot, hoặc một chiến dịch */
 function botPause(bool $on, string $key, string $by): array {
   $c = botCfg();

@@ -6397,4 +6397,4 @@ function botHoursView(rows, vn, logs){
   return h;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "b942d6eb"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "2fd3fc02"]);
