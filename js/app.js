@@ -5328,6 +5328,16 @@ const ACTIONS = {
   costsel:     id => { ui.costSel = id; render(); },
   costtab:     id => { if (id === 'si'){ go('giasi'); return; } ui.costTab = id; ui.costBrand = null; render(); },
   sitab:       id => { ui.siTab = id === 'nv' ? 'nv' : ''; render(); },
+  /* khối thương hiệu ở trang Giá sỉ: mở / thu gọn, mở hết, nhảy tới một hãng */
+  sigrp:       id => { siMoRa(id); const k = siKhoa(id); if (ui.siMo[k]) delete ui.siMo[k]; else ui.siMo[k] = 1; siMoGhi(); render(); },
+  simo:        id => { siMoRa(''); const nv = !may('cost') || ui.siTab === 'nv';
+                       const bs = [...new Set((nv ? giasiUnits() : siUnits()).map(u => u.brand || ''))];
+                       if (id === 'all') bs.forEach(b => { ui.siMo[siKhoa(b)] = 1; }); else ui.siMo = {};
+                       siMoGhi(); render(); },
+  sijump:      id => { siMoRa(id); ui.siMo[siKhoa(id)] = 1; siMoGhi(); render();
+                       const el = [...document.querySelectorAll('.si-grp')].find(x => x.dataset.b === id);
+                       if (el) el.scrollIntoView({behavior: 'smooth', block: 'start'}); },
+  siloc:       id => { ui.siLoc = ['chua', 'du', 'xem'].includes(id) ? id : ''; render(); },
   siqclear:    () => { ui.siQ = ''; render(); },
   /* Xoá ô tìm. Trả luôn về màn thẻ thương hiệu: đang xem một bảng kết quả mà
      xoá ô tìm thì thứ hợp lý để thấy tiếp theo là màn ngoài, không phải
@@ -6642,4 +6652,4 @@ document.addEventListener('paste', e => {
   bUpload(z.dataset.bid, fs);
 });
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "90805d2a"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "f8dbdb5a"]);
