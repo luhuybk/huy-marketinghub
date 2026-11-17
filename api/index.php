@@ -613,7 +613,15 @@ switch ($action) {
   case 'ad_radar': {
     requireAuth();
     if (!khMay(currentUser(), 'adreport') && !khMay(currentUser(), 'ads')) fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
-    out(['ok' => true] + adRadarData());
+    out(['ok' => true, 'moc' => (object)adMocs()] + adRadarData());
+  }
+  /* Mốc cải tiến sản phẩm (📈 Tổng quan QC) — thêm {key, date, note} hoặc xoá {key, del:id} */
+  case 'ad_moc': {
+    requireAuth();
+    if (!khMay(currentUser(), 'adreport') && !khMay(currentUser(), 'ads')) fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
+    $r = adMocSet($in, (string)(currentUser()['name'] ?? ''));
+    if (isset($r['error'])) fail($r['error']);
+    out(['ok' => true] + $r);
   }
   /* Bot ROAS theo giờ (Báo cáo Ads → Bot giờ): ai xem được Báo cáo Ads là xem được */
   case 'bot_view': {

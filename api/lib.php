@@ -990,6 +990,41 @@ function adRadarData(int $soNgay = 400): array {
 }
 
 /* ============================================================
+   MỐC CẢI TIẾN SẢN PHẨM — trang 📈 Tổng quan QC
+
+   Người dùng sửa sản phẩm (ảnh bìa, giá, mô tả, combo…) rồi muốn biết ROAS
+   có khá lên không. Mỗi lần sửa ghi một mốc {date, note} cho chiến dịch của
+   sản phẩm đó; trang Tổng quan so số TRƯỚC và SAU mốc. kv 'ad_moc' =
+   {"shop|cid": [{id, date, note, by, at}, …]}, tối đa 20 mốc mỗi chiến dịch.
+   Bản Node ở serve.js.
+   ============================================================ */
+function adMocs(): array {
+  $m = kvGet('ad_moc', []);
+  return is_array($m) ? $m : [];
+}
+function adMocSet(array $in, string $by): array {
+  $key = mb_substr(trim((string)($in['key'] ?? '')), 0, 170, 'UTF-8');
+  if ($key === '' || strpos($key, '|') === false) return ['error' => 'Thiếu chiến dịch.'];
+  $all = adMocs();
+  $ds = is_array($all[$key] ?? null) ? $all[$key] : [];
+  $xoa = trim((string)($in['del'] ?? ''));
+  if ($xoa !== '') $ds = array_values(array_filter($ds, fn($x) => (string)($x['id'] ?? '') !== $xoa));
+  else {
+    $date = (string)($in['date'] ?? '');
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) return ['error' => 'Ngày không hợp lệ.'];
+    $note = mb_substr(trim((string)($in['note'] ?? '')), 0, 160, 'UTF-8');
+    if ($note === '') return ['error' => 'Ghi ngắn đã sửa gì (vd. Đổi ảnh bìa).'];
+    $ds[] = ['id' => bin2hex(random_bytes(5)), 'date' => $date, 'note' => $note, 'by' => mb_substr($by, 0, 60, 'UTF-8'),
+             'at' => gmdate('Y-m-d\TH:i:s\Z')];
+    usort($ds, fn($a, $b) => strcmp((string)$a['date'], (string)$b['date']));
+    $ds = array_slice($ds, -20);
+  }
+  if ($ds) $all[$key] = $ds; else unset($all[$key]);
+  kvSet('ad_moc', $all);
+  return ['moc' => (object)$all];
+}
+
+/* ============================================================
    GỢI Ý NÂNG ROAS MỤC TIÊU
 
    Chiến dịch "Tối đa doanh thu — tuỳ chỉnh ROAS" của Shopee cố giữ ROAS thực

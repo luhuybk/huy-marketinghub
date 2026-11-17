@@ -19,6 +19,7 @@ const NAV = [
   {id:'posttt',   icon:'🎬',label:'Bài TikTok',   perm:'posttt'},
   {id:'ads',      icon:'◎', label:'Shopee Ads',   perm:'ads'},
   {id:'adreport', icon:'📊',label:'Báo cáo Ads',  perm:'adreport'},
+  {id:'adtong',   icon:'📈',label:'Tổng quan QC', perm:'adreport'},
   {id:'botgio',   icon:'🤖',label:'Bot ROAS giờ', perm:'adreport'},
   {id:'keywords', icon:'🔎',label:'Đánh từ khoá',  perm:'keywords'},
   {id:'rival',    icon:'🎯',label:'Theo dõi đối thủ', perm:'rival'},
@@ -39,7 +40,7 @@ const TITLES = {today:'Hôm nay', dash:'Tổng quan', pipeline:'Booking', kols:'
                 ads:'Shopee Ads', improve:'Cải thiện sản phẩm',
                 newprod:'Xây dựng sản phẩm mới', compare:'So sánh kênh', resources:'Tài nguyên',
                 review:'Cần bạn duyệt', settings:'Cài đặt', kol:'Hồ sơ KOC', product:'Sản phẩm',
-                sp:'Sức khoẻ trên Shopee', adreport:'Báo cáo quảng cáo', botgio:'Bot ROAS theo giờ',
+                sp:'Sức khoẻ trên Shopee', adreport:'Báo cáo quảng cáo', botgio:'Bot ROAS theo giờ', adtong:'Tổng quan quảng cáo',
                 adcamp:'Chiến dịch', keywords:'Đánh top từ khoá', kw:'Dự án từ khoá',
                 cost:'Tính chi phí', costsp:'Chi phí sản phẩm', pj:'Dự án',
                 launch:'Hàng mới về', rival:'Theo dõi đối thủ', build:'Bảng xây dựng sản phẩm', giasi:'Bảng giá sỉ'};
@@ -104,7 +105,7 @@ function render(){
   route = parseHash();
   /* Trang không có gì để "thêm" thì giấu nút + — để nó rơi xuống mặc định là
      mở biểu mẫu booking cho người không có quyền booking */
-  document.body.classList.toggle('nofab', route.page === 'giasi');
+  document.body.classList.toggle('nofab', route.page === 'giasi' || route.page === 'adtong');
   const view = $('#view');
   if (!view) return;
   ensureAdTg();
@@ -132,6 +133,7 @@ function render(){
       case 'review':   html = viewReview(); break;
       case 'adreport': ensureBot(); html = viewAdReport(); break;
       case 'botgio':   ensureBot(); html = viewBotPage(); break;
+      case 'adtong':   ensureAdTong(); html = viewAdTong(); break;
       case 'adcamp':   html = viewAdcamp(route.id); break;
       case 'keywords': html = viewKeywords(); break;
       case 'rival':    ensureRival(); html = viewRival(); break;
@@ -1456,6 +1458,16 @@ function ensureBot(lamMoi){
     .finally(() => { botv.busy = false; if (botDangMo()) render(); });
 }
 setInterval(() => { if (botDangMo() && !document.hidden) ensureBot(); }, 60e3);
+/* 📈 Tổng quan QC: số ngày chỉ đổi mỗi sáng một lần — 15 phút hỏi lại là thừa đủ */
+const AT_CU_PHUT = 15;
+function ensureAdTong(lamMoi){
+  if (route.page !== 'adtong' || !window.Server || !Server.authed() || !(may('adreport') || may('ads'))) return;
+  if (atv.busy || (!lamMoi && atv.luc && Date.now() - atv.luc < AT_CU_PHUT * 6e4)) return;
+  atv.busy = true; atv.luc = Date.now();
+  Server.adRadar().then(r => { atv.data = r; atv.err = ''; })
+    .catch(e => { atv.err = e.message || 'lỗi không rõ'; })
+    .finally(() => { atv.busy = false; if (route.page === 'adtong') render(); });
+}
 const RV_CU_PHUT = 10;      // mở lại trang sau chừng này phút thì hỏi lại máy chủ
 function ensureRival(){
   if (!window.Server || !Server.authed() || !may('rival')) return;
@@ -5434,6 +5446,27 @@ const ACTIONS = {
   adissue:     id => { ui.adIssue = id || ''; ui.adOnlyBad = false; render(); },
   adonlybad:  (id) => { ui.adOnlyBad = id ? id === 'on' : !ui.adOnlyBad; ui.adIssue = ''; render(); },
   botreload:   () => { ensureBot(true); toast('Đang tải lại…'); },
+  /* ---- 📈 Tổng quan QC ---- */
+  atreload: () => { ensureAdTong(true); toast('Đang tải lại…'); },
+  atshop:   id => { ui.atShop = id || ''; ui.atOpen = ''; render(); },
+  atky:     id => { ui.atKy = +id || 30; render(); },
+  atloc:    id => { ui.atLoc = id || ''; render(); },
+  atskip:   () => { ui.atSkip = !(ui.atSkip !== false); render(); },
+  atall:    () => { ui.atAll = !ui.atAll; render(); },
+  atopen:   id => { ui.atOpen = ui.atOpen === id ? '' : id; render(); },
+  atmocadd: async (id, el) => {
+    const f = el.closest('.at-moc-f'); if (!f) return;
+    const date = f.querySelector('[name="date"]').value, note = f.querySelector('[name="note"]').value.trim();
+    if (!date) return toast('Chọn ngày đã sửa sản phẩm');
+    if (!note) return toast('Ghi ngắn đã sửa gì — vd. Đổi ảnh bìa');
+    try { const r = await Server.adMoc({key:id, date, note}); if (atv.data) atv.data.moc = r.moc; render(); toast('Đã ghi mốc ' + fmtDate(date)); }
+    catch(e){ toast(e.message || 'Không lưu được'); }
+  },
+  atmocxoa: async (id, el) => {
+    if (!confirm('Xoá mốc cải tiến này?')) return;
+    try { const r = await Server.adMoc({key:el.dataset.k, del:id}); if (atv.data) atv.data.moc = r.moc; render(); }
+    catch(e){ toast(e.message || 'Không xoá được'); }
+  },
   botshop:     id => { botv.shop = id; render(); },
   /* Dừng / chạy lại: data-id rỗng = cả bot, "shop|cid" = một chiến dịch; data-on 1 = dừng */
   /* Bảng cài đặt từng sản phẩm: ROAS biên + cho bot chỉnh thật. ✎ ở ô sàn cũng mở bảng này. */

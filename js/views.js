@@ -6643,7 +6643,7 @@ function botHoursView(rows, vn, logs){
    với từ mốc tới nay.
    ============================================================ */
 const AT_NGUONG = 0.08;               // ROAS 30N đổi ≥ 8% mới gọi là cải thiện / đi xuống
-const AT_MIN_CHI = 300000, AT_MIN_DON = 15;   // dưới mức này một trong hai kỳ thì "Ít số liệu"
+const AT_MIN_CHI = 200000, AT_MIN_DON = 10;   // dưới mức này một trong hai kỳ thì "Ít số liệu"
 const AT_NGAY_VE = 90;                // biểu đồ xu hướng: 90 ngày gần nhất
 const atSaleDay = ds => { const p = String(ds).split('-'); return +p[2] === +p[1] || +p[2] === 25; };
 const atF1 = v => v == null || !isFinite(v) ? '—' : (+v).toFixed(1).replace('.', ',');
@@ -6681,9 +6681,10 @@ function atChip(dd, tot){
 function atVerdict(now, prev){
   if (!prev || prev.cost < AT_MIN_CHI || prev.ord < AT_MIN_DON || now.cost < AT_MIN_CHI || now.ord < AT_MIN_DON)
     return {k:'it', lb:'Ít số liệu', cls:''};
-  const dd = atDd(atRoas(now), atRoas(prev));
-  if (dd >= AT_NGUONG)  return {k:'up',   lb:'▲ Cải thiện', cls:'ok', dd};
-  if (dd <= -AT_NGUONG) return {k:'down', lb:'▼ Đi xuống',  cls:'bad', dd};
+  /* so trên số % đã làm tròn — chip ghi ▲8% thì nhận định cũng phải là cải thiện */
+  const dd = atDd(atRoas(now), atRoas(prev)), p = Math.round(dd * 100), moc = Math.round(AT_NGUONG * 100);
+  if (p >= moc)  return {k:'up',   lb:'▲ Cải thiện', cls:'ok', dd};
+  if (p <= -moc) return {k:'down', lb:'▼ Đi xuống',  cls:'bad', dd};
   return {k:'flat', lb:'→ Đi ngang', cls:'', dd};
 }
 
@@ -6841,8 +6842,8 @@ function viewAdTongSp(D, P, cs, nhieuShop){
       <td style="max-width:300px"><div class="at-ten">${mo ? '▾' : '▸'} ${esc(c.t)}</div>
         <div class="dim" style="font-size:11px">${nhieuShop ? esc(D.shops[c.s]) + ' · ' : ''}${loai ? loai + ' · ' : ''}mục tiêu ${atF1(c.tg || null)}${r.moc.length ? ' · 📌 ' + r.moc.length + ' mốc' : ''} ${dang}</div></td>
       <td class="r">${moneyShort(r.chi30)}</td>
-      <td class="r"><b>${atF1(atRoas(r.now))}</b></td>
-      <td class="r">${atF1(atRoas(r.prev))} ${atChip(atDd(atRoas(r.now), atRoas(r.prev)), true)}</td>
+      <td class="r" style="white-space:nowrap"><b>${atF1(atRoas(r.now))}</b> ${atChip(atDd(atRoas(r.now), atRoas(r.prev)), true)}</td>
+      <td class="r">${atF1(atRoas(r.prev))}</td>
       <td>${Chart.spark(sp, mau, 96, 24)}</td>
       <td class="r">${atPc(atCr(r.now))} ${atChip(atDd(atCr(r.now), atCr(r.prev)), true)}</td>
       <td class="r">${atPc(atCtr(r.now), 2)} ${atChip(atDd(atCtr(r.now), atCtr(r.prev)), true)}</td>

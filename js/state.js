@@ -5569,6 +5569,8 @@ const rv = {state:null, scans:{}, vols:{}, sp:{}, desc:{}, err:'', asked:false, 
             shops:null, shHan:null, shErr:'', shBusy:false, shLuc:0};     // gian hàng đối thủ — xem rvShopView()
 /* Bot ROAS theo giờ — số ở máy chủ (bot_view), không đồng bộ. Xem viewAdBot(). */
 const botv = {data:null, err:'', busy:false, luc:0, shop:''};
+/* 📈 Tổng quan QC — số ad_radar + mốc cải tiến (xem viewAdTong) */
+const atv = {data:null, err:'', busy:false, luc:0};
 const BOT_MODE = {day:{t:'Đẩy', c:'ok'}, giu:{t:'Giữ', c:''}, siet:{t:'Siết', c:'warn'}};
 /* Khối giờ để đọc ROAS — Shopee quy doanh số về giờ RA ĐƠN, nên đọc từng giờ
    lẻ dễ lệch (click 23h, 0h mới ra đơn); gộp khối liền nhau mới đúng. */

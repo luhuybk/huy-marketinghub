@@ -1332,6 +1332,28 @@ với thực tế, bảng tất cả quảng cáo, bấm một dòng mở ngăn 
   `computeAlerts()` trong `radar.html` — nó tách biệt với cờ của tab Theo
   tháng / Hôm qua.
 
+### 📈 Tổng quan QC (menu bên, `#adtong`)
+
+Dashboard quảng cáo toàn shop + câu hỏi "sản phẩm có đang tốt lên không".
+Dùng **chung số với Radar** (action `ad_radar`, kho `ad_raw`), không có nguồn
+riêng — tác vụ 8h45 ngừng gửi thì trang báo *trễ N ngày*. Mã: `viewAdTong()`
+trong `js/views.js`, `ensureAdTong()` + thao tác `at…` trong `js/app.js`.
+
+- Ô chỉ số theo kỳ 7/30/90 ngày so với kỳ liền trước: chi, doanh thu QC, ROAS
+  (+ ACOS), đơn, chi/đơn, giá trị đơn TB, CTR, tỉ lệ chuyển đổi (conv ÷ click,
+  như Radar). Tính cả ngày sale — đây là tiền thật đã chi.
+- **ROAS 30N** = 30 ngày gần nhất so với 30 ngày liền trước, mặc định **bỏ ngày
+  sale ±1** (cùng luật ROAS chuẩn của bot; nút tắt được). Đổi ≥ 8% (so trên số %
+  đã làm tròn, khớp với chip) mới là *Cải thiện / Đi xuống*; một trong hai kỳ chi
+  < 200k hoặc < 10 đơn thì *Ít số liệu*. Bảng bày thêm Chuyển đổi và CTR vì ROAS
+  thực bị ROAS mục tiêu kéo theo, còn hai số kia phản ánh chính sản phẩm.
+- Biểu đồ 90 ngày: đường ROAS 30N trượt, chấm ROAS ngày, cột chi (trục phải),
+  dải ngày sale, vạch vàng = ROAS mục tiêu đổi (`tgc`), vạch xanh = mốc.
+- **📌 Mốc cải tiến**: kv `ad_moc` = `{"shop|cid": [{id,date,note,by,at}]}`, tối
+  đa 20 mốc/chiến dịch, ai xem được Báo cáo Ads là ghi/xoá được (action `ad_moc`,
+  `adMocSet()` — bản Node trong serve.js). Mỗi mốc so 30 ngày trước mốc với từ mốc
+  tới nay (tối đa 30 ngày); dưới 14 ngày thì nhắc đợi thêm.
+
 ### Gợi ý nâng ROAS mục tiêu
 
 Chiến dịch "Tối đa doanh thu — tuỳ chỉnh ROAS" của Shopee cố giữ ROAS thực

@@ -1180,3 +1180,32 @@ tr.rv-dang{background:var(--bg3)}
 .si-gb .tbl{margin:0}
 @media (max-width:640px){.si-gh{padding:10px 12px}.si-nav{flex-direction:column}}
 .si-search input::-webkit-search-cancel-button{-webkit-appearance:none;display:none}
+
+/* ---------------- 📈 Tổng quan QC ---------------- */
+.at-bar{fill:var(--tx3);opacity:.22}
+.at-dot{fill:var(--acc);opacity:.35}
+.at-roll{fill:none;stroke:var(--acc);stroke-width:2.6;stroke-linejoin:round;stroke-linecap:round}
+.at-roll-pt{fill:var(--bg2);stroke:var(--acc);stroke-width:2.4}
+.at-sale{fill:var(--bad);opacity:.07}
+.at-tg{stroke:var(--warn);stroke-width:1.4;stroke-dasharray:3 3}
+.at-moc{stroke:var(--ok);stroke-width:2}
+.at-moc-t{font-size:11px}
+.at-leg{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:11px;color:var(--tx3);margin-top:4px}
+.at-leg i{display:inline-block;width:14px;height:3px;border-radius:2px;vertical-align:middle;margin-right:5px}
+.at-leg .l1{background:var(--acc);height:3px}
+.at-leg .l2{background:var(--acc);opacity:.4;width:6px;height:6px;border-radius:50%}
+.at-leg .l3{background:var(--tx3);opacity:.35;width:8px;height:10px;border-radius:1px}
+.at-leg .l4{background:var(--warn)}
+.at-leg .l5{background:var(--ok)}
+.at-tbl td{vertical-align:middle}
+.at-tbl tr.on>td{background:var(--bg3)}
+.at-ten{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.at-tbl .chip{padding:0 6px;font-size:10.5px}
+.at-det>td{background:var(--bg3);padding:10px 12px}
+/* bảng trượt ngang trên điện thoại — ngăn chi tiết ghim theo khung nhìn, không trôi theo bảng */
+.at-detbox{position:sticky;left:12px;max-width:min(900px,calc(100vw - 96px))}
+.at-mocrow{border-left:3px solid var(--ok);padding:6px 10px;margin:8px 0;background:var(--bg2);border-radius:0 8px 8px 0}
+.at-cmp{min-width:0;margin-top:6px}
+.at-moc-f{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}
+.at-moc-f input{width:auto}
+.at-q .t-s{white-space:normal}

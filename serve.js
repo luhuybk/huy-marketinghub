@@ -698,7 +698,13 @@ function api(req, res, body){
     case 'ad_radar': {
       if (!need()) return;
       if (!khMay(me, 'adreport') && !khMay(me, 'ads')) return fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
-      return send(Object.assign({ok:true}, adRadarData()));
+      return send(Object.assign({ok:true, moc:adMocs()}, adRadarData()));
+    }
+    case 'ad_moc': {
+      if (!need()) return;
+      if (!khMay(me, 'adreport') && !khMay(me, 'ads')) return fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
+      const r = adMocSet(inp, (me && me.name) || '');
+      return r.error ? fail(r.error) : send(Object.assign({ok:true}, r));
     }
     /* Bot ROAS theo giờ — xem botView()/botPause() */
     case 'bot_view': {
@@ -1235,6 +1241,28 @@ function adTables(D){
   });
 }
 /* Số liệu cho Radar — giống adRadarData() bên PHP */
+/* Mốc cải tiến sản phẩm — bản Node của adMocs()/adMocSet() trong api/lib.php */
+function adMocs(){ const m = kvGet('ad_moc', {}); return m && typeof m === 'object' && !Array.isArray(m) ? m : {}; }
+function adMocSet(inp, by){
+  const key = String(inp.key || '').trim().slice(0, 170);
+  if (!key || !key.includes('|')) return {error:'Thiếu chiến dịch.'};
+  const all = adMocs();
+  let ds = Array.isArray(all[key]) ? all[key] : [];
+  const xoa = String(inp.del || '').trim();
+  if (xoa) ds = ds.filter(x => String(x.id || '') !== xoa);
+  else {
+    const date = String(inp.date || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return {error:'Ngày không hợp lệ.'};
+    const note = String(inp.note || '').trim().slice(0, 160);
+    if (!note) return {error:'Ghi ngắn đã sửa gì (vd. Đổi ảnh bìa).'};
+    ds.push({id:crypto.randomBytes(5).toString('hex'), date, note, by:String(by).slice(0, 60), at:new Date().toISOString().slice(0, 19) + 'Z'});
+    ds.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    ds = ds.slice(-20);
+  }
+  if (ds.length) all[key] = ds; else delete all[key];
+  kvSet('ad_moc', all);
+  return {moc:all};
+}
 function adRadarData(soNgay = 400){
   const D = db(); adTables(D);
   const now = vnNow().date, g = new Date(now + 'T00:00:00Z'); g.setUTCDate(g.getUTCDate() - soNgay);
