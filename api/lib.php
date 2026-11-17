@@ -1931,7 +1931,9 @@ function botCfg(): array {
   $san = [];
   foreach ((is_array($c['san'] ?? null) ? $c['san'] : []) as $k => $v)
     if (is_numeric($v) && $v > 0) $san[(string)$k] = round((float)$v, 1);
-  return ['paused' => !empty($c['paused']), 'off' => is_array($off) ? $off : [], 'san' => $san,
+  $live = [];
+  foreach ((is_array($c['live'] ?? null) ? $c['live'] : []) as $k => $v) $live[(string)$k] = !empty($v);
+  return ['paused' => !empty($c['paused']), 'off' => is_array($off) ? $off : [], 'san' => $san, 'live' => $live,
           'by' => (string)($c['by'] ?? ''), 'at' => (string)($c['at'] ?? '')];
 }
 /* Bản trả ra ngoài: off rỗng vẫn phải là {} (json_encode mảng rỗng ra []) */
@@ -1939,6 +1941,7 @@ function botCfgOut(?array $c = null): array {
   $c = $c ?? botCfg();
   $c['off'] = (object)$c['off'];
   $c['san'] = (object)($c['san'] ?? []);
+  $c['live'] = (object)($c['live'] ?? []);
   return $c;
 }
 function botTxt($v, int $n = 200): string { return mb_substr(trim((string)$v), 0, $n, 'UTF-8'); }
@@ -2006,7 +2009,7 @@ function botSave(array $in): array {
             'mode' => botTxt($c['mode'] ?? '', 10), 'roas' => botNum($c['roas'] ?? null),
             'cost' => botNum($c['cost'] ?? null), 'gmv' => botNum($c['gmv'] ?? null), 'budget' => botNum($c['budget'] ?? null),
             'boost' => !empty($c['boost']), 'next' => botTxt($c['next'] ?? '', 60), 'note' => botTxt($c['note'] ?? '', 300),
-            'plan' => $plan, 'bien' => botNum($c['bien'] ?? null), 'floorT' => botNum($c['floorT'] ?? null), 'live' => array_key_exists('live', $c) ? !empty($c['live']) : null,
+            'plan' => $plan, 'bien' => botNum($c['bien'] ?? null), 'floorT' => botNum($c['floorT'] ?? null), 'bienSP' => botNum($c['bienSP'] ?? null), 'live' => array_key_exists('live', $c) ? !empty($c['live']) : null,
             'sanSrc' => botTxt($c['sanSrc'] ?? '', 8), 'heSoGiu' => botNum($c['heSoGiu'] ?? null), 'kDN' => botNum($c['kDN'] ?? null),
             'std30' => is_array($c['std30'] ?? null) ? ['cost' => botNum($c['std30']['cost'] ?? null), 'gmv' => botNum($c['std30']['gmv'] ?? null),
                          'orders' => botNum($c['std30']['orders'] ?? null), 'roas' => botNum($c['std30']['roas'] ?? null),
@@ -2108,6 +2111,22 @@ function botTouch(string $id, array $in): void {
 function botSan(string $key, ?float $v): array {
   $c = botCfg();
   if ($v === null) unset($c['san'][$key]); else $c['san'][$key] = round($v, 1);
+  kvSet('bot_cfg', $c);
+  return botCfgOut($c);
+}
+/* Bảng cài đặt từng sản phẩm: [{key:"shop|cid", san:"" | số (ROAS biên), live:bool}] */
+function botSetup(array $items): array {
+  $c = botCfg();
+  foreach (array_slice($items, 0, 100) as $it) {
+    if (!is_array($it)) continue;
+    $key = mb_substr(trim((string)($it['key'] ?? '')), 0, 170, 'UTF-8');
+    if ($key === '' || strpos($key, '|') === false) continue;
+    $raw = trim(str_replace(',', '.', (string)($it['san'] ?? '')));
+    if ($raw === '') unset($c['san'][$key]);
+    elseif (is_numeric($raw) && (float)$raw >= 1 && (float)$raw <= 50) $c['san'][$key] = round((float)$raw, 1);
+    else return ['error' => 'ROAS biên phải là số từ 1 đến 50 (để trống = dùng mặc định).'];
+    if (array_key_exists('live', $it)) $c['live'][$key] = !empty($it['live']);
+  }
   kvSet('bot_cfg', $c);
   return botCfgOut($c);
 }
