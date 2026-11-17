@@ -5346,6 +5346,13 @@ function launchAutoMarks(){
    ============================================================ */
 const rv = {state:null, scans:{}, vols:{}, sp:{}, desc:{}, err:'', asked:false, busy:false,
             shops:null, shHan:null, shErr:'', shBusy:false, shLuc:0};     // gian hàng đối thủ — xem rvShopView()
+/* Bot ROAS theo giờ — số ở máy chủ (bot_view), không đồng bộ. Xem viewAdBot(). */
+const botv = {data:null, err:'', busy:false, luc:0, shop:''};
+const BOT_MODE = {day:{t:'Đẩy', c:'ok'}, giu:{t:'Giữ', c:''}, siet:{t:'Siết', c:'warn'}};
+/* Khối giờ để đọc ROAS — Shopee quy doanh số về giờ RA ĐƠN, nên đọc từng giờ
+   lẻ dễ lệch (click 23h, 0h mới ra đơn); gộp khối liền nhau mới đúng. */
+const BOT_BLOCKS = [['00–01h',[0,1]],['02–05h',[2,3,4,5]],['06–10h',[6,7,8,9,10]],
+                    ['11–15h',[11,12,13,14,15]],['16–20h',[16,17,18,19,20]],['21–23h',[21,22,23]]];
 const RV_KINDS = {main:'Từ khoá chính', sp:'Từ khoá sản phẩm'};
 const RV_SHOW = 10;                       // bảng mặc định hiện top mấy
 /* Bao lâu quét một từ khoá (ngày) — máy chủ quyết định tới hạn (rvKwHan ở

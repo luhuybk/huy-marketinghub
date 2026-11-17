@@ -231,6 +231,9 @@ const Server = (() => {
   /* Gợi ý nâng ROAS mục tiêu — máy chủ tự tính từ số quảng cáo tự động */
   const adTgUp = () => call('ad_tg_up');
   const adTgMute = id => call('ad_tg_mute', {id});
+  /* Bot ROAS theo giờ (Báo cáo Ads → Bot giờ) */
+  const botView  = ()        => call('bot_view');
+  const botPause = (on, key) => call('bot_pause', {on: !!on, key: key || ''});
   /* Theo dõi đối thủ — dữ liệu ở máy chủ, chỉ chủ gọi được */
   const rivalState   = ()      => call('rival_state');
   const rivalScans   = kwId    => call('rival_scans', {kw_id: kwId});
@@ -256,7 +259,7 @@ const Server = (() => {
 
   return {probe, login, logout, logoutAll, pull, push, pushBeacon, stats,
           tgGet, tgSave, tgTest, tgReport, tgHook, remind, ingestList, ingestSet,
-          rivalState, rivalScans, rivalKwSave, rivalKwDel, rivalScanDel, rivalMine, rivalShops, rivalLatest, rivalDesc, rivalShopDel, rivalShopSave, bimgUp, bimgDel, imgUrl, adTgUp, adTgMute,
+          rivalState, rivalScans, rivalKwSave, rivalKwDel, rivalScanDel, rivalMine, rivalShops, rivalLatest, rivalDesc, rivalShopDel, rivalShopSave, bimgUp, bimgDel, imgUrl, adTgUp, adTgMute, botView, botPause,
           users, userNames, userSave, userDel, takeWhoChanged, notePerms,
           available, authed, state, role, isOwner, name, perms, may, call};
 })();

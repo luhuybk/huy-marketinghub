@@ -697,6 +697,16 @@ function api(req, res, body){
       if (!khMay(me, 'adreport') && !khMay(me, 'ads')) return fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
       return send(Object.assign({ok:true}, adRadarData()));
     }
+    /* Bot ROAS theo giờ — xem botView()/botPause() */
+    case 'bot_view': {
+      if (!need()) return;
+      if (!khMay(me, 'adreport') && !khMay(me, 'ads')) return fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
+      return send(Object.assign({ok:true}, botView()));
+    }
+    case 'bot_pause': {
+      if (!owner()) return;
+      return send({ok:true, cfg:botPause(!!inp.on, String(inp.key || '').trim().slice(0, 170), (me && me.name) || 'chủ')});
+    }
     case 'ad_tg_up': {
       if (!need()) return;
       if (!khMay(me, 'adreport') && !khMay(me, 'ads')) return fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
@@ -1414,6 +1424,142 @@ function adIngest(histCsv, campCsv){
   return {rows:n, shops:Object.keys(dung), dates: tatCa.length ? [tatCa[0], tatCa[tatCa.length - 1]] : [],
           months:Object.keys(thangs), adcamps:nCamp, addays:nDay, span:soNgay};
 }
+/* ---------------- bot ROAS theo giờ: bản Node của botSave()/botView() trong api/lib.php ----------------
+   Sửa bên này thì sửa cả bên kia. */
+const BOT_LOG_MAX = 5000, BOT_HOUR_KEEP = 400;
+function botTables(){
+  db().exec(`CREATE TABLE IF NOT EXISTS bot_camp (shop TEXT NOT NULL, cid TEXT NOT NULL, data TEXT NOT NULL,
+      at TEXT NOT NULL, PRIMARY KEY (shop, cid));
+    CREATE TABLE IF NOT EXISTS bot_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL,
+      shop TEXT NOT NULL, cid TEXT NOT NULL, data TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS bot_hour (shop TEXT NOT NULL, date TEXT NOT NULL, hour INTEGER NOT NULL,
+      cost INTEGER NOT NULL DEFAULT 0, gmv INTEGER NOT NULL DEFAULT 0, orders INTEGER NOT NULL DEFAULT 0,
+      clicks INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (shop, date, hour));`);
+}
+function botCfg(){
+  const c = kvGet('bot_cfg', {}) || {};
+  return {paused: !!c.paused, off: c.off && typeof c.off === 'object' && !Array.isArray(c.off) ? c.off : {},
+          by: String(c.by || ''), at: String(c.at || '')};
+}
+const botTxt = (v, n = 200) => String(v == null ? '' : v).trim().slice(0, n);
+const botNum = v => (v !== null && v !== '' && isFinite(+v)) ? Math.round(+v * 1e4) / 1e4 : null;
+const botIso = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+function botShopId(ten){
+  const k = String(ten).trim().toLowerCase();
+  const co = ingItems('shops').find(s => String(s.name || '').trim().toLowerCase() === k);
+  if (co) return String(co.id);
+  const id = 'sh' + Date.now().toString(36) + crypto.randomBytes(3).toString('hex');
+  ingItemSave('shops', id, {name:String(ten).trim(), code:'', note:'tự tạo khi bot ROAS gửi số', archived:false}, false);
+  return id;
+}
+function botOstat(shop, r){
+  const ym = String(r.ym || '');
+  if (!/^\d{4}-\d{2}$/.test(ym)) return {error:'Thiếu tháng (ym).'};
+  if (!Array.isArray(r.gio) || r.gio.length !== 24 || !Array.isArray(r.thu) || r.thu.length !== 7) return {error:'gio phải 24 ô, thu phải 7 ô.'};
+  const I = v => Math.round(+v || 0);
+  const rec = {ym, from:botTxt(r.from, 10), to:botTxt(r.to, 10), orders:I(r.orders), units:I(r.units), gmv:I(r.gmv),
+    huyOrders:I(r.huyOrders), huyGmv:I(r.huyGmv), spTong:I(r.spTong),
+    gio:r.gio.map(g => ({orders:I(g.orders), units:I(g.units), gmv:I(g.gmv), huy:I(g.huy)})),
+    thu:r.thu.map(g => ({orders:I(g.orders), gmv:I(g.gmv)})),
+    sp:(Array.isArray(r.sp) ? r.sp : []).slice(0, 25).map(x => ({name:botTxt(x.name, 255), sku:botTxt(x.sku, 80),
+      units:I(x.units), gmv:I(x.gmv), gio:Array.isArray(x.gio) && x.gio.length === 24 ? x.gio.map(I) : new Array(24).fill(0)}))};
+  const sid = botShopId(shop);
+  rec.shopId = sid;
+  const co = ingItems('orderstats').find(o => o.shopId === sid && o.ym === ym);
+  const id = co ? String(co.id) : 'os' + Date.now().toString(36) + crypto.randomBytes(3).toString('hex');
+  ingItemSave('orderstats', id, rec, !!co);
+  return {ok:true, ym, shopId:sid};
+}
+function botSave(inp){
+  botTables();
+  const D = db(), now = botIso(), dd = String(inp.do || ''), r = {ok:true};
+  if (dd === 'state'){
+    const ins = D.prepare(`INSERT INTO bot_camp (shop, cid, data, at) VALUES (?,?,?,?)
+        ON CONFLICT(shop, cid) DO UPDATE SET data = excluded.data, at = excluded.at`);
+    let n = 0;
+    for (const c of (Array.isArray(inp.camps) ? inp.camps : []).slice(0, 100)){
+      const shop = botTxt(c.shop, 120), cid = botTxt(c.cid, 40);
+      if (!shop || !cid) continue;
+      const plan = Array.isArray(c.plan) && c.plan.length === 24 ? c.plan.map(m => ['day','giu','siet'].includes(m) ? m : 'giu') : null;
+      const d = {title:botTxt(c.title, 255), managed:!!c.managed, base:botNum(c.base), floor:botNum(c.floor), cur:botNum(c.cur),
+        std:botNum(c.std), stepUp:botNum(c.stepUp), stepDown:botNum(c.stepDown), mode:botTxt(c.mode, 10), roas:botNum(c.roas),
+        cost:botNum(c.cost), gmv:botNum(c.gmv), budget:botNum(c.budget), boost:!!c.boost, next:botTxt(c.next, 60),
+        note:botTxt(c.note, 300), plan};
+      ins.run(shop, cid, JSON.stringify(d), now); n++;
+    }
+    r.camps = n;
+  } else if (dd === 'log'){
+    const ins = D.prepare('INSERT INTO bot_log (at, shop, cid, data) VALUES (?,?,?,?)');
+    let n = 0;
+    for (const e of (Array.isArray(inp.entries) ? inp.entries : []).slice(0, 200)){
+      let at = botTxt(e.at, 30); if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(at)) at = now;
+      const d = {kind:botTxt(e.kind || 'roas', 12), title:botTxt(e.title, 255), old:botNum(e.old), new:botNum(e.new),
+        mode:botTxt(e.mode, 10), reason:botTxt(e.reason, 400), roas:botNum(e.roas), cost:botNum(e.cost),
+        ok:!('ok' in e) || !!e.ok, err:botTxt(e.err, 400)};
+      ins.run(at, botTxt(e.shop, 120), botTxt(e.cid, 40), JSON.stringify(d)); n++;
+    }
+    D.exec(`DELETE FROM bot_log WHERE id <= (SELECT id FROM bot_log ORDER BY id DESC LIMIT 1 OFFSET ${BOT_LOG_MAX})`);
+    r.logged = n;
+  } else if (dd === 'hours'){
+    const shop = botTxt(inp.shop, 120);
+    if (!shop) return {error:'Thiếu tên gian hàng.'};
+    const ins = D.prepare(`INSERT INTO bot_hour (shop, date, hour, cost, gmv, orders, clicks) VALUES (?,?,?,?,?,?,?)
+        ON CONFLICT(shop, date, hour) DO UPDATE SET cost = excluded.cost, gmv = excluded.gmv,
+        orders = excluded.orders, clicks = excluded.clicks`);
+    let n = 0;
+    D.exec('BEGIN');
+    for (const x of (Array.isArray(inp.rows) ? inp.rows : []).slice(0, 24 * 120)){
+      const date = String(x.date || ''), h = parseInt(x.hour, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !(h >= 0 && h <= 23)) continue;
+      ins.run(shop, date, h, Math.round(+x.cost || 0), Math.round(+x.gmv || 0), parseInt(x.orders, 10) || 0, parseInt(x.clicks, 10) || 0); n++;
+    }
+    D.exec('COMMIT');
+    const giu = new Date(Date.parse(vnNow().date) - BOT_HOUR_KEEP * 864e5).toISOString().slice(0, 10);
+    D.prepare('DELETE FROM bot_hour WHERE date < ?').run(giu);
+    r.rows = n;
+  } else if (dd === 'ostat'){
+    const shop = botTxt(inp.shop, 120);
+    if (!shop || !inp.rec || typeof inp.rec !== 'object') return {error:'Thiếu gian hàng hoặc bản ghi.'};
+    const o = botOstat(shop, inp.rec);
+    if (o.error) return o;
+    Object.assign(r, o);
+  } else if (dd !== 'cfg') return {error:'Không hiểu yêu cầu.'};
+  kvSet('bot_seen', {at:now, ver:botTxt(inp.ver, 30), do:dd});
+  return Object.assign(r, {cfg:botCfg()});
+}
+function botView(){
+  botTables();
+  const D = db();
+  const camps = D.prepare('SELECT shop, cid, data, at FROM bot_camp ORDER BY shop, cid').all()
+    .map(x => { try { return Object.assign({shop:x.shop, cid:x.cid, at:x.at}, JSON.parse(x.data)); } catch(e){ return null; } }).filter(Boolean);
+  const logs = D.prepare('SELECT id, at, shop, cid, data FROM bot_log ORDER BY at DESC, id DESC LIMIT 400').all()
+    .map(x => { try { return Object.assign({id:x.id, at:x.at, shop:x.shop, cid:x.cid}, JSON.parse(x.data)); } catch(e){ return null; } }).filter(Boolean);
+  const tu = new Date(Date.parse(vnNow().date) - 90 * 864e5).toISOString().slice(0, 10);
+  const hours = D.prepare('SELECT shop, date, hour, cost, gmv, orders, clicks FROM bot_hour WHERE date >= ? ORDER BY shop, date, hour').all(tu)
+    .map(x => [x.shop, x.date, x.hour, x.cost, x.gmv, x.orders, x.clicks]);
+  return {cfg:botCfg(), seen:kvGet('bot_seen', null), camps, logs, hours, now:botIso()};
+}
+function botPause(on, key, by){
+  const c = botCfg();
+  if (!key) c.paused = !!on; else if (on) c.off[key] = true; else delete c.off[key];
+  c.by = by; c.at = botIso();
+  kvSet('bot_cfg', c);
+  return c;
+}
+function botRoute(req, res, body){
+  const out = (o, code = 200) => { res.writeHead(code, {'Content-Type':'application/json; charset=utf-8', 'Cache-Control':'no-store'}); res.end(JSON.stringify(o)); };
+  if (req.method !== 'POST') return out({ok:false, error:'Cổng này chỉ nhận POST từ bot.'}, 405);
+  let inp; try { inp = JSON.parse(body || '{}'); } catch(e){ return out({ok:false, error:'Không đọc được JSON.'}, 400); }
+  const tok = String(inp.token || '');
+  if (tok.length < 32) return out({ok:false, error:'Thiếu token.'}, 400);
+  const [tt] = ingestDevice(tok, inp.label || 'Bot ROAS theo giờ', req.socket.remoteAddress);
+  if (tt !== 'ok') return out({ok:false, pending: tt === 'pending', error: tt === 'pending'
+    ? 'Chờ chủ cho phép: Marketing Hub → Cài đặt → Nhận số liệu quảng cáo tự động → Cho phép.'
+    : 'Thiết bị này đã bị thu hồi quyền gửi số.'}, 403);
+  const r = botSave(inp);
+  return r.error ? out({ok:false, error:r.error}, 400) : out(r);
+}
+
 function ingestRoute(req, res, body){
   const out = (o, code = 200) => { res.writeHead(code, {'Content-Type':'application/json; charset=utf-8', 'Cache-Control':'no-store'}); res.end(JSON.stringify(o)); };
   if (req.method === 'GET'){
@@ -2002,6 +2148,16 @@ http.createServer((req, res) => {
     let body = '';
     req.on('data', c => { body += c; if (body.length > 4e6) req.destroy(); });
     req.on('end', () => { try { rivalRoute(req, res, body); } catch(e){
+      res.writeHead(500, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ok:false, error:e.message}));
+    }});
+    return;
+  }
+
+  if (p === '/api/bot.php'){
+    let body = '';
+    req.on('data', c => { body += c; if (body.length > 4e6) req.destroy(); });
+    req.on('end', () => { try { botRoute(req, res, body); } catch(e){
       res.writeHead(500, {'Content-Type':'application/json'});
       res.end(JSON.stringify({ok:false, error:e.message}));
     }});

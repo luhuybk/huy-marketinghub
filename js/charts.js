@@ -108,7 +108,7 @@ const Chart = (() => {
       const pts = rows.map((r,i) => ({i, v:r[l.key]})).filter(p => p.v != null && isFinite(p.v));
       if (pts.length > 1){
         const d = pts.map((p,k) => (k ? 'L' : 'M') + cx(p.i).toFixed(1) + ' ' + yL(p.v).toFixed(1)).join(' ');
-        s += `<path d="${d}" fill="none" stroke="${l.color}" stroke-width="2.4"
+        s += `<path d="${d}" fill="none" stroke="${l.color}" stroke-width="2.4"${l.dash ? ' stroke-dasharray="5 4"' : ''}
                     stroke-linejoin="round" stroke-linecap="round"/>`;
       }
       pts.forEach(p => {

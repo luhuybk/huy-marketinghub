@@ -1429,6 +1429,39 @@ hiển thị hẳn thì mọi thứ phía sau đều nhỏ theo, mà nhìn chi p
 thì không thấy được — nên nó có mặt ở cả ô số đầu trang, bảng so tháng, bảng
 chiến dịch và biểu đồ của từng chiến dịch.
 
+## 🤖 Bot giờ — bot ROAS theo khung giờ
+
+Mục con cuối của Báo cáo Ads. Một bot chạy trên **VPS riêng** (Ubuntu, trình
+duyệt ngầm đăng nhập Kênh Người Bán bằng tài khoản phụ) tới giờ thì hạ/nâng ROAS
+mục tiêu của vài chiến dịch theo lịch **Đẩy / Giữ / Siết** — lịch rút từ số
+quảng cáo theo giờ 3 tháng (buổi sáng 6–10h ROAS cao mà ít tiền, chiều tối thấp).
+Hub là nơi **xem** bot đang làm gì và **bấm dừng**, không phải nơi giữ luật.
+
+```
+bot (VPS) ── POST api/bot.php ──▶ bot_camp  : trạng thái từng chiến dịch (mục tiêu, sàn, lịch 24 giờ…)
+            {token, do:…}        bot_log   : mỗi lần chỉnh / mỗi lỗi
+                                 bot_hour  : số quảng cáo theo giờ của gian hàng (400 ngày)
+                                 orderstats: đơn hàng cộng sẵn theo tháng → mục Khung giờ
+          ◀── cfg {paused, off} ── mọi câu trả lời kèm cờ dừng
+```
+
+- **Ghép nối** giống `ingest.php`: lần đầu bot gửi, Hub để thiết bị "Bot ROAS theo
+  giờ (VPS)" ở trạng thái chờ → Cài đặt → Nhận số liệu quảng cáo tự động → Cho phép.
+- **Luật nằm ở bot.** Hub hiện đúng lịch, sàn, bước % bot gửi lên (`plan` 24 ô
+  `day|giu|siet`), không tự tính lại — để không có hai nơi giữ luật lệch nhau.
+- **Dừng:** chủ bấm ⏸ cả bot hoặc từng chiến dịch (khoá `shop|cid` trong `off`).
+  Bot hỏi cờ mỗi 5 phút nên lệnh dừng có tác dụng trong vòng 5 phút; đang dừng thì
+  bot giữ nguyên ROAS mục tiêu đang đặt, không trả về mục tiêu gốc.
+- **Đơn hàng quá khứ** không có trang riêng: bot gửi `do:"ostat"` đúng khuôn
+  `ShopeeOrders.parse()` (js/shopee.js) và Hub ghi đè bản cùng shop + tháng, như
+  lúc nạp tay ở mục Khung giờ.
+- **ROAS theo khối giờ**: 7 ngày gần nhất so với 28 ngày trước đó. Shopee quy doanh
+  số về giờ RA ĐƠN, nên đọc theo khối liền nhau chứ đừng đọc từng giờ lẻ.
+- Chấm 🟢/🔴 theo lần liên lạc cuối của bot (quá 15 phút là 🔴 — thường do phiên
+  Shopee hết hạn, phải đăng nhập lại trên VPS).
+- Luật máy chủ ở `botSave()/botView()/botPause()` trong `api/lib.php`, bản Node
+  đối xứng trong `serve.js`. `bot_cfg`, `bot_seen` nằm trong bảng `kv`.
+
 ## Hôm nay — ads đang chạy có gì bất thường chưa
 
 Mục con đầu tiên. Nạp tệp quảng cáo với khoảng **đúng ngày hôm nay**, xem ngay

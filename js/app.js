@@ -119,7 +119,7 @@ function render(){
       case 'product':  html = viewProduct(route.id); break;
       case 'resources':html = viewResources(); break;
       case 'review':   html = viewReview(); break;
-      case 'adreport': html = viewAdReport(); break;
+      case 'adreport': ensureBot(); html = viewAdReport(); break;
       case 'adcamp':   html = viewAdcamp(route.id); break;
       case 'keywords': html = viewKeywords(); break;
       case 'rival':    ensureRival(); html = viewRival(); break;
@@ -1423,6 +1423,18 @@ function radarMo(shop, cid){
           if (w.__radarMo && w.radarLuc && Date.now() - w.radarLuc <= RADAR_CU_PHUT * 6e4) w.__radarMo(); } catch(e){}
   }, 200);
 }
+/* Bot giờ: hỏi máy chủ khi mở mục này; để mở lâu thì cứ 3 phút hỏi lại
+   (bot chỉnh ROAS theo giờ, số cũ vài phút là đã lệch) */
+const BOT_CU_PHUT = 3;
+function ensureBot(lamMoi){
+  if (adReportTab() !== 'bot' || !window.Server || !Server.authed() || !(may('adreport') || may('ads'))) return;
+  if (botv.busy || (!lamMoi && botv.luc && Date.now() - botv.luc < BOT_CU_PHUT * 6e4)) return;
+  botv.busy = true; botv.luc = Date.now();
+  Server.botView().then(r => { botv.data = r; botv.err = ''; })
+    .catch(e => { botv.err = e.message || 'lỗi không rõ'; })
+    .finally(() => { botv.busy = false; if (route.page === 'adreport' && adReportTab() === 'bot') render(); });
+}
+setInterval(() => { if (route.page === 'adreport' && adReportTab() === 'bot' && !document.hidden) ensureBot(); }, 60e3);
 const RV_CU_PHUT = 10;      // mở lại trang sau chừng này phút thì hỏi lại máy chủ
 function ensureRival(){
   if (!window.Server || !Server.authed() || !may('rival')) return;
@@ -5217,7 +5229,18 @@ const ACTIONS = {
   admonth:     id => { ui.adYm = id; ui.adIssue = ''; ui.adOnlyBad = false; render(); },
   adissue:     id => { ui.adIssue = id || ''; ui.adOnlyBad = false; render(); },
   adonlybad:  (id) => { ui.adOnlyBad = id ? id === 'on' : !ui.adOnlyBad; ui.adIssue = ''; render(); },
-  adtab:       id => { ui.adTab = ['radar','month','gio','day','now'].includes(id) ? id : 'radar'; ui.adQ = '';
+  botreload:   () => { ensureBot(true); toast('Đang tải lại…'); },
+  botshop:     id => { botv.shop = id; render(); },
+  /* Dừng / chạy lại: data-id rỗng = cả bot, "shop|cid" = một chiến dịch; data-on 1 = dừng */
+  botpause:    async (id, el) => {
+    const on = el && el.dataset.on === '1';
+    if (on && !confirm(id ? 'Tạm dừng bot ở chiến dịch này? Bot sẽ không chỉnh ROAS của nó nữa cho tới khi bạn chạy lại.'
+                          : 'Tạm dừng TOÀN BỘ bot? Bot sẽ giữ nguyên ROAS mục tiêu đang đặt, không chỉnh gì thêm.')) return;
+    try { const r = await Server.botPause(on, id); if (botv.data) botv.data.cfg = r.cfg;
+          toast(on ? 'Đã tạm dừng — bot nhận lệnh trong vòng 5 phút' : 'Đã cho chạy lại'); render(); }
+    catch(e){ toast(e.message || 'Không lưu được'); }
+  },
+  adtab:       id => { ui.adTab = ['radar','month','gio','day','now','bot'].includes(id) ? id : 'radar'; ui.adQ = '';
                        ui.adIssue = ''; ui.adOnlyBad = false; ui.adSoSanh = ''; render(); },
   adgioym:     id => { ui.adGioYm = id; ui.adGioSp = ''; render(); },
   giosp:       id => { ui.adGioSp = (ui.adGioSp === id) ? '' : (id || ''); render(); window.scrollTo(0,0); },
