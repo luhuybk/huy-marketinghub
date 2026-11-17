@@ -6797,97 +6797,172 @@ function viewAdTong(){
   return h + viewAdTongSp(D, P, cs, !sh);
 }
 
+/* Số của một chiến dịch cho bảng và hộp chi tiết */
+function atRow(D, P, c){
+  const N = P.N, skip = atSkip(), moc = D.moc || {}, key = D.shops[c.s] + '|' + c.id;
+  const now = atSum([c], N - 30, N - 1, skip, P), prev = atSum([c], N - 60, N - 31, skip, P);
+  return {c, key, now, prev, chi30: atSum([c], N - 30, N - 1, false, P).cost,
+    k14: atSum([c], N - 44, N - 15, skip, P), v: atVerdict(now, prev),
+    moc: Array.isArray(moc[key]) ? moc[key] : []};
+}
+const atLoaiCd = c => c.ty === 'product_mpd' ? 'nhóm SP' : c.ty === 'product_gms' ? 'tự động (shop)' : c.ty === 'shop_manual' ? 'QC shop' : '';
+/* Tên shop ngắn cho nhãn: "Waxshop - Men's Grooming Store" → "Waxshop" */
+const atShopNgan = t => String(t || '').split(/\s[-–|·]\s/)[0].slice(0, 22);
+/* Đường xu hướng nhỏ: co giãn theo ô, nét không bị kéo méo */
+function atSpark(vals, cls){
+  const v = vals.map(x => x == null || !isFinite(x) ? null : x), ok = v.filter(x => x != null);
+  if (ok.length < 2) return '<span class="dim">—</span>';
+  const W = 120, H = 30, max = Math.max(...ok), min = Math.min(...ok), sp = (max - min) || 1, n = v.length;
+  const pt = (y, i) => (i / (n - 1) * W).toFixed(1) + ' ' + (H - 3 - (y - min) / sp * (H - 6)).toFixed(1);
+  let d = '', a = '', first = -1, last = -1;
+  v.forEach((y, i) => { if (y == null) return; d += (first < 0 ? 'M' : 'L') + pt(y, i) + ' '; if (first < 0) first = i; last = i; });
+  a = d + `L${(last / (n - 1) * W).toFixed(1)} ${H} L${(first / (n - 1) * W).toFixed(1)} ${H} Z`;
+  return `<svg class="at-spark ${cls}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><path d="${a}" class="ar"/><path d="${d}" class="ln"/></svg>`;
+}
+
 /* Bảng từng sản phẩm: ROAS 30N bây giờ so với 30 ngày liền trước */
 function viewAdTongSp(D, P, cs, nhieuShop){
-  const N = P.N, skip = atSkip(), moc = D.moc || {};
+  const N = P.N, skip = atSkip();
   const i0 = Math.max(29, N - AT_NGAY_VE);
-  const rows = cs.map(c => {
-    const key = D.shops[c.s] + '|' + c.id;
-    const now = atSum([c], N - 30, N - 1, skip, P), prev = atSum([c], N - 60, N - 31, skip, P);
-    const chi30 = atSum([c], N - 30, N - 1, false, P).cost;
-    const k14 = atSum([c], N - 44, N - 15, skip, P);
-    return {c, key, now, prev, chi30, k14, v: atVerdict(now, prev), moc: Array.isArray(moc[key]) ? moc[key] : []};
-  }).filter(r => r.chi30 > 0 || r.prev.cost > 0 || r.moc.length).sort((a, b) => b.chi30 - a.chi30);
-  const lon = rows.filter(r => r.chi30 >= 100000 || r.moc.length || r.key === ui.atOpen);
+  const rows = cs.map(c => atRow(D, P, c)).filter(r => r.chi30 > 0 || r.prev.cost > 0 || r.moc.length);
+  const lon = rows.filter(r => r.chi30 >= 100000 || r.moc.length);
   const ds = ui.atAll ? rows : lon;
   const dem4 = k => ds.filter(r => r.v.k === k).length;
   const loc = ['up', 'down', 'flat', 'it'].includes(ui.atLoc) ? ui.atLoc : '';
-  const hien = ds.filter(r => !loc || r.v.k === loc);
+  const xep = ['up', 'down'].includes(ui.atSort) ? ui.atSort : 'chi';
+  const ddR = r => r.v.k === 'it' ? null : atDd(atRoas(r.now), atRoas(r.prev));
+  const hien = ds.filter(r => !loc || r.v.k === loc).sort((a, b) => {
+    if (xep === 'chi') return b.chi30 - a.chi30;
+    const x = ddR(a), y = ddR(b);
+    if (x == null || y == null) return (x == null) - (y == null) || b.chi30 - a.chi30;
+    return xep === 'up' ? y - x : x - y;
+  });
+  const nut = (act, id, on, txt, cls) => `<button class="btn sm ${on ? 'pri' : ''} ${cls || ''}" data-act="${act}" data-id="${id}">${txt}</button>`;
 
-  let h = `<div class="card" style="margin-top:12px">
-    <h3 style="margin:0 0 4px">Xu hướng ROAS 30 ngày theo sản phẩm</h3>
-    <div class="dim" style="margin-bottom:10px">ROAS 30N = doanh thu QC ÷ chi QC của 30 ngày gần nhất${skip ? ' (bỏ ngày sale ±1)' : ''}, so với 30 ngày liền trước —
-      đổi từ ${Math.round(AT_NGUONG * 100)}% trở lên mới tính là cải thiện / đi xuống. ROAS còn bị <b>ROAS mục tiêu</b> kéo theo, nên muốn biết
-      <b>chính sản phẩm</b> có tốt lên không thì nhìn thêm <b>Chuyển đổi</b> (giá, đánh giá, mô tả) và <b>CTR</b> (ảnh bìa, tiêu đề).
-      Bấm một dòng để xem biểu đồ và ghi <b>📌 mốc cải tiến</b>.</div>
-    <div class="chips" style="margin-bottom:10px">
-      <button class="btn sm ${!loc ? 'pri' : ''}" data-act="atloc" data-id="">Tất cả · ${ds.length}</button>
-      <button class="btn sm ${loc === 'up' ? 'pri' : ''}" data-act="atloc" data-id="up">▲ Cải thiện · ${dem4('up')}</button>
-      <button class="btn sm ${loc === 'down' ? 'pri' : ''}" data-act="atloc" data-id="down">▼ Đi xuống · ${dem4('down')}</button>
-      <button class="btn sm ${loc === 'flat' ? 'pri' : ''}" data-act="atloc" data-id="flat">→ Đi ngang · ${dem4('flat')}</button>
-      <button class="btn sm ${loc === 'it' ? 'pri' : ''}" data-act="atloc" data-id="it">Ít số liệu · ${dem4('it')}</button>
-      ${rows.length > lon.length ? `<button class="btn sm" data-act="atall">${ui.atAll ? 'Ẩn' : 'Hiện cả'} ${rows.length - lon.length} chiến dịch chi dưới 100k/30 ngày</button>` : ''}
+  let h = `<div class="card at-sp" style="margin-top:12px">
+    <div class="at-sp-hd">
+      <div class="grow"><h3 style="margin:0">Xu hướng ROAS 30 ngày theo sản phẩm</h3>
+        <div class="dim" style="font-size:12px;margin-top:2px">So 30 ngày gần nhất với 30 ngày liền trước${skip ? ', bỏ ngày sale ±1' : ''} ·
+          đổi từ ${Math.round(AT_NGUONG * 100)}% mới tính là lên / xuống · <b>bấm một sản phẩm</b> để xem biểu đồ và ghi 📌 mốc cải tiến</div></div>
     </div>
-    <div class="tblwrap"><table class="tbl sm at-tbl"><thead><tr>
-      <th>Sản phẩm / chiến dịch</th><th class="r">Chi 30N</th><th class="r">ROAS 30N</th><th class="r">30N trước</th>
-      <th>Xu hướng ${AT_NGAY_VE} ngày</th><th class="r">Chuyển đổi</th><th class="r">CTR</th><th>Nhận định</th></tr></thead><tbody>`;
-  if (!hien.length) h += `<tr><td colspan="8" class="dim" style="text-align:center;padding:16px">Không có chiến dịch nào ở nhóm này.</td></tr>`;
+    <div class="at-filt">
+      <div class="at-seg">
+        ${nut('atloc', '', !loc, `Tất cả <i>${ds.length}</i>`)}
+        ${nut('atloc', 'up', loc === 'up', `▲ Cải thiện <i>${dem4('up')}</i>`, 'v-up')}
+        ${nut('atloc', 'down', loc === 'down', `▼ Đi xuống <i>${dem4('down')}</i>`, 'v-down')}
+        ${nut('atloc', 'flat', loc === 'flat', `→ Đi ngang <i>${dem4('flat')}</i>`)}
+        ${nut('atloc', 'it', loc === 'it', `Ít số liệu <i>${dem4('it')}</i>`)}
+      </div>
+      <div class="at-seg">
+        <span class="dim">Xếp theo</span>
+        ${nut('atsort', 'chi', xep === 'chi', 'Chi nhiều')}
+        ${nut('atsort', 'up', xep === 'up', 'Tăng mạnh')}
+        ${nut('atsort', 'down', xep === 'down', 'Giảm mạnh')}
+      </div>
+    </div>
+    <div class="at-list">
+      <div class="at-row at-head"><div>Sản phẩm / chiến dịch</div><div class="r">Chi 30N</div><div class="r">ROAS 30N</div>
+        <div>Xu hướng ${AT_NGAY_VE} ngày</div><div class="r">Chuyển đổi</div><div class="r">CTR</div><div>Nhận định</div></div>`;
+  if (!hien.length) h += `<div class="at-empty">Không có chiến dịch nào ở nhóm này.</div>`;
   hien.forEach(r => {
-    const c = r.c, mo = ui.atOpen === r.key;
+    const c = r.c;
     const sp = []; for (let i = i0; i < N; i++) sp.push(atRoas(atSum([c], i - 29, i, skip, P)));
-    const mau = r.v.k === 'up' ? 'var(--ok)' : r.v.k === 'down' ? 'var(--bad)' : 'var(--tx3)';
-    const loai = c.ty === 'product_mpd' ? 'nhóm SP' : c.ty === 'product_gms' ? 'tự động (shop)' : c.ty === 'shop_manual' ? 'QC shop' : '';
-    const dang = c.st === 'ongoing' ? '' : `<span class="chip">${c.st === 'paused' ? 'tạm dừng' : 'đã dừng'}</span>`;
-    h += `<tr data-act="atopen" data-id="${esc(r.key)}" class="${mo ? 'on' : ''}" style="cursor:pointer">
-      <td style="max-width:300px"><div class="at-ten">${mo ? '▾' : '▸'} ${esc(c.t)}</div>
-        <div class="dim" style="font-size:11px">${nhieuShop ? esc(D.shops[c.s]) + ' · ' : ''}${loai ? loai + ' · ' : ''}mục tiêu ${atF1(c.tg || null)}${r.moc.length ? ' · 📌 ' + r.moc.length + ' mốc' : ''} ${dang}</div></td>
-      <td class="r">${moneyShort(r.chi30)}</td>
-      <td class="r" style="white-space:nowrap"><b>${atF1(atRoas(r.now))}</b> ${atChip(atDd(atRoas(r.now), atRoas(r.prev)), true)}</td>
-      <td class="r">${atF1(atRoas(r.prev))}</td>
-      <td>${Chart.spark(sp, mau, 96, 24)}</td>
-      <td class="r">${atPc(atCr(r.now))} ${atChip(atDd(atCr(r.now), atCr(r.prev)), true)}</td>
-      <td class="r">${atPc(atCtr(r.now), 2)} ${atChip(atDd(atCtr(r.now), atCtr(r.prev)), true)}</td>
-      <td><span class="chip ${r.v.cls}">${r.v.lb}</span></td></tr>`;
-    if (mo) h += `<tr class="at-det"><td colspan="8">${atDetail(D, P, r)}</td></tr>`;
+    const loai = atLoaiCd(c);
+    const dang = c.st === 'ongoing' ? '' : `<span class="at-tag">${c.st === 'paused' ? 'tạm dừng' : 'đã dừng'}</span>`;
+    const sub = [nhieuShop ? `<span class="at-shop">${esc(atShopNgan(D.shops[c.s]))}</span>` : '', loai ? esc(loai) : '',
+      c.tg ? 'mục tiêu ' + atF1(c.tg) : '', r.moc.length ? `<span class="at-tag moc">📌 ${r.moc.length} mốc</span>` : '', dang].filter(Boolean).join('<span class="sep">·</span>');
+    h += `<div class="at-row v-${r.v.k}" data-act="atopen" data-id="${esc(r.key)}" title="Bấm để xem chi tiết và ghi mốc cải tiến">
+      <div class="at-c-ten"><div class="at-ten">${esc(c.t)}</div><div class="at-sub">${sub}</div></div>
+      <div class="at-c-chi r"><span class="at-lb">Chi 30N</span><b>${moneyShort(r.chi30)}</b></div>
+      <div class="at-c-roas r"><span class="at-lb">ROAS 30N</span><div class="at-roas"><b>${atF1(atRoas(r.now))}</b>${atChip(atDd(atRoas(r.now), atRoas(r.prev)), true)}</div>
+        <span class="at-was">trước ${atF1(atRoas(r.prev))}</span></div>
+      <div class="at-c-spark">${atSpark(sp, 'v-' + r.v.k)}</div>
+      <div class="at-c-cr r"><span class="at-lb">Chuyển đổi</span><b>${atPc(atCr(r.now))}</b>${atChip(atDd(atCr(r.now), atCr(r.prev)), true)}</div>
+      <div class="at-c-ctr r"><span class="at-lb">CTR</span><b>${atPc(atCtr(r.now), 2)}</b>${atChip(atDd(atCtr(r.now), atCtr(r.prev)), true)}</div>
+      <div class="at-c-v"><span class="at-pill v-${r.v.k}">${r.v.lb}</span><span class="at-go">›</span></div>
+    </div>`;
   });
-  return h + `</tbody></table></div></div>`;
+  h += `</div>`;
+  if (rows.length > lon.length) h += `<div style="text-align:center;margin-top:10px">${nut('atall', '', false,
+    (ui.atAll ? 'Ẩn ' : 'Hiện thêm ') + (rows.length - lon.length) + ' chiến dịch chi dưới 100k / 30 ngày')}</div>`;
+  return h + `</div>`;
 }
 
-/* Ngăn mở rộng của một chiến dịch: biểu đồ, so trước/sau từng mốc, thêm mốc */
-function atDetail(D, P, r){
-  const c = r.c, N = P.N, skip = atSkip(), DL = D.dates[N - 1];
-  const dong = (ten, a, b) => `<tr><td>${ten}</td><td class="r">${atF1(atRoas(a))}</td><td class="r">${atF1(atRoas(b))} ${atChip(atDd(atRoas(b), atRoas(a)), true)}</td>
-      <td class="r">${atPc(atCr(a))} → ${atPc(atCr(b))} ${atChip(atDd(atCr(b), atCr(a)), true)}</td>
-      <td class="r">${atPc(atCtr(a), 2)} → ${atPc(atCtr(b), 2)} ${atChip(atDd(atCtr(b), atCtr(a)), true)}</td>
-      <td class="r">${a.days ? atF1(a.ord / a.days) : '—'} → ${b.days ? atF1(b.ord / b.days) : '—'}</td></tr>`;
-  let mocH = '';
-  r.moc.slice().reverse().forEach(m => {
-    const i = D.dates.indexOf(m.date);
-    let cmp;
-    if (m.date > DL) cmp = `<span class="dim">chưa có số sau mốc — số tới hết ${fmtDate(DL)}</span>`;
-    else if (i < 0) cmp = `<span class="dim">mốc cũ hơn số đang có</span>`;
-    else {
-      const a = atSum([c], i - 30, i - 1, skip, P), b = atSum([c], i, Math.min(N - 1, i + 29), skip, P), soNgay = Math.min(N - 1, i + 29) - i + 1;
-      cmp = `<table class="tbl sm at-cmp"><thead><tr><th></th><th class="r">ROAS trước</th><th class="r">ROAS sau</th><th class="r">Chuyển đổi</th><th class="r">CTR</th><th class="r">Đơn/ngày</th></tr></thead>
-        <tbody>${dong('30 ngày trước mốc → ' + soNgay + ' ngày sau', a, b)}</tbody></table>` +
-        (soNgay < 14 ? `<div class="dim" style="font-size:11.5px">Mới ${soNgay} ngày sau mốc — đợi đủ 14 ngày trở lên rồi hãy kết luận.</div>` : '');
-    }
-    mocH += `<div class="at-mocrow"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b>📌 ${fmtDate(m.date)}</b><span>${esc(m.note)}</span>
-      <span class="dim" style="font-size:11px">${m.by ? esc(m.by) : ''}</span><div class="grow"></div>
-      <button class="btn xs" data-act="atmocxoa" data-id="${esc(m.id)}" data-k="${esc(r.key)}" title="Xoá mốc">✕</button></div>${cmp}</div>`;
-  });
+/* ---- hộp chi tiết một chiến dịch (mở bằng atopen) ---- */
+const AT_GOI_Y = ['Đổi ảnh bìa', 'Đổi tiêu đề', 'Đổi giá / giảm giá', 'Thêm voucher', 'Thêm video', 'Sửa mô tả', 'Thêm combo / phân loại', 'Đẩy đánh giá'];
+/* ô so trước → sau */
+function atSoSanh(ten, truoc, sau, dd, goiY){
+  return `<div class="at-cmpb"><div class="at-lb">${ten}</div>
+    <div class="at-cmpv"><b>${sau}</b>${atChip(dd, true)}</div>
+    <div class="at-was">trước ${truoc}</div>${goiY ? `<div class="at-hint">${goiY}</div>` : ''}</div>`;
+}
+function atDetailHtml(key){
+  const D = atv.data; if (!D) return '<div class="dim">Đang tải…</div>';
+  const P = atPrep(D), N = P.N, skip = atSkip(), DL = D.dates[N - 1];
+  const c = D.camps.find(x => D.shops[x.s] + '|' + x.id === key);
+  if (!c) return '<div class="dim">Không còn thấy chiến dịch này trong số liệu.</div>';
+  const r = atRow(D, P, c);
   const tg = (c.tgc || []).filter(t => t[0] >= D.dates[Math.max(0, N - AT_NGAY_VE)]);
-  return `<div class="at-detbox">
-    ${atChart(D, P, [c], {h:190, moc:r.moc, tg})}
-    <div class="dim" style="margin:6px 0 10px">ROAS 30N ${atF1(atRoas(r.now))} · 30N trước ${atF1(atRoas(r.prev))} · 14 ngày trước ${atF1(atRoas(r.k14))}
-      · chi 30N ${money(r.chi30)} · ${dem(r.now.ord)} đơn${tg.length ? ` · ROAS mục tiêu đổi ${tg.length} lần trong ${AT_NGAY_VE} ngày (vạch vàng) — ROAS thực đổi một phần vì vậy` : ''}</div>
-    ${mocH}
-    <div class="at-moc-f">
-      <b>📌 Ghi mốc cải tiến</b>
-      <input type="date" name="date" value="${today()}" max="${today()}">
-      <input name="note" maxlength="160" placeholder="Đã sửa gì — vd. Đổi ảnh bìa, giảm giá 10%, thêm video" style="flex:1;min-width:200px">
-      <button class="btn pri sm" data-act="atmocadd" data-id="${esc(r.key)}">Thêm mốc</button>
-    </div></div>`;
+  const loai = atLoaiCd(c);
+
+  let h = `<div class="at-dhd">
+    <div class="at-sub">${esc(D.shops[c.s])}${loai ? '<span class="sep">·</span>' + esc(loai) : ''}${c.tg ? '<span class="sep">·</span>ROAS mục tiêu đang đặt ' + atF1(c.tg) : ''}
+      ${c.st === 'ongoing' ? '' : '<span class="sep">·</span>' + (c.st === 'paused' ? 'tạm dừng' : 'đã dừng')}</div>
+    <div class="at-dname">${esc(c.t)}</div></div>
+  <div class="at-kpi">
+    <div class="at-kpib lon v-${r.v.k}"><div class="at-lb">ROAS 30 ngày</div><div class="at-cmpv"><b>${atF1(atRoas(r.now))}</b><span class="at-pill v-${r.v.k}">${r.v.lb}</span></div>
+      <div class="at-was">30N trước ${atF1(atRoas(r.prev))} ${atChip(atDd(atRoas(r.now), atRoas(r.prev)), true)} · 14 ngày trước ${atF1(atRoas(r.k14))}</div></div>
+    <div class="at-kpib"><div class="at-lb">Chuyển đổi</div><div class="at-cmpv"><b>${atPc(atCr(r.now))}</b>${atChip(atDd(atCr(r.now), atCr(r.prev)), true)}</div><div class="at-was">trước ${atPc(atCr(r.prev))}</div></div>
+    <div class="at-kpib"><div class="at-lb">CTR</div><div class="at-cmpv"><b>${atPc(atCtr(r.now), 2)}</b>${atChip(atDd(atCtr(r.now), atCtr(r.prev)), true)}</div><div class="at-was">trước ${atPc(atCtr(r.prev), 2)}</div></div>
+    <div class="at-kpib"><div class="at-lb">Chi · đơn 30N</div><div class="at-cmpv"><b>${moneyShort(r.chi30)}</b></div><div class="at-was">${dem(r.now.ord)} đơn · trước ${dem(r.prev.ord)}</div></div>
+  </div>
+  <div class="at-chartbox">${atChart(D, P, [c], {h:200, moc:r.moc, tg})}</div>
+  ${tg.length ? `<div class="at-note">🟡 ROAS mục tiêu đã đổi <b>${tg.length} lần</b> trong ${AT_NGAY_VE} ngày (vạch vàng) — ROAS thực lên xuống một phần vì vậy. Muốn biết sản phẩm có tốt lên thật không, xem <b>Chuyển đổi</b> và <b>CTR</b>.</div>` : ''}`;
+
+  /* ---- mốc cải tiến ---- */
+  const ngay = [[0, 'Hôm nay'], [1, 'Hôm qua'], [3, '3 ngày trước'], [7, '7 ngày trước']];
+  h += `<div class="at-msec">
+    <div class="at-msec-hd"><b>📌 Mốc cải tiến</b><span class="dim">Mỗi lần sửa sản phẩm, ghi một mốc — Hub so 30 ngày trước mốc với từ mốc tới nay.</span></div>
+`;
+  const form = `<div class="at-moc-f" data-k="${esc(key)}">
+      <div class="at-fh">＋ Ghi mốc mới</div>
+      <div class="at-ff"><label>1 · Sửa ngày nào</label>
+        <div class="at-ffr"><input type="date" class="inp sm" name="date" value="${today()}" max="${today()}" data-nofocus>
+          ${ngay.map(([n, t], j) => `<button class="btn xs ${j === 0 ? 'pri' : ''}" data-act="atmocngay" data-id="${addDays(today(), -n)}">${t}</button>`).join('')}</div></div>
+      <div class="at-ff"><label>2 · Đã sửa gì <span class="dim">(bấm để chọn nhanh, chọn được nhiều)</span></label>
+        <div class="at-ffr">${AT_GOI_Y.map(t => `<button class="btn xs at-goi" data-act="atmocgoi" data-id="${esc(t)}">${esc(t)}</button>`).join('')}</div>
+        <input class="inp sm" name="note" maxlength="160" data-nofocus placeholder="Ghi thêm cho rõ — vd. Ảnh bìa nền trắng có chữ “Mua 2 tặng 1”"></div>
+      <div class="at-ffr" style="justify-content:flex-end"><button class="btn pri" data-act="atmocadd" data-id="${esc(key)}">＋ Lưu mốc</button></div>
+    </div>`;
+  if (!r.moc.length) h += `<div class="at-empty">Chưa có mốc nào. Sau khi đổi ảnh, giá, tiêu đề… ghi một mốc ở dưới — đợi 14 ngày trở lên là đọc được kết quả.</div>`;
+  else h += `<div class="at-tl">` + r.moc.slice().reverse().map(m => {
+    const i = D.dates.indexOf(m.date);
+    let body, tt = '', pill = '';
+    if (m.date > DL){
+      body = `<div class="dim">Chưa có số sau mốc — số mới tới hết ${fmtDate(DL)}.</div>`;
+      pill = `<span class="at-pill">⏳ Chờ số</span>`;
+    } else if (i < 0) {
+      body = `<div class="dim">Mốc cũ hơn số đang có — không so được.</div>`;
+    } else {
+      const j = Math.min(N - 1, i + 29), a = atSum([c], i - 30, i - 1, skip, P), b = atSum([c], i, j, skip, P), soNgay = j - i + 1;
+      const vv = atVerdict(b, a);
+      pill = soNgay < 14 ? `<span class="at-pill">⏳ Đang theo dõi</span>`
+        : `<span class="at-pill v-${vv.k}">${{up:'▲ Có hiệu quả', down:'▼ Kém đi', flat:'→ Chưa thấy khác', it:'Ít số liệu'}[vv.k]}</span>`;
+      tt = `<div class="at-prog"><div class="at-progbar"><i style="width:${Math.min(100, soNgay / 30 * 100).toFixed(0)}%"></i><span class="m14" title="đủ 14 ngày"></span></div>
+        <span>${soNgay}/30 ngày sau mốc${soNgay < 14 ? ` · đợi thêm ${14 - soNgay} ngày rồi hãy kết luận` : ''}</span></div>`;
+      body = `<div class="at-cmpg">
+        ${atSoSanh('ROAS', atF1(atRoas(a)), atF1(atRoas(b)), atDd(atRoas(b), atRoas(a)))}
+        ${atSoSanh('Chuyển đổi', atPc(atCr(a)), atPc(atCr(b)), atDd(atCr(b), atCr(a)), 'giá, đánh giá, mô tả')}
+        ${atSoSanh('CTR', atPc(atCtr(a), 2), atPc(atCtr(b), 2), atDd(atCtr(b), atCtr(a)), 'ảnh bìa, tiêu đề')}
+        ${atSoSanh('Đơn / ngày', a.days ? atF1(a.ord / a.days) : '—', b.days ? atF1(b.ord / b.days) : '—', a.days && b.days ? atDd(b.ord / b.days, a.ord / a.days) : null)}
+      </div>`;
+    }
+    return `<div class="at-tli"><div class="at-tld"></div>
+      <div class="at-tlc"><div class="at-tlh"><b>${fmtDate(m.date)}</b><span class="at-tln">${esc(m.note)}</span>${pill}<div class="grow"></div>
+        <button class="btn xs" data-act="atmocxoa" data-id="${esc(m.id)}" data-k="${esc(key)}" title="Xoá mốc">Xoá</button></div>
+        ${tt}${body}${m.by ? `<div class="dim" style="font-size:11px;margin-top:4px">ghi bởi ${esc(m.by)}</div>` : ''}</div></div>`;
+  }).join('') + `</div>`;
+  return h + form + `</div>`;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "462899dd"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "889b2a0c"]);
