@@ -6314,6 +6314,7 @@ function viewAdBot(){
           <div class="grow"><b>${esc(c.title || 'Chiến dịch ' + c.cid)}</b>
             <div class="dim" style="font-size:12px;margin-top:2px">ID ${esc(c.cid)}${c.boost ? ' · <span class="chip acc">Đẩy Nhanh</span>' : ''}</div></div>
           ${tat ? '<span class="chip bad">Đã dừng</span>' : !c.managed ? '<span class="chip">Chỉ theo dõi</span>' : botModeChip(c.mode)}
+          ${c.live === false && !tat ? '<span class="chip warn" title="Bot tính và ghi nhật ký nhưng chưa sửa trên Shopee">Chỉ báo</span>' : ''}
         </div>
         <div class="tiles mini bot4" style="margin-top:10px">
           ${(() => { const dat = (cfg.san || {})[key], cho = dat != null && Math.abs(dat - (c.floor || 0)) >= 0.05;
