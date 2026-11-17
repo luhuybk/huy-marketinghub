@@ -23,6 +23,9 @@ const NAV = [
   {id:'keywords', icon:'🔎',label:'Đánh từ khoá',  perm:'keywords'},
   {id:'rival',    icon:'🎯',label:'Theo dõi đối thủ', perm:'rival'},
   {id:'cost',     icon:'🧮',label:'Tính chi phí',  perm:'cost'},
+  /* Chủ / người có quyền Tính chi phí: sửa giá (có giá vốn). Nhân viên có quyền
+     Xem giá sỉ: chỉ xem, không có giá vốn — xem viewGiaSi() */
+  {id:'giasi',    icon:'🏷',label:'Giá sỉ',        perm:['cost','giasi']},
   {id:'improve',  icon:'🔻',label:'Cải thiện SP', perm:'improve'},
   {id:'newprod',  icon:'💡',label:'Sản phẩm mới', perm:'newprod'},
   {id:'build',    icon:'🛠',label:'Xây dựng SP',  perm:'build'},
@@ -39,7 +42,7 @@ const TITLES = {today:'Hôm nay', dash:'Tổng quan', pipeline:'Booking', kols:'
                 sp:'Sức khoẻ trên Shopee', adreport:'Báo cáo quảng cáo', botgio:'Bot ROAS theo giờ',
                 adcamp:'Chiến dịch', keywords:'Đánh top từ khoá', kw:'Dự án từ khoá',
                 cost:'Tính chi phí', costsp:'Chi phí sản phẩm', pj:'Dự án',
-                launch:'Hàng mới về', rival:'Theo dõi đối thủ', build:'Bảng xây dựng sản phẩm'};
+                launch:'Hàng mới về', rival:'Theo dõi đối thủ', build:'Bảng xây dựng sản phẩm', giasi:'Bảng giá sỉ'};
 /* Trang chỉ chủ mở được. Nhân viên gõ thẳng đường dẫn cũng bị đưa về Hôm nay. */
 const OWNER_PAGES = ['settings', 'review'];
 /* Trang con mở từ một trang chính — quyền đi theo trang cha. Mảng = có MỘT
@@ -99,6 +102,9 @@ window.addEventListener('hashchange', () => { route = parseHash(); render(); win
 /* ---------------- vẽ ---------------- */
 function render(){
   route = parseHash();
+  /* Trang không có gì để "thêm" thì giấu nút + — để nó rơi xuống mặc định là
+     mở biểu mẫu booking cho người không có quyền booking */
+  document.body.classList.toggle('nofab', route.page === 'giasi');
   const view = $('#view');
   if (!view) return;
   ensureAdTg();
@@ -131,6 +137,7 @@ function render(){
       case 'rival':    ensureRival(); html = viewRival(); break;
       case 'kw':       html = viewKw(route.id); break;
       case 'cost':     html = viewCost(); break;
+      case 'giasi':    html = viewGiaSi(); break;   // trang này không có nút + (xem nofab)
       case 'costsp':   html = viewCostSp(route.id); break;
       case 'pj':       html = viewPj(route.id); break;
       case 'settings': ensureSettingsCfg(); html = viewSettings(); break;
@@ -4108,7 +4115,7 @@ function siForm(pid, sid){
         if (rec && ls2[ls2.length - 1].id === rec.id) costUnitSet(pid, u.sid, cost);
         doi.push('giá vốn');
       }
-      if (siSet(pid, u.sid, s1, s2, v.date, v.note || '')) doi.push('giá sỉ');
+      if (siSet(pid, u.sid, s1, s2, v.date, v.note || '', u.sid ? u.nhan : '', u.le)) doi.push('giá sỉ');
       if (!doi.length){ toast('Không có gì thay đổi'); return; }
       ensure(); save(); toast('Đã lưu ' + doi.join(' và '));
     }
@@ -4207,7 +4214,7 @@ function siBrandForm(brand){
         if (rec && ls[ls.length - 1].id === rec.id) costUnitSet(u.p.id, u.sid, cost);
         nVon++;
       }
-      if (siSet(u.p.id, u.sid, gv(i, 'si1'), gv(i, 'si2'), date, note)) nSi++;
+      if (siSet(u.p.id, u.sid, gv(i, 'si1'), gv(i, 'si2'), date, note, u.sid ? u.nhan : '', u.le)) nSi++;
     });
     if (!nVon && !nSi){ toast('Không có gì thay đổi'); return; }
     ensure(); save(); closeModal(); render();
@@ -4215,8 +4222,7 @@ function siBrandForm(brand){
   };
 }
 async function siCopy(lv){
-  const k = norm(ui.costQ || '');
-  const us = siUnits().filter(u => !k || costMatch({p: u.p, c: u.c}, k) || norm(u.nhan).includes(k));
+  const us = giasiLoc(giasiUnits());
   const t = siText(us, lv);
   if (!t){ toast('Chưa mã nào có ' + (lv === 'si1' ? 'giá sỉ cấp 1' : 'giá sỉ thường')); return; }
   try { await navigator.clipboard.writeText(t); toast('Đã chép ' + t.split('\n').filter(x => x.startsWith('•')).length + ' mã — dán vào Zalo được rồi'); }
@@ -5308,7 +5314,9 @@ const ACTIONS = {
                        if (l) costLogForm(l.productId, l.sid, l.id); },
   costlogbase: id => costLogBase(id || ''),
   costsel:     id => { ui.costSel = id; render(); },
-  costtab:     id => { ui.costTab = id; ui.costBrand = null; render(); },
+  costtab:     id => { if (id === 'si'){ go('giasi'); return; } ui.costTab = id; ui.costBrand = null; render(); },
+  sitab:       id => { ui.siTab = id === 'nv' ? 'nv' : ''; render(); },
+  siqclear:    () => { ui.siQ = ''; render(); },
   /* Xoá ô tìm. Trả luôn về màn thẻ thương hiệu: đang xem một bảng kết quả mà
      xoá ô tìm thì thứ hợp lý để thấy tiếp theo là màn ngoài, không phải
      thương hiệu nào đó mở dở từ trước lúc gõ. */
@@ -6622,4 +6630,4 @@ document.addEventListener('paste', e => {
   bUpload(z.dataset.bid, fs);
 });
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "aa327b31"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "ee54ca55"]);
