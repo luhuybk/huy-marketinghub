@@ -3107,7 +3107,13 @@ const shopTenNgan = sh => String(sh ? sh.name : '').replace(/^waxshop\s*-\s*/i, 
 function siRoasShops(u, von){
   const c = u.c, sz = u.sid ? (c.sizes || []).find(x => x.sid === u.sid) : null;
   von = von === undefined ? u.von : von;
-  return shops().map(sh => {
+  /* Chỉ những gian hàng con này thật sự bán: gian hàng ghi trong giá vốn, các
+     gian hàng Waxshop (bán đa thương hiệu), và gian hàng mang tên chính thương
+     hiệu đó (vd "Cinplus Store" cho Cinplus). Shop của hãng khác thì bỏ. */
+  const hieu = norm(u.brand || '').split(' ')[0];
+  const ban = sh => (c.shopId || '') === sh.id || /waxshop/i.test(sh.name) || (hieu.length > 2 && norm(sh.name).includes(hieu));
+  const ds = shops().filter(ban);
+  return (ds.length ? ds : shops()).map(sh => {
     const minh = (c.shopId || '') === sh.id, F = shopFees(sh);
     const vPct = minh ? (c.voucherPct || 0) : (+F.voucherPct || 0);
     const hang = c.giuGia ? (sz ? sz.giaHang : c.giaHang) : 0;
@@ -6004,4 +6010,4 @@ function rvShopChanges(row){
   return out;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "bcc881df"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "90805d2a"]);
