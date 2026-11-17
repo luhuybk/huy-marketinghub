@@ -1546,17 +1546,31 @@ function botPause(on, key, by){
   kvSet('bot_cfg', c);
   return c;
 }
+/* giống botTouch() trong api/lib.php — thẻ thiết bị ở Cài đặt thấy bot vẫn gửi */
+function botTouch(id, inp){
+  const devs = ingestDevs();
+  if (!devs[id]) return;
+  devs[id].lastAt = new Date().toISOString();
+  const d = inp.do, ds = d === 'state' ? inp.camps : d === 'log' ? inp.entries : d === 'hours' ? inp.rows : null;
+  if (Array.isArray(ds) && ds.length){
+    const shops = d === 'hours' ? [String(inp.shop || '')] : [...new Set(ds.map(x => String(x.shop || '')))];
+    const dates = d === 'hours' ? ds.map(x => String(x.date || '')).sort() : [];
+    devs[id].last = {rows: ds.length, shops: shops.filter(Boolean), dates: dates.length ? [dates[0], dates[dates.length - 1]] : null, bot: d};
+  }
+  kvSet('ingest_devs', devs);
+}
 function botRoute(req, res, body){
   const out = (o, code = 200) => { res.writeHead(code, {'Content-Type':'application/json; charset=utf-8', 'Cache-Control':'no-store'}); res.end(JSON.stringify(o)); };
   if (req.method !== 'POST') return out({ok:false, error:'Cổng này chỉ nhận POST từ bot.'}, 405);
   let inp; try { inp = JSON.parse(body || '{}'); } catch(e){ return out({ok:false, error:'Không đọc được JSON.'}, 400); }
   const tok = String(inp.token || '');
   if (tok.length < 32) return out({ok:false, error:'Thiếu token.'}, 400);
-  const [tt] = ingestDevice(tok, inp.label || 'Bot ROAS theo giờ', req.socket.remoteAddress);
+  const [tt, devId] = ingestDevice(tok, inp.label || 'Bot ROAS theo giờ', req.socket.remoteAddress);
   if (tt !== 'ok') return out({ok:false, pending: tt === 'pending', error: tt === 'pending'
     ? 'Chờ chủ cho phép: Marketing Hub → Cài đặt → Nhận số liệu quảng cáo tự động → Cho phép.'
     : 'Thiết bị này đã bị thu hồi quyền gửi số.'}, 403);
   const r = botSave(inp);
+  if (!r.error) botTouch(devId, inp);
   return r.error ? out({ok:false, error:r.error}, 400) : out(r);
 }
 

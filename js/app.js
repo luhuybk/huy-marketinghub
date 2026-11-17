@@ -77,7 +77,11 @@ function parseHash(){
     /* Sửa luôn đường dẫn cho khớp, nếu không thanh địa chỉ cứ đứng ở
        #settings trong khi màn hình là trang khác. replaceState không bắn
        hashchange nên không thành vòng lặp. */
-    try { history.replaceState(null, '', '#today'); } catch(e){}
+    /* Chỉ sửa khi đã biết mình là ai: lúc mới tải trang, chưa hỏi máy chủ
+       xong thì quyền còn trống — sửa lúc đó là mọi đường dẫn lưu sẵn (vd
+       #botgio) đều bị đẩy về Hôm nay sau mỗi lần tải lại. */
+    if (!window.Server || Server.authed())
+      try { history.replaceState(null, '', '#today'); } catch(e){}
   }
   return {page: page2, id: id || ''};
 }

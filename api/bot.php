@@ -43,4 +43,5 @@ if ($tt !== 'ok')
             : 'Thiết bị này đã bị thu hồi quyền gửi số.'], 403);
 
 $r = botSave($in);
+if (!isset($r['error'])) botTouch($devId, $in);
 botOut(isset($r['error']) ? ['ok' => false, 'error' => $r['error']] : $r, isset($r['error']) ? 400 : 200);
