@@ -4075,6 +4075,154 @@ function costLogForm(pid, sid, logId){
   el.addEventListener('input', doc);
   doc();
 }
+/* ---- 🏷 Bảng giá sỉ: sửa một mã ----
+   Ba giá trong một hộp. Giá vốn đổi thì ghi Sổ giá vốn như mọi chỗ khác (đổi
+   luôn lãi Shopee, ROAS min); giá sỉ đổi thì ghi lịch sử giá sỉ. Gõ giá vốn
+   mới là hộp tự gợi ý giá sỉ giữ nguyên % lãi cũ — bấm một nút là điền. */
+function siForm(pid, sid){
+  const u = siUnits().find(x => x.p.id === pid && x.sid === (sid || ''));
+  if (!u){ toast('Không tìm thấy mã này'); return; }
+  const ten = u.p.name + (u.sid ? ' · ' + u.nhan : '');
+  const ls = u.siLogs.slice(-8).reverse();
+  const el = formModal({
+    title: 'Giá sỉ — ' + ten, wide: true, saveLabel: 'Lưu',
+    values: {date: today(), cost: u.von || 0, si1: u.si1 || 0, si2: u.si2 || 0, note: ''},
+    extra: `<div class="explain">Đang dùng: vốn <b>${u.von ? money(u.von) : 'chưa có'}</b>${u.vonAt ? ' (từ ' + esc(fmtDate(u.vonAt)) + ')' : ''}
+      · sỉ cấp 1 <b>${u.si1 ? money(u.si1) : '—'}</b> · sỉ thường <b>${u.si2 ? money(u.si2) : '—'}</b>${u.le ? ' · giá lẻ ' + money(u.le) : ''}.
+      Đổi giá vốn ở đây là ghi vào Sổ giá vốn — bảng tính Shopee đổi theo.</div>`,
+    fields: [
+      {k:'date', l:'Áp dụng từ ngày', t:'date', half:true, req:true},
+      {k:'cost', l:'Giá vốn (giá nhập của hãng)', t:'money', half:true, ph:'90.000'},
+      {k:'si1', l:'Sỉ cấp 1 / nhân viên', t:'money', half:true, ph:'110.000', hint:'Giá đưa nhân viên bán sỉ'},
+      {k:'si2', l:'Sỉ thường', t:'money', half:true, ph:'120.000'},
+      {k:'note', l:'Lý do / ghi chú', t:'text', ph:'Hãng tăng giá từ 01/12, lô mới…'}
+    ],
+    onSave(v){
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(v.date || '')){ toast('Chưa chọn ngày áp dụng'); return false; }
+      if (v.date > today()){ toast('Ngày áp dụng chưa tới — lưu khi giá mới bắt đầu dùng'); return false; }
+      const cost = parseMoney(v.cost), s1 = parseMoney(v.si1), s2 = parseMoney(v.si2);
+      let doi = [];
+      if (cost && cost !== u.von){
+        const rec = costLogAdd(pid, u.sid, cost, v.date, v.note || 'sửa ở bảng giá sỉ');
+        const ls2 = costLogsOf(pid, u.sid);
+        if (rec && ls2[ls2.length - 1].id === rec.id) costUnitSet(pid, u.sid, cost);
+        doi.push('giá vốn');
+      }
+      if (siSet(pid, u.sid, s1, s2, v.date, v.note || '')) doi.push('giá sỉ');
+      if (!doi.length){ toast('Không có gì thay đổi'); return; }
+      ensure(); save(); toast('Đã lưu ' + doi.join(' và '));
+    }
+  });
+  /* xem trước: % lãi từng mức + gợi ý giữ % lãi cũ khi vốn đổi */
+  const box = document.createElement('div');
+  box.className = 'explain'; box.style.marginTop = '4px';
+  const g = k => parseMoney((el.querySelector(`[data-f="${k}"]`) || {}).value || 0);
+  const dat = (k, n) => { const i = el.querySelector(`[data-f="${k}"]`); if (i) i.value = n ? n.toLocaleString('vi-VN') : ''; };
+  const ve = () => {
+    const von = g('cost'), s1 = g('si1'), s2 = g('si2');
+    const lai = (x, ten) => { const l = siLai(x, von); return l == null ? '' : `${ten} <b class="${l <= 0 ? 'bad' : ''}">${l <= 0 ? 'LỖ ' : 'lãi '}${pctText(l, 1)}</b> (${money(x - von)}/sp)`; };
+    let t = [lai(s1, 'Sỉ cấp 1'), lai(s2, 'Sỉ thường')].filter(Boolean).join(' · ');
+    const g1 = von && von !== u.von ? siGoiY(u.si1, u.von, von) : 0, g2 = von && von !== u.von ? siGoiY(u.si2, u.von, von) : 0;
+    if ((g1 && g1 !== s1) || (g2 && g2 !== s2))
+      t += `<div style="margin-top:6px">Vốn ${von > u.von ? 'tăng' : 'giảm'} ${pctText(Math.abs(von - u.von) / u.von * 100, 1)} — giữ % lãi cũ thì
+        ${g1 ? 'sỉ cấp 1 <b>' + money(g1) + '</b>' : ''}${g1 && g2 ? ', ' : ''}${g2 ? 'sỉ thường <b>' + money(g2) + '</b>' : ''}
+        <button type="button" class="btn sm" data-goiy="1" style="margin-left:6px">Dùng gợi ý</button></div>`;
+    box.innerHTML = t || 'Gõ giá vốn và giá sỉ để xem lãi mỗi mức.';
+    const b = box.querySelector('[data-goiy]');
+    if (b) b.onclick = () => { if (g1) dat('si1', g1); if (g2) dat('si2', g2); ve(); };
+  };
+  const form = el.querySelector('#theform');
+  form.appendChild(box);
+  if (ls.length){
+    const his = document.createElement('div');
+    his.innerHTML = `<div class="sec sm">Lịch sử giá sỉ<span class="ln"></span></div><div class="tblwrap"><table class="tbl sm"><thead><tr>
+      <th>Ngày</th><th class="r">Sỉ cấp 1</th><th class="r">Sỉ thường</th><th>Ghi chú</th></tr></thead><tbody>${
+      ls.map(l => `<tr><td class="nw">${esc(fmtDate(l.date))}</td><td class="r">${l.si1 ? money(l.si1) : '—'}</td><td class="r">${l.si2 ? money(l.si2) : '—'}</td>
+        <td>${esc(l.note || '')}</td></tr>`).join('')}</tbody></table></div>`;
+    form.appendChild(his);
+  }
+  el.addEventListener('input', ve);
+  ve();
+}
+
+/* ---- 🏷 Hãng đổi giá: sửa cả một thương hiệu trong một hộp ----
+   Mỗi mã một dòng: vốn mới, sỉ cấp 1, sỉ thường. Ô "đổi tất cả %" điền vốn mới
+   cho mọi dòng; tick "giữ % lãi" thì gõ vốn tới đâu giá sỉ tự tính theo tới
+   đó (dòng nào đã tự sửa giá sỉ bằng tay thì thôi không đè). */
+function siBrandForm(brand){
+  const us = siUnits().filter(u => u.brand === (brand || ''));
+  if (!us.length){ toast('Thương hiệu này chưa có mã nào'); return; }
+  const o = v => v ? v.toLocaleString('vi-VN') : '';
+  const body = `<div class="form">
+    <div class="fld half"><label>Áp dụng từ ngày</label><input class="inp" type="date" id="siD" value="${today()}" max="${today()}"></div>
+    <div class="fld half"><label>Lý do / ghi chú</label><input class="inp" id="siN" placeholder="Hãng tăng giá từ 01/12…"></div>
+    <div class="fld half"><label>Đổi giá vốn tất cả theo %</label>
+      <div style="display:flex;gap:6px"><input class="inp" id="siP" inputmode="decimal" placeholder="vd 5 hoặc -3">
+      <button type="button" class="btn sm" id="siPOk">Điền vốn mới</button></div></div>
+    <div class="fld half"><label>&nbsp;</label><label class="chk"><input type="checkbox" id="siK" checked> Giữ % lãi giá sỉ khi vốn đổi (tròn nghìn)</label></div>
+  </div>
+  <div class="tblwrap"><table class="tbl sm si-bulk"><thead><tr><th>Mã</th><th class="r">Vốn mới</th><th class="r">Sỉ cấp 1 / NV</th><th class="r">Sỉ thường</th></tr></thead><tbody>${
+    us.map((u, i) => `<tr data-i="${i}"><td><b>${esc(u.p.name)}</b>${u.sid ? ' <span class="dim">· ' + esc(u.nhan) + '</span>' : ''}
+        <div class="dim">vốn ${u.von ? money(u.von) : '—'} · sỉ 1 ${u.si1 ? money(u.si1) : '—'} · sỉ thường ${u.si2 ? money(u.si2) : '—'}</div></td>
+      <td class="r"><input class="inp" data-sep="money" data-k="cost" value="${o(u.von)}"></td>
+      <td class="r"><input class="inp" data-sep="money" data-k="si1" value="${o(u.si1)}"><div class="dim" data-l="si1"></div></td>
+      <td class="r"><input class="inp" data-sep="money" data-k="si2" value="${o(u.si2)}"><div class="dim" data-l="si2"></div></td></tr>`).join('')}</tbody></table></div>`;
+  const el = openModal('Hãng đổi giá — ' + (brand || 'chưa gắn thương hiệu') + ' · ' + us.length + ' mã', body,
+    `<div class="btns end"><div class="grow"></div><button class="btn" data-act="closem">Huỷ</button><button class="btn pri" id="siSave">Lưu cả bảng</button></div>`, true);
+  const row = i => el.querySelector(`tr[data-i="${i}"]`);
+  const gv = (i, k) => parseMoney(row(i).querySelector(`[data-k="${k}"]`).value);
+  const sv = (i, k, n) => { row(i).querySelector(`[data-k="${k}"]`).value = o(n); };
+  const nhan = i => {
+    const von = gv(i, 'cost');
+    ['si1', 'si2'].forEach(k => { const l = siLai(gv(i, k), von); row(i).querySelector(`[data-l="${k}"]`).innerHTML = l == null ? '' : `<span class="${l <= 0 ? 'bad' : ''}">${l <= 0 ? 'LỖ ' : 'lãi '}${pctText(l, 1)}</span>`; });
+  };
+  const theoVon = i => {
+    const u = us[i], von = gv(i, 'cost');
+    if (el.querySelector('#siK').checked && von && u.von && von !== u.von)
+      ['si1', 'si2'].forEach(k => { if (!row(i).querySelector(`[data-k="${k}"]`).dataset.tay && u[k]) sv(i, k, siGoiY(u[k], u.von, von)); });
+    nhan(i);
+  };
+  us.forEach((u, i) => nhan(i));
+  el.addEventListener('input', e => {
+    const tr = e.target.closest('tr[data-i]');
+    if (!tr) return;
+    const i = +tr.dataset.i;
+    if (e.target.dataset.k === 'cost') theoVon(i); else { e.target.dataset.tay = '1'; nhan(i); }
+  });
+  el.querySelector('#siPOk').onclick = () => {
+    const p = parseFloat(String(el.querySelector('#siP').value).replace(',', '.'));
+    if (!isFinite(p) || !p){ toast('Gõ số % — vd 5 là tăng 5%, -3 là giảm 3%'); return; }
+    us.forEach((u, i) => { if (u.von){ sv(i, 'cost', Math.round(u.von * (1 + p / 100) / 100) * 100); theoVon(i); } });
+  };
+  el.querySelector('#siSave').onclick = () => {
+    const date = el.querySelector('#siD').value, note = el.querySelector('#siN').value.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)){ toast('Chưa chọn ngày áp dụng'); return; }
+    if (date > today()){ toast('Ngày áp dụng chưa tới'); return; }
+    let nVon = 0, nSi = 0;
+    us.forEach((u, i) => {
+      const cost = gv(i, 'cost');
+      if (cost && cost !== u.von){
+        const rec = costLogAdd(u.p.id, u.sid, cost, date, note || 'hãng đổi giá');
+        const ls = costLogsOf(u.p.id, u.sid);
+        if (rec && ls[ls.length - 1].id === rec.id) costUnitSet(u.p.id, u.sid, cost);
+        nVon++;
+      }
+      if (siSet(u.p.id, u.sid, gv(i, 'si1'), gv(i, 'si2'), date, note)) nSi++;
+    });
+    if (!nVon && !nSi){ toast('Không có gì thay đổi'); return; }
+    ensure(); save(); closeModal(); render();
+    toast('Đã lưu: ' + (nVon ? nVon + ' mã đổi giá vốn' : '') + (nVon && nSi ? ', ' : '') + (nSi ? nSi + ' mã đổi giá sỉ' : ''));
+  };
+}
+async function siCopy(lv){
+  const k = norm(ui.costQ || '');
+  const us = siUnits().filter(u => !k || costMatch({p: u.p, c: u.c}, k) || norm(u.nhan).includes(k));
+  const t = siText(us, lv);
+  if (!t){ toast('Chưa mã nào có ' + (lv === 'si1' ? 'giá sỉ cấp 1' : 'giá sỉ thường')); return; }
+  try { await navigator.clipboard.writeText(t); toast('Đã chép ' + t.split('\n').filter(x => x.startsWith('•')).length + ' mã — dán vào Zalo được rồi'); }
+  catch(e){ openModal('Bảng giá để chép', `<textarea class="inp" rows="16" style="width:100%" data-no-list data-no-autocap>${esc(t)}</textarea>`, '', true); }
+}
+
 /* Ghi mốc hôm nay cho mọi đơn vị có giá vốn mà sổ chưa có dòng nào. Để sổ có
    điểm xuất phát — không có mốc đầu thì lần đổi giá tới không có gì để so. */
 function costLogBase(shopId){
@@ -5152,6 +5300,9 @@ const ACTIONS = {
   costbrand:   id => { ui.costBrand = id; render(); window.scrollTo(0,0); },
   costbrandback: () => { ui.costBrand = null; render(); },
   costtoggle:  id => { ui.costOpen[id] = !ui.costOpen[id]; render(); },
+  siedit:      id => { const [pid, sid] = String(id).split('|'); siForm(pid, sid || ''); },
+  sibrand:     id => siBrandForm(id),
+  sicopy:      id => siCopy(id),
   costlognew:  id => { const [pid, sid] = String(id).split('|'); costLogForm(pid, sid || ''); },
   costlogedit: id => { const l = costlogs().find(x => x.id === id);
                        if (l) costLogForm(l.productId, l.sid, l.id); },

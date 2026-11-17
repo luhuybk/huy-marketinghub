@@ -324,6 +324,26 @@ Hai việc trên chặn được chuyện mất dữ liệu do cập nhật code
 
 ---
 
+## 🏷 Bảng giá sỉ (Tính chi phí → tab thứ hai, thêm 17/11/2026)
+
+Một chỗ tra nhanh ba mức giá của mọi mã, mọi gian hàng, xếp theo thương hiệu:
+**giá vốn**, **sỉ cấp 1 / NV** (giá đưa nhân viên bán sỉ), **sỉ thường**, kèm
+% lãi trên vốn và giá lẻ (giá hãng, chưa có thì giá treo Shopee).
+
+- Giá vốn là đúng con số của tab Giá vốn sản phẩm — sửa ở đây là ghi Sổ giá vốn,
+  lãi Shopee và ROAS hoà vốn đổi theo. Giá sỉ lưu trong bản ghi giá vốn
+  (`si1`, `si2`; con có size thì ở từng size) + lịch sử `siLog`.
+- Bấm một dòng: sửa ba giá + ngày áp dụng + lý do. Gõ vốn mới là hộp gợi ý giá
+  sỉ **giữ nguyên % lãi cũ** (tròn nghìn), một nút là điền.
+- **✎ Hãng đổi giá** ở đầu mỗi thương hiệu: sửa cả thương hiệu một lần — ô
+  "đổi tất cả theo %" điền vốn mới, tick "giữ % lãi" thì giá sỉ tự tính theo
+  (ô giá sỉ đã sửa tay thì không bị đè).
+- Mã nào vốn đổi **sau** lần chỉnh giá sỉ cuối thì tô vàng, ghi "vốn đổi dd/mm —
+  xem lại giá sỉ"; giá sỉ ≤ vốn thì báo đỏ.
+- **📋 Chép giá sỉ cấp 1 / sỉ thường**: chép bảng giá (KHÔNG kèm giá vốn) để dán
+  Zalo cho nhân viên / khách sỉ. Ô tìm ở trên lọc luôn phần được chép.
+- Cần quyền Tính chi phí (vì có giá vốn).
+
 ## Gõ danh sách trong ô ghi chú
 
 Mọi ô chữ nhiều dòng (ghi chú, mục tiêu, bình luận, chính sách, giao việc…) gõ

@@ -1421,6 +1421,17 @@ function ensure(){
        (giaShopee). Không phải con nào cũng bị bắt, nên đây là một dấu riêng. */
     c.giuGia  = !!c.giuGia;
     c.giaHang = parseMoney(c.giaHang);
+    /* 🏷 Giá sỉ (thêm 17/11/2026): si1 = sỉ cấp 1 / giá đưa nhân viên bán sỉ,
+       si2 = sỉ thường. Con có size thì giá sỉ nằm ở từng size, hai ô này bỏ
+       trống. siLog = lịch sử đổi giá sỉ {sid, date, si1, si2, note, by} — để
+       trong bản ghi chứ không tách bộ riêng (ít dòng, và đi cùng quyền Tính
+       chi phí); lịch sử giá vốn thì vẫn ở Sổ giá vốn như cũ. */
+    c.si1 = parseMoney(c.si1);
+    c.si2 = parseMoney(c.si2);
+    c.siLog = (Array.isArray(c.siLog) ? c.siLog : []).filter(l => l && typeof l === 'object' && /^\d{4}-\d{2}-\d{2}$/.test(l.date || ''))
+      .map(l => ({sid: String(l.sid || ''), date: l.date, si1: parseMoney(l.si1), si2: parseMoney(l.si2),
+                  note: String(l.note || '').slice(0, 200), by: String(l.by || '')}))
+      .sort((a, b) => a.date.localeCompare(b.date)).slice(-400);
 
     /* Năm ô đối thủ LUÔN có mặt, kể cả khi trống — giống ba ô trong mục Đánh
        từ khoá. Nhờ vậy chỗ nào vẽ cũng đọc thẳng c.rivals[3] được mà không
@@ -1451,7 +1462,9 @@ function ensure(){
       cost:  parseMoney(x.cost),
       price: parseMoney(x.price),
       /* giá hãng của riêng size này — mỗi size hãng niêm yết một giá */
-      giaHang: parseMoney(x.giaHang)
+      giaHang: parseMoney(x.giaHang),
+      /* giá sỉ của riêng size này — xem c.si1 / c.si2 */
+      si1: parseMoney(x.si1), si2: parseMoney(x.si2)
     }));
 
     /* Combo dựng từ chính sản phẩm này. Để trong bản ghi giá vốn chứ không
@@ -3029,6 +3042,71 @@ function costLogAuto(pid, sid, cu, moi, note){
   cu = parseMoney(cu); moi = parseMoney(moi);
   if (!moi || cu === moi) return null;
   return costLogAdd(pid, sid, moi, today(), note);
+}
+
+/* ================= 🏷 BẢNG GIÁ SỈ =================
+   Một chỗ tra nhanh ba mức giá của mọi mã (mọi gian hàng): giá vốn, sỉ cấp 1
+   (giá đưa nhân viên bán sỉ), sỉ thường. Giá vốn vẫn là MỘT con số dùng chung
+   với bảng tính Shopee và Sổ giá vốn — sửa ở đây là ghi sổ như sửa ở kia.
+   Hãng đổi giá thì giá vốn đổi trước; mã nào vốn đã đổi SAU lần chỉnh giá sỉ
+   cuối thì bị đánh dấu "chưa chỉnh giá sỉ", kèm gợi ý giữ nguyên % lãi. */
+const SI_LV = [['si1', 'Sỉ cấp 1 / NV'], ['si2', 'Sỉ thường']];
+const siLai = (gia, von) => gia && von ? (gia - von) / von * 100 : null;
+/* Giữ % lãi cũ khi vốn đổi: giá mới = giá cũ × vốn mới / vốn cũ, tròn nghìn */
+const siGoiY = (gia, vonCu, vonMoi) => gia && vonCu && vonMoi ? Math.round(gia * vonMoi / vonCu / 1000) * 1000 : 0;
+function siUnits(){
+  const out = [];
+  costAllRows().forEach(r => {
+    const c = r.c;
+    if (!c) return;
+    const them = (sid, nhan, o, le) => {
+      const ls = costLogsOf(r.p.id, sid), lc = ls[ls.length - 1] || null;
+      const sl = (c.siLog || []).filter(l => l.sid === sid), lsi = sl[sl.length - 1] || null;
+      const vonAt = lc && lc.cost === (o.cost || 0) ? lc.date : '';
+      const siAt = lsi ? lsi.date : '';
+      out.push({p: r.p, c, sid, nhan, von: o.cost || 0, si1: o.si1 || 0, si2: o.si2 || 0, le,
+                vonAt, siAt, siLogs: sl, brand: r.p.brand || '',
+                /* vốn đổi sau lần chỉnh giá sỉ cuối → giá sỉ có thể đã lỗi thời */
+                lech: !!((o.si1 || o.si2) && vonAt && siAt && vonAt > siAt),
+                duoiVon: !!(o.cost && ((o.si1 && o.si1 <= o.cost) || (o.si2 && o.si2 <= o.cost)))});
+    };
+    if ((c.sizes || []).length) c.sizes.forEach(sz => them(sz.sid, sz.name || 'Size chưa đặt tên', sz, sz.giaHang || sz.price || 0));
+    else them('', '', c, c.giaHang || r.p.price || 0);
+  });
+  return out.sort((a, b) => (a.brand ? 0 : 1) - (b.brand ? 0 : 1) || norm(a.brand).localeCompare(norm(b.brand), 'vi') ||
+                            norm(a.p.name).localeCompare(norm(b.p.name), 'vi'));
+}
+/* Ghi giá sỉ cho một mã + một dòng lịch sử. Cùng mã cùng ngày thì sửa dòng đó. */
+function siSet(pid, sid, si1, si2, date, note){
+  const c0 = costOf(pid), rec = c0 ? db.costs.find(x => x.id === c0.id) : null;
+  if (!rec) return false;
+  const o = sid ? (rec.sizes || []).find(x => x.sid === sid) : rec;
+  if (!o) return false;
+  si1 = parseMoney(si1); si2 = parseMoney(si2);
+  if ((o.si1 || 0) === si1 && (o.si2 || 0) === si2) return false;
+  o.si1 = si1; o.si2 = si2;
+  if (!Array.isArray(rec.siLog)) rec.siLog = [];
+  date = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : today();
+  const cung = rec.siLog.find(l => l.sid === (sid || '') && l.date === date);
+  const by = typeof whoAmI === 'function' ? whoAmI() : '';
+  if (cung) Object.assign(cung, {si1, si2, note: note ? String(note) : cung.note, by});
+  else rec.siLog.push({sid: sid || '', date, si1, si2, note: String(note || ''), by});
+  rec.siLog.sort((a, b) => a.date.localeCompare(b.date));
+  stamp(rec);
+  return true;
+}
+/* Chữ để dán Zalo cho nhân viên / khách sỉ — KHÔNG kèm giá vốn. */
+function siText(us, lv){
+  const ten = (SI_LV.find(x => x[0] === lv) || SI_LV[0])[1];
+  const nhom = new Map();
+  us.filter(u => u[lv]).forEach(u => { const b = u.brand || 'Khác'; if (!nhom.has(b)) nhom.set(b, []); nhom.get(b).push(u); });
+  if (!nhom.size) return '';
+  let t = 'BẢNG GIÁ ' + ten.toUpperCase() + ' — ' + fmtDate(today()) + '\n';
+  nhom.forEach((ds, b) => {
+    t += '\n' + b.toUpperCase() + '\n';
+    ds.forEach(u => { t += '• ' + u.p.name + (u.sid ? ' — ' + u.nhan : '') + ': ' + money(u[lv]) + '\n'; });
+  });
+  return t.trim();
 }
 
 /* Toàn bộ đơn vị trong sổ của một gian hàng (shopId rỗng = chưa xếp). */
