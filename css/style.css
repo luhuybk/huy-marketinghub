@@ -1097,3 +1097,8 @@ tr.rv-dang{background:var(--bg3)}
 .bd-rdm{margin-top:4px}
 .bd-rdm0{margin-top:2px;font-size:12px}
 .sec .btn{margin-left:8px}
+
+/* Báo cáo Ads → Bot giờ */
+.botgrid{display:grid;gap:10px}
+@media(min-width:900px){.botgrid{grid-template-columns:repeat(2,1fr)}}
+.tiles.bot3{grid-template-columns:repeat(3,1fr)}

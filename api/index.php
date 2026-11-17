@@ -615,6 +615,18 @@ switch ($action) {
     if (!khMay(currentUser(), 'adreport') && !khMay(currentUser(), 'ads')) fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
     out(['ok' => true] + adRadarData());
   }
+  /* Bot ROAS theo giờ (Báo cáo Ads → Bot giờ): ai xem được Báo cáo Ads là xem được */
+  case 'bot_view': {
+    requireAuth();
+    if (!khMay(currentUser(), 'adreport') && !khMay(currentUser(), 'ads')) fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
+    out(['ok' => true] + botView());
+  }
+  /* Dừng / chạy lại bot — chỉ chủ. key rỗng = cả bot, "shop|cid" = một chiến dịch */
+  case 'bot_pause': {
+    requireOwner();
+    $key = mb_substr(trim((string)($in['key'] ?? '')), 0, 170, 'UTF-8');
+    out(['ok' => true, 'cfg' => botPause(!empty($in['on']), $key, (string)(currentUser()['name'] ?? 'chủ'))]);
+  }
   /* Gợi ý nâng ROAS mục tiêu, dạng việc cho trang Hôm nay (xem adTgTasks) */
   case 'ad_tg_up': {
     requireAuth();

@@ -966,15 +966,19 @@ function viewAdReport(){
       <button class="tab ${tab === 'day' ? 'on' : ''}" data-act="adtab" data-id="day">Hôm qua</button>
       <button class="tab ${tab === 'month' ? 'on' : ''}" data-act="adtab" data-id="month">Theo tháng</button>
       <button class="tab ${tab === 'gio' ? 'on' : ''}" data-act="adtab" data-id="gio">Khung giờ</button>
+      <button class="tab ${tab === 'bot' ? 'on' : ''}" data-act="adtab" data-id="bot">🤖 Bot giờ</button>
     </div>
     <div class="grow"></div>
     ${tab === 'radar' ? '<a class="btn" href="radar.html" target="_blank" rel="noopener">Mở toàn màn hình ↗</a>'
+      : tab === 'bot' ? '<button class="btn" data-act="botreload">↻ Tải lại</button>'
                       : '<button class="btn pri" data-act="adimport">Nạp file</button>'}
   </div>`;
 
   /* Radar là trang riêng (radar.html) nằm trong một khung giữ cố định NGOÀI
      #view — radarBox() trong app.js lo việc hiện/ẩn. Ở đây chỉ vẽ thanh tab. */
   if (tab === 'radar') return h;
+  /* Bot giờ đọc số riêng ở máy chủ (bot_view), không qua adcamps — tự chia theo shop */
+  if (tab === 'bot') return h + viewAdBot();
 
   h += shopBar(shopIds, shopId);
   h += adAutoLine(shopId);
@@ -986,7 +990,7 @@ function viewAdReport(){
 
 /* Tab đang mở của Báo cáo Ads. Radar là mặc định — đó là cách đọc số người
    dùng đã quen từ trang cũ của tác vụ mỗi sáng. */
-const adReportTab = () => ['radar','month','gio','now','day'].includes(ui.adTab) ? ui.adTab : 'radar';
+const adReportTab = () => ['radar','month','gio','now','day','bot'].includes(ui.adTab) ? ui.adTab : 'radar';
 
 /* Dòng nhỏ đầu trang: số đang về tự động từ tác vụ, lần cuối lúc nào. Hôm nào
    tác vụ hỏng thì dòng này đứng ở ngày cũ — nhìn là biết, không phải đoán vì
@@ -6210,4 +6214,181 @@ function bNoteList(ns){
         <div>${nlr(n.text, 'bnotes', n, 'text')}</div></div></div>`; }).join('')}</div>`;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "3e7180b7"]);
+/* ============================================================
+   BÁO CÁO ADS → 🤖 BOT GIỜ
+
+   Bot chạy trên VPS riêng: tới giờ thì nâng/hạ ROAS mục tiêu của vài
+   chiến dịch theo lịch Đẩy/Giữ/Siết. Trang này để XEM nó đang làm gì và
+   BẤM DỪNG khi cần — luật (lịch, sàn, bước %) nằm ở bot, Hub chỉ hiện đúng
+   bản bot gửi lên. Đơn hàng quá khứ bot đổ vào mục Khung giờ có sẵn.
+   ============================================================ */
+const botR = v => v == null || !isFinite(v) ? '—' : (+v).toFixed(1).replace('.', ',');
+function botHm(iso){
+  if (!iso) return '—';
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {timeZone:'Asia/Ho_Chi_Minh', hour12:false,
+    day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}).formatToParts(new Date(iso)).map(x => [x.type, x.value]));
+  return `${p.day}/${p.month} ${p.hour}:${p.minute}`;
+}
+function botTruoc(iso){
+  const m = Math.round((Date.now() - Date.parse(iso)) / 6e4);
+  return !isFinite(m) ? '' : m < 1 ? 'vừa xong' : m < 60 ? m + ' phút trước' : m < 1440 ? Math.round(m / 60) + ' giờ trước'
+       : Math.round(m / 1440) + ' ngày trước';
+}
+const botVnNow = () => {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {timeZone:'Asia/Ho_Chi_Minh', hour12:false,
+    year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit'}).formatToParts(new Date()).map(x => [x.type, x.value]));
+  return {date:`${p.year}-${p.month}-${p.day}`, hour:+p.hour % 24};
+};
+const botModeChip = m => { const x = BOT_MODE[m]; return x ? `<span class="chip ${x.c}">${x.t}</span>` : ''; };
+
+function viewAdBot(){
+  const d = botv.data;
+  if (!d) return botv.err
+    ? `<div class="card"><b class="bad">Không tải được số của bot.</b><div class="dim" style="margin-top:6px">${esc(botv.err)}</div></div>`
+    : `<div class="card dim">Đang tải…</div>`;
+  const chu = isOwner();
+  const cfg = d.cfg || {paused:false, off:{}};
+  const seen = d.seen;
+
+  if (!seen && !d.camps.length)
+    return emptyBox('Bot chưa kết nối',
+      'Bot chạy trên VPS riêng. Lần đầu bot gửi số, Hub để nó ở trạng thái chờ — vào Cài đặt → Nhận số ' +
+      'liệu quảng cáo tự động → bấm Cho phép ở thiết bị "Bot ROAS theo giờ (VPS)". Từ đó trang này hiện ' +
+      'chiến dịch bot đang chỉnh, nhật ký từng lần chỉnh và số quảng cáo theo giờ.');
+
+  /* ---- trạng thái ---- */
+  const imPhut = seen ? (Date.now() - Date.parse(seen.at)) / 6e4 : Infinity;
+  const song = imPhut <= 15;
+  let h = `<div class="card" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    <div style="font-size:22px">${cfg.paused ? '⏸' : song ? '🟢' : '🔴'}</div>
+    <div class="grow">
+      <b>${cfg.paused ? 'Bot đang TẠM DỪNG toàn bộ' : song ? 'Bot đang chạy' : 'Bot im lặng — có thể đã dừng hoặc mất đăng nhập'}</b>
+      <div class="dim" style="margin-top:3px">${seen ? 'Liên lạc lần cuối ' + esc(botTruoc(seen.at)) + ' (' + esc(botHm(seen.at)) + ')' +
+        (seen.ver ? ' · bản ' + esc(seen.ver) : '') : 'Chưa liên lạc lần nào'}${cfg.paused && cfg.by ? ' · dừng bởi ' + esc(cfg.by) + ' lúc ' + esc(botHm(cfg.at)) : ''}</div>
+    </div>
+    ${chu ? (cfg.paused
+      ? `<button class="btn pri" data-act="botpause" data-id="" data-on="0">▶ Chạy lại</button>`
+      : `<button class="btn dngr" data-act="botpause" data-id="" data-on="1">⏸ Tạm dừng bot</button>`) : ''}
+  </div>`;
+
+  /* ---- chọn gian hàng ---- */
+  const shops = Array.from(new Set(d.camps.map(c => c.shop).concat(d.hours.map(x => x[0])))).sort();
+  const shop = shops.includes(botv.shop) ? botv.shop : '';
+  if (shops.length > 1)
+    h += `<div class="chips" style="margin:12px 0 4px">
+      <span class="dim" style="align-self:center;margin-right:2px">Gian hàng:</span>
+      <button class="btn sm ${!shop ? 'pri' : ''}" data-act="botshop" data-id="">Tất cả</button>` +
+      shops.map(s => `<button class="btn sm ${s === shop ? 'pri' : ''}" data-act="botshop" data-id="${esc(s)}">${esc(s)}</button>`).join('') + `</div>`;
+
+  /* ---- chiến dịch bot đang chỉnh ---- */
+  const vn = botVnNow();
+  const camps = d.camps.filter(c => !shop || c.shop === shop);
+  h += sectionTitle('Quảng cáo bot đang chỉnh', `<span class="dim">${camps.filter(c => c.managed).length} chiến dịch</span>`);
+  if (!camps.length) h += `<div class="card dim">Bot chưa gửi chiến dịch nào.</div>`;
+  const theoShop = {};
+  camps.forEach(c => (theoShop[c.shop] = theoShop[c.shop] || []).push(c));
+  Object.entries(theoShop).forEach(([ten, list]) => {
+    if (!shop && shops.length > 1) h += `<div class="dim" style="margin:10px 0 6px;font-weight:600">${esc(ten)}</div>`;
+    h += `<div class="botgrid">` + list.map(c => {
+      const key = c.shop + '|' + c.cid;
+      const tat = !!(cfg.off || {})[key];
+      const lan = d.logs.find(l => l.shop === c.shop && l.cid === c.cid && l.kind === 'roas' && l.ok);
+      const doiGoc = c.base && c.cur ? (c.cur / c.base - 1) * 100 : null;
+      const strip = Array.isArray(c.plan) ? `<div style="display:grid;grid-template-columns:repeat(24,1fr);gap:2px;margin-top:10px">` +
+        c.plan.map((m, hh) => `<div title="${gioLabel(hh)}: ${(BOT_MODE[m] || {}).t || ''}" style="height:16px;border-radius:3px;background:${
+          m === 'day' ? 'var(--ok)' : m === 'siet' ? 'var(--warn)' : 'var(--line)'};${hh === vn.hour ? 'outline:2px solid var(--tx);outline-offset:1px;' : ''}"></div>`).join('') +
+        `</div><div style="display:flex;justify-content:space-between;font-size:10px" class="dim"><span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span></div>` : '';
+      return `<div class="card" style="${tat || !c.managed ? 'opacity:.6' : ''}">
+        <div style="display:flex;gap:8px;align-items:flex-start">
+          <div class="grow"><b>${esc(c.title || 'Chiến dịch ' + c.cid)}</b>
+            <div class="dim" style="font-size:12px;margin-top:2px">ID ${esc(c.cid)}${c.boost ? ' · <span class="chip acc">Đẩy Nhanh</span>' : ''}</div></div>
+          ${tat ? '<span class="chip bad">Đã dừng</span>' : !c.managed ? '<span class="chip">Chỉ theo dõi</span>' : botModeChip(c.mode)}
+        </div>
+        <div class="tiles mini bot3" style="margin-top:10px">
+          ${tile('Mục tiêu đang đặt', botR(c.cur), doiGoc == null ? '' : 'gốc ' + botR(c.base) + ' · ' + (doiGoc >= 0 ? '+' : '') + doiGoc.toFixed(0) + '%')}
+          ${tile('ROAS hôm nay', botR(c.roas), c.cost != null ? 'chi ' + moneyShort(c.cost) : '',
+                 c.roas != null && c.floor && c.roas < c.floor ? 'bad' : '')}
+          ${tile('Sàn của bot', botR(c.floor), c.std ? 'chuẩn ' + botR(c.std) : '')}
+        </div>
+        ${strip}
+        <div class="dim" style="font-size:12px;margin-top:8px">${lan ? 'Chỉnh gần nhất ' + esc(botHm(lan.at)) + ': ' + botR(lan.old) + ' → ' + botR(lan.new) : 'Chưa chỉnh lần nào'}${
+          c.next ? ' · Lần tới: ' + esc(c.next) : ''}${c.note ? '<br>' + esc(c.note) : ''}</div>
+        ${chu ? `<div class="btns" style="margin-top:8px">${tat
+          ? `<button class="btn sm" data-act="botpause" data-id="${esc(key)}" data-on="0">▶ Cho bot chỉnh lại</button>`
+          : `<button class="btn sm" data-act="botpause" data-id="${esc(key)}" data-on="1">⏸ Dừng riêng chiến dịch này</button>`}</div>` : ''}
+      </div>`;
+    }).join('') + `</div>`;
+  });
+  h += `<div class="dim" style="font-size:12px;margin-top:6px">Ô xanh = Đẩy (hạ ROAS mục tiêu cho phân phối nhiều) · ô cam = Siết (nâng
+    mục tiêu) · ô xám = Giữ. Ô có viền là giờ hiện tại.</div>`;
+
+  /* ---- quảng cáo theo giờ ---- */
+  h += botHoursView(d.hours.filter(x => !shop || x[0] === shop), vn, d.logs);
+
+  /* ---- nhật ký ---- */
+  const logs = d.logs.filter(l => !shop || l.shop === shop).slice(0, 150);
+  h += sectionTitle('Nhật ký chỉnh', `<span class="dim">${logs.length} dòng gần nhất</span>`);
+  h += !logs.length ? `<div class="card dim">Chưa có lần chỉnh nào.</div>` : `<div class="tblwrap"><table class="tbl sm">
+    <thead><tr><th>Lúc</th>${shops.length > 1 && !shop ? '<th>Gian hàng</th>' : ''}<th>Chiến dịch</th><th>Chế độ</th>
+      <th class="r">Mục tiêu</th><th class="r">ROAS lúc đó</th><th>Ghi chú</th></tr></thead><tbody>` +
+    logs.map(l => `<tr style="cursor:default">
+      <td>${esc(botHm(l.at))}</td>${shops.length > 1 && !shop ? `<td>${esc(l.shop)}</td>` : ''}
+      <td>${esc(l.title || l.cid)}</td>
+      <td>${l.kind === 'roas' ? botModeChip(l.mode) : `<span class="chip ${l.ok ? '' : 'bad'}">${esc(l.kind === 'error' ? 'Lỗi' : l.kind)}</span>`}</td>
+      <td class="r">${l.old != null || l.new != null ? botR(l.old) + ' → <b class="' + (l.new < l.old ? 'ok' : 'warn') + '">' + botR(l.new) + '</b>' : '—'}</td>
+      <td class="r">${botR(l.roas)}${l.cost != null ? '<div class="dim" style="font-size:11px">chi ' + moneyShort(l.cost) + '</div>' : ''}</td>
+      <td>${esc(l.reason || '')}${!l.ok && l.err ? '<div class="bad">' + esc(l.err) + '</div>' : ''}</td></tr>`).join('') +
+    `</tbody></table></div>`;
+
+  h += `<div class="explain" style="margin-top:14px">📦 Đơn hàng quá khứ theo giờ (từng sản phẩm, thứ trong tuần, tỉ lệ huỷ) nằm ở mục
+    <a href="#" data-act="adtab" data-id="gio">Khung giờ</a> — bot tự xuất đơn hàng và nạp vào đó đầu mỗi tháng.</div>`;
+  return h;
+}
+
+/* Quảng cáo theo giờ: hôm nay so với trung bình 30 ngày, và ROAS theo khối
+   giờ — 7 ngày gần nhất so với 28 ngày trước đó (khi bot bắt đầu chạy thì
+   khối này cho thấy lịch Đẩy/Siết có làm ROAS từng khối đổi không). */
+function botHoursView(rows, vn, logs){
+  if (!rows.length) return sectionTitle('Quảng cáo theo giờ') +
+    `<div class="card dim">Bot chưa gửi số theo giờ.</div>`;
+  const cong = (pick) => { const g = Array.from({length:24}, () => ({c:0, g:0, o:0, k:0})); const ngay = new Set();
+    rows.forEach(([, date, hh, c, gm, o, k]) => { if (!pick(date)) return; ngay.add(date);
+      g[hh].c += c; g[hh].g += gm; g[hh].o += o; g[hh].k += k; });
+    return {g, n: ngay.size}; };
+  const lui = n => { const t = new Date(vn.date + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() - n); return t.toISOString().slice(0, 10); };
+  const nay = cong(dt => dt === vn.date);
+  const tb30 = cong(dt => dt < vn.date && dt >= lui(30));
+  let h = sectionTitle('Quảng cáo theo giờ — hôm nay', `<span class="dim">đường đứt: ROAS trung bình ${tb30.n} ngày trước</span>`);
+  h += `<div class="card pad0">` + Chart.combo({
+    rows: nay.g.map((x, hh) => ({label: gioLabel(hh), chi: hh <= vn.hour ? x.c : null,
+      roas: hh <= vn.hour && x.c ? x.g / x.c : null,
+      roas30: tb30.g[hh].c ? tb30.g[hh].g / tb30.g[hh].c : null})),
+    bars: [{key:'chi', label:'Chi hôm nay', color:'var(--acc)'}],
+    lines: [{key:'roas', label:'ROAS hôm nay', color:'var(--ok)'}, {key:'roas30', label:'ROAS TB 30 ngày', color:'var(--tx3)', dash:true}],
+    fmtBar: moneyShort, fmtLine: v => v == null ? '' : botR(v)
+  }) + `</div>`;
+
+  const A = cong(dt => dt < vn.date && dt >= lui(7));
+  const B = cong(dt => dt < lui(7) && dt >= lui(35));
+  const chinh = logs.filter(l => l.kind === 'roas' && l.ok);
+  const batDau = chinh.length ? chinh[chinh.length - 1].at : '';
+  const khoi = (S, hs) => { let c = 0, g = 0; hs.forEach(hh => { c += S.g[hh].c; g += S.g[hh].g; }); return {c, g, r: c ? g / c : null}; };
+  const tongA = khoi(A, [...Array(24).keys()]);
+  h += sectionTitle('ROAS theo khối giờ', `<span class="dim">7 ngày gần nhất (${A.n} ngày có số) so với 28 ngày trước đó${
+    batDau ? ' · bot chỉnh lần đầu ' + esc(botHm(batDau)) : ''}</span>`);
+  h += `<div class="tblwrap"><table class="tbl sm"><thead><tr><th>Khối giờ</th><th class="r">Chi/ngày</th><th class="r">% ngân sách</th>
+    <th class="r">ROAS 7 ngày</th><th class="r">ROAS 28 ngày trước</th><th class="r">Đổi</th></tr></thead><tbody>` +
+    BOT_BLOCKS.map(([ten, hs]) => {
+      const a = khoi(A, hs), b = khoi(B, hs);
+      const doi = a.r != null && b.r ? (a.r / b.r - 1) * 100 : null;
+      return `<tr style="cursor:default"><td>${ten}</td><td class="r">${A.n ? moneyShort(a.c / A.n) : '—'}</td>
+        <td class="r">${tongA.c ? pctText(a.c / tongA.c * 100, 0) : '—'}</td><td class="r"><b>${botR(a.r)}</b></td>
+        <td class="r">${botR(b.r)}</td><td class="r">${doi == null ? '—' : `<span class="${doi >= 0 ? 'ok' : 'bad'}">${doi >= 0 ? '▲' : '▼'} ${Math.abs(doi).toFixed(0)}%</span>`}</td></tr>`;
+    }).join('') + `</tbody><tfoot><tr><th>Cả ngày</th><th class="r">${A.n ? moneyShort(tongA.c / A.n) : '—'}</th><th></th>
+      <th class="r">${botR(tongA.r)}</th><th class="r">${botR(khoi(B, [...Array(24).keys()]).r)}</th><th></th></tr></tfoot></table></div>`;
+  h += `<div class="dim" style="font-size:12px;margin-top:6px">Shopee tính doanh số vào giờ RA ĐƠN chứ không phải giờ click — click lúc 23h mà 0h mới
+    mua thì doanh số nằm ở khối 00–01h. Nên đọc theo khối, đừng đọc từng giờ lẻ.</div>`;
+  return h;
+}
+
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "7eee35c8"]);

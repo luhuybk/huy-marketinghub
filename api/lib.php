@@ -1898,3 +1898,193 @@ function imgGet(string $id): ?array {
 function imgDel(string $id): void {
   imgDb()->prepare('DELETE FROM img WHERE id = ?')->execute([$id]);
 }
+
+/* ============================================================
+   BOT ROAS THEO GIỜ (api/bot.php) — mục Báo cáo Ads → Bot giờ
+
+   Bot chạy trên VPS riêng (trình duyệt ngầm đăng nhập Kênh Người Bán), tới
+   giờ thì nâng/hạ ROAS mục tiêu của vài chiến dịch. Hub chỉ là nơi XEM và
+   nơi BẤM DỪNG: bot gửi lên trạng thái từng chiến dịch, nhật ký từng lần
+   chỉnh, số quảng cáo theo giờ, và bản đơn hàng đã cộng sẵn theo tháng
+   (đổ thẳng vào mục Khung giờ có sẵn). Mỗi lần gửi, Hub trả lại cờ dừng.
+
+   Lịch Đẩy/Giữ/Siết và các luật (sàn, bước %) nằm ở bot — Hub hiển thị
+   đúng bản bot gửi lên chứ không tự tính, để không có hai nơi giữ luật.
+   Bảng chỉ ở máy chủ, không đồng bộ xuống trình duyệt.
+   ============================================================ */
+const BOT_LOG_MAX = 5000;     // giữ bấy nhiêu dòng nhật ký gần nhất
+const BOT_HOUR_KEEP = 400;    // ngày
+
+function botTables(PDO $pdo): void {
+  $pdo->exec('CREATE TABLE IF NOT EXISTS bot_camp (shop TEXT NOT NULL, cid TEXT NOT NULL, data TEXT NOT NULL,
+      at TEXT NOT NULL, PRIMARY KEY (shop, cid));
+    CREATE TABLE IF NOT EXISTS bot_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL,
+      shop TEXT NOT NULL, cid TEXT NOT NULL, data TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS bot_hour (shop TEXT NOT NULL, date TEXT NOT NULL, hour INTEGER NOT NULL,
+      cost INTEGER NOT NULL DEFAULT 0, gmv INTEGER NOT NULL DEFAULT 0, orders INTEGER NOT NULL DEFAULT 0,
+      clicks INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (shop, date, hour));');
+}
+function botCfg(): array {
+  $c = kvGet('bot_cfg', []);
+  if (!is_array($c)) $c = [];
+  $off = $c['off'] ?? [];
+  return ['paused' => !empty($c['paused']), 'off' => is_array($off) ? $off : [],
+          'by' => (string)($c['by'] ?? ''), 'at' => (string)($c['at'] ?? '')];
+}
+/* Bản trả ra ngoài: off rỗng vẫn phải là {} (json_encode mảng rỗng ra []) */
+function botCfgOut(?array $c = null): array {
+  $c = $c ?? botCfg();
+  $c['off'] = (object)$c['off'];
+  return $c;
+}
+function botTxt($v, int $n = 200): string { return mb_substr(trim((string)$v), 0, $n, 'UTF-8'); }
+function botNum($v): ?float { return is_numeric($v) ? round((float)$v, 4) : null; }
+
+/* Khớp gian hàng theo tên như adIngest; chưa có thì tạo */
+function botShopId(string $ten): string {
+  $k = mb_strtolower(trim($ten), 'UTF-8');
+  foreach (ingItems('shops') as $s)
+    if (mb_strtolower(trim((string)($s['name'] ?? '')), 'UTF-8') === $k) return (string)$s['id'];
+  $id = 'sh' . base_convert((string)time(), 10, 36) . bin2hex(random_bytes(3));
+  ingItemSave('shops', $id, ['name' => trim($ten), 'code' => '', 'note' => 'tự tạo khi bot ROAS gửi số',
+                             'archived' => false], false);
+  return $id;
+}
+
+/* Một bản đơn hàng đã cộng sẵn cho một tháng — cùng khuôn ShopeeOrders.parse()
+   ở js/shopee.js, ghi đè bản cùng gian hàng + tháng như lúc nạp tay. */
+function botOstat(string $shop, array $r): array {
+  $ym = (string)($r['ym'] ?? '');
+  if (!preg_match('/^\d{4}-\d{2}$/', $ym)) return ['error' => 'Thiếu tháng (ym).'];
+  $gio = $r['gio'] ?? null; $thu = $r['thu'] ?? null;
+  if (!is_array($gio) || count($gio) !== 24 || !is_array($thu) || count($thu) !== 7) return ['error' => 'gio phải 24 ô, thu phải 7 ô.'];
+  $int = fn($v) => (int)round((float)$v);
+  $rec = ['ym' => $ym, 'from' => botTxt($r['from'] ?? '', 10), 'to' => botTxt($r['to'] ?? '', 10),
+          'orders' => $int($r['orders'] ?? 0), 'units' => $int($r['units'] ?? 0), 'gmv' => $int($r['gmv'] ?? 0),
+          'huyOrders' => $int($r['huyOrders'] ?? 0), 'huyGmv' => $int($r['huyGmv'] ?? 0), 'spTong' => $int($r['spTong'] ?? 0),
+          'gio' => array_map(fn($g) => ['orders' => $int($g['orders'] ?? 0), 'units' => $int($g['units'] ?? 0),
+                                        'gmv' => $int($g['gmv'] ?? 0), 'huy' => $int($g['huy'] ?? 0)], array_values($gio)),
+          'thu' => array_map(fn($g) => ['orders' => $int($g['orders'] ?? 0), 'gmv' => $int($g['gmv'] ?? 0)], array_values($thu)),
+          'sp' => []];
+  foreach (array_slice(is_array($r['sp'] ?? null) ? $r['sp'] : [], 0, 25) as $x) {
+    $g = is_array($x['gio'] ?? null) && count($x['gio']) === 24 ? array_map($int, array_values($x['gio'])) : array_fill(0, 24, 0);
+    $rec['sp'][] = ['name' => botTxt($x['name'] ?? '', 255), 'sku' => botTxt($x['sku'] ?? '', 80),
+                    'units' => $int($x['units'] ?? 0), 'gmv' => $int($x['gmv'] ?? 0), 'gio' => $g];
+  }
+  $sid = botShopId($shop);
+  $rec['shopId'] = $sid;
+  $co = null;
+  foreach (ingItems('orderstats') as $o) if (($o['shopId'] ?? '') === $sid && ($o['ym'] ?? '') === $ym) { $co = $o; break; }
+  $id = $co ? (string)$co['id'] : 'os' . base_convert((string)time(), 10, 36) . bin2hex(random_bytes(3));
+  ingItemSave('orderstats', $id, $rec, (bool)$co);
+  return ['ok' => true, 'ym' => $ym, 'shopId' => $sid];
+}
+
+/* Nhận gói từ bot. Trả về kết quả + cấu hình hiện tại (cờ dừng) */
+function botSave(array $in): array {
+  $pdo = db(); botTables($pdo);
+  $now = gmdate('Y-m-d\TH:i:s\Z');
+  $do = (string)($in['do'] ?? '');
+  $r = ['ok' => true];
+
+  if ($do === 'state') {
+    $ins = $pdo->prepare('INSERT INTO bot_camp (shop, cid, data, at) VALUES (?,?,?,?)
+        ON CONFLICT(shop, cid) DO UPDATE SET data = excluded.data, at = excluded.at');
+    $n = 0;
+    foreach (array_slice(is_array($in['camps'] ?? null) ? $in['camps'] : [], 0, 100) as $c) {
+      $shop = botTxt($c['shop'] ?? '', 120); $cid = botTxt($c['cid'] ?? '', 40);
+      if ($shop === '' || $cid === '') continue;
+      $plan = is_array($c['plan'] ?? null) && count($c['plan']) === 24
+        ? array_map(fn($m) => in_array($m, ['day', 'giu', 'siet'], true) ? $m : 'giu', array_values($c['plan'])) : null;
+      $d = ['title' => botTxt($c['title'] ?? '', 255), 'managed' => !empty($c['managed']),
+            'base' => botNum($c['base'] ?? null), 'floor' => botNum($c['floor'] ?? null), 'cur' => botNum($c['cur'] ?? null),
+            'std' => botNum($c['std'] ?? null), 'stepUp' => botNum($c['stepUp'] ?? null), 'stepDown' => botNum($c['stepDown'] ?? null),
+            'mode' => botTxt($c['mode'] ?? '', 10), 'roas' => botNum($c['roas'] ?? null),
+            'cost' => botNum($c['cost'] ?? null), 'gmv' => botNum($c['gmv'] ?? null), 'budget' => botNum($c['budget'] ?? null),
+            'boost' => !empty($c['boost']), 'next' => botTxt($c['next'] ?? '', 60), 'note' => botTxt($c['note'] ?? '', 300),
+            'plan' => $plan];
+      $ins->execute([$shop, $cid, json_encode($d, JSON_UNESCAPED_UNICODE), $now]);
+      $n++;
+    }
+    $r['camps'] = $n;
+  } elseif ($do === 'log') {
+    $ins = $pdo->prepare('INSERT INTO bot_log (at, shop, cid, data) VALUES (?,?,?,?)');
+    $n = 0;
+    foreach (array_slice(is_array($in['entries'] ?? null) ? $in['entries'] : [], 0, 200) as $e) {
+      $at = botTxt($e['at'] ?? '', 30);
+      if (!preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/', $at)) $at = $now;
+      $d = ['kind' => botTxt($e['kind'] ?? 'roas', 12), 'title' => botTxt($e['title'] ?? '', 255),
+            'old' => botNum($e['old'] ?? null), 'new' => botNum($e['new'] ?? null), 'mode' => botTxt($e['mode'] ?? '', 10),
+            'reason' => botTxt($e['reason'] ?? '', 400), 'roas' => botNum($e['roas'] ?? null),
+            'cost' => botNum($e['cost'] ?? null), 'ok' => !array_key_exists('ok', $e) || !empty($e['ok']),
+            'err' => botTxt($e['err'] ?? '', 400)];
+      $ins->execute([$at, botTxt($e['shop'] ?? '', 120), botTxt($e['cid'] ?? '', 40), json_encode($d, JSON_UNESCAPED_UNICODE)]);
+      $n++;
+    }
+    $pdo->exec('DELETE FROM bot_log WHERE id <= (SELECT id FROM bot_log ORDER BY id DESC LIMIT 1 OFFSET ' . BOT_LOG_MAX . ')');
+    $r['logged'] = $n;
+  } elseif ($do === 'hours') {
+    $shop = botTxt($in['shop'] ?? '', 120);
+    if ($shop === '') return ['error' => 'Thiếu tên gian hàng.'];
+    $ins = $pdo->prepare('INSERT INTO bot_hour (shop, date, hour, cost, gmv, orders, clicks) VALUES (?,?,?,?,?,?,?)
+        ON CONFLICT(shop, date, hour) DO UPDATE SET cost = excluded.cost, gmv = excluded.gmv,
+        orders = excluded.orders, clicks = excluded.clicks');
+    $pdo->beginTransaction();
+    $n = 0;
+    foreach (array_slice(is_array($in['rows'] ?? null) ? $in['rows'] : [], 0, 24 * 120) as $x) {
+      $date = (string)($x['date'] ?? ''); $h = (int)($x['hour'] ?? -1);
+      if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || $h < 0 || $h > 23) continue;
+      $ins->execute([$shop, $date, $h, (int)round((float)($x['cost'] ?? 0)), (int)round((float)($x['gmv'] ?? 0)),
+                     (int)($x['orders'] ?? 0), (int)($x['clicks'] ?? 0)]);
+      $n++;
+    }
+    $pdo->commit();
+    $giu = (new DateTime('now', new DateTimeZone(KH_TZ)))->modify('-' . BOT_HOUR_KEEP . ' days')->format('Y-m-d');
+    $pdo->prepare('DELETE FROM bot_hour WHERE date < ?')->execute([$giu]);
+    $r['rows'] = $n;
+  } elseif ($do === 'ostat') {
+    $shop = botTxt($in['shop'] ?? '', 120);
+    if ($shop === '' || !is_array($in['rec'] ?? null)) return ['error' => 'Thiếu gian hàng hoặc bản ghi.'];
+    $o = botOstat($shop, $in['rec']);
+    if (isset($o['error'])) return $o;
+    $r += $o;
+  } elseif ($do !== 'cfg') {
+    return ['error' => 'Không hiểu yêu cầu.'];
+  }
+
+  kvSet('bot_seen', ['at' => $now, 'ver' => botTxt($in['ver'] ?? '', 30), 'do' => $do]);
+  return $r + ['cfg' => botCfgOut()];
+}
+
+/* Mọi thứ trang Bot giờ cần, một lần hỏi */
+function botView(): array {
+  $pdo = db(); botTables($pdo);
+  $camps = [];
+  foreach ($pdo->query('SELECT shop, cid, data, at FROM bot_camp ORDER BY shop, cid')->fetchAll() as $x) {
+    $d = json_decode((string)$x['data'], true);
+    if (is_array($d)) $camps[] = ['shop' => $x['shop'], 'cid' => $x['cid'], 'at' => $x['at']] + $d;
+  }
+  $logs = [];
+  foreach ($pdo->query('SELECT id, at, shop, cid, data FROM bot_log ORDER BY at DESC, id DESC LIMIT 400')->fetchAll() as $x) {
+    $d = json_decode((string)$x['data'], true);
+    if (is_array($d)) $logs[] = ['id' => (int)$x['id'], 'at' => $x['at'], 'shop' => $x['shop'], 'cid' => $x['cid']] + $d;
+  }
+  $tu = (new DateTime('now', new DateTimeZone(KH_TZ)))->modify('-90 days')->format('Y-m-d');
+  $st = $pdo->prepare('SELECT shop, date, hour, cost, gmv, orders, clicks FROM bot_hour WHERE date >= ? ORDER BY shop, date, hour');
+  $st->execute([$tu]);
+  $hours = [];
+  foreach ($st->fetchAll() as $x)
+    $hours[] = [$x['shop'], $x['date'], (int)$x['hour'], (int)$x['cost'], (int)$x['gmv'], (int)$x['orders'], (int)$x['clicks']];
+  return ['cfg' => botCfgOut(), 'seen' => kvGet('bot_seen', null), 'camps' => $camps, 'logs' => $logs, 'hours' => $hours,
+          'now' => gmdate('Y-m-d\TH:i:s\Z')];
+}
+/* Chủ bấm dừng/chạy lại — cả bot, hoặc một chiến dịch */
+function botPause(bool $on, string $key, string $by): array {
+  $c = botCfg();
+  if ($key === '') $c['paused'] = $on;
+  elseif ($on) $c['off'][$key] = true;
+  else unset($c['off'][$key]);
+  $c['by'] = $by; $c['at'] = gmdate('Y-m-d\TH:i:s\Z');
+  kvSet('bot_cfg', $c);
+  return botCfgOut($c);
+}
