@@ -350,7 +350,8 @@ function openModal(title, body, foot, wide){
   el.addEventListener('mousedown', e => { if (e.target === el) closeModal(); });
   $('#modals').appendChild(el);
   requestAnimationFrame(() => el.classList.add('on'));
-  const f = el.querySelector('input,select,textarea');
+  /* data-nofocus: hộp chủ yếu để xem — đừng bật bàn phím điện thoại khi vừa mở */
+  const f = el.querySelector('input:not([data-nofocus]),select:not([data-nofocus]),textarea:not([data-nofocus])');
   if (f) setTimeout(() => f.focus(), 60);
   return el;
 }
@@ -1467,6 +1468,17 @@ function ensureAdTong(lamMoi){
   Server.adRadar().then(r => { atv.data = r; atv.err = ''; })
     .catch(e => { atv.err = e.message || 'lỗi không rõ'; })
     .finally(() => { atv.busy = false; if (route.page === 'adtong') render(); });
+}
+/* Hộp chi tiết một chiến dịch: biểu đồ + mốc cải tiến, nằm riêng ngoài bảng cho dễ đọc */
+function atMoChiTiet(key){
+  if (!atv.data) return;
+  const m = openModal('Chi tiết sản phẩm', atDetailHtml(key), '', true);
+  m.dataset.at = key;
+  m.querySelector('.mbox').classList.add('at-mbox');
+}
+function atVeLaiChiTiet(key){
+  const m = [...$$('#modals .modal')].find(x => x.dataset.at === key);
+  if (m) m.querySelector('.mbody').innerHTML = atDetailHtml(key);
 }
 const RV_CU_PHUT = 10;      // mở lại trang sau chừng này phút thì hỏi lại máy chủ
 function ensureRival(){
@@ -5453,18 +5465,31 @@ const ACTIONS = {
   atloc:    id => { ui.atLoc = id || ''; render(); },
   atskip:   () => { ui.atSkip = !(ui.atSkip !== false); render(); },
   atall:    () => { ui.atAll = !ui.atAll; render(); },
-  atopen:   id => { ui.atOpen = ui.atOpen === id ? '' : id; render(); },
+  atsort:   id => { ui.atSort = id || 'chi'; render(); },
+  atopen:   id => atMoChiTiet(id),
+  /* chọn nhanh ngày sửa / việc đã sửa — đổi thẳng trong ô, không vẽ lại */
+  atmocngay: (id, el) => {
+    const f = el.closest('.at-moc-f'); if (!f) return;
+    f.querySelector('[name="date"]').value = id;
+    f.querySelectorAll('[data-act="atmocngay"]').forEach(b => b.classList.toggle('pri', b === el));
+  },
+  atmocgoi: (id, el) => { el.classList.toggle('pri'); },
   atmocadd: async (id, el) => {
     const f = el.closest('.at-moc-f'); if (!f) return;
-    const date = f.querySelector('[name="date"]').value, note = f.querySelector('[name="note"]').value.trim();
+    const date = f.querySelector('[name="date"]').value;
+    const chon = [...f.querySelectorAll('.at-goi.pri')].map(b => b.dataset.id);
+    const them = f.querySelector('[name="note"]').value.trim();
+    const note = (chon.join(', ') + (chon.length && them ? ' — ' : '') + them).slice(0, 160);
     if (!date) return toast('Chọn ngày đã sửa sản phẩm');
-    if (!note) return toast('Ghi ngắn đã sửa gì — vd. Đổi ảnh bìa');
-    try { const r = await Server.adMoc({key:id, date, note}); if (atv.data) atv.data.moc = r.moc; render(); toast('Đã ghi mốc ' + fmtDate(date)); }
-    catch(e){ toast(e.message || 'Không lưu được'); }
+    if (!note) return toast('Chọn hoặc ghi ngắn đã sửa gì — vd. Đổi ảnh bìa');
+    el.disabled = true;
+    try { const r = await Server.adMoc({key:id, date, note}); if (atv.data) atv.data.moc = r.moc; atVeLaiChiTiet(id); render(); toast('Đã ghi mốc ' + fmtDate(date)); }
+    catch(e){ el.disabled = false; toast(e.message || 'Không lưu được'); }
   },
   atmocxoa: async (id, el) => {
     if (!confirm('Xoá mốc cải tiến này?')) return;
-    try { const r = await Server.adMoc({key:el.dataset.k, del:id}); if (atv.data) atv.data.moc = r.moc; render(); }
+    const k = el.dataset.k;
+    try { const r = await Server.adMoc({key:k, del:id}); if (atv.data) atv.data.moc = r.moc; atVeLaiChiTiet(k); render(); }
     catch(e){ toast(e.message || 'Không xoá được'); }
   },
   botshop:     id => { botv.shop = id; render(); },

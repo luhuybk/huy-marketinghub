@@ -1353,6 +1353,14 @@ trong `js/views.js`, `ensureAdTong()` + thao tác `at…` trong `js/app.js`.
   đa 20 mốc/chiến dịch, ai xem được Báo cáo Ads là ghi/xoá được (action `ad_moc`,
   `adMocSet()` — bản Node trong serve.js). Mỗi mốc so 30 ngày trước mốc với từ mốc
   tới nay (tối đa 30 ngày); dưới 14 ngày thì nhắc đợi thêm.
+- Bảng sản phẩm là lưới `.at-row` (không phải `<table>`): khung `.at-list` có
+  `container-type`, rộng > 940px là hàng cột, hẹp hơn là thẻ (5 → 4 → 2 cột).
+  Lọc theo nhận định, xếp theo chi / tăng mạnh / giảm mạnh (`ui.atSort`).
+- Bấm một sản phẩm mở **hộp chi tiết** (`atMoChiTiet()` → `atDetailHtml()`):
+  ô số, biểu đồ, dòng thời gian các mốc (thanh tiến độ 30 ngày, vạch 14 ngày,
+  nhận định *Có hiệu quả / Kém đi / Chưa thấy khác*), rồi khung ghi mốc mới với
+  nút chọn nhanh ngày + việc đã sửa. Lưu/xoá mốc vẽ lại hộp tại chỗ
+  (`atVeLaiChiTiet()`). Ô có `data-nofocus` thì `openModal` không tự focus.
 
 ### Gợi ý nâng ROAS mục tiêu
 
