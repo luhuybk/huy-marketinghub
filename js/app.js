@@ -1432,6 +1432,12 @@ function radarMo(shop, cid){
 /* Bot giờ: hỏi máy chủ khi mở mục này; để mở lâu thì cứ 3 phút hỏi lại
    (bot chỉnh ROAS theo giờ, số cũ vài phút là đã lệch) */
 const BOT_CU_PHUT = 3;
+function botSetupOpen(){
+  const d = botv.data; if (!d) return;
+  openModal('Cài đặt từng sản phẩm', botSetupBody(d),
+    `<div class="btns end"><div class="grow"></div><button class="btn sm" data-act="closem">Huỷ</button>
+     <button class="btn pri" data-act="botsetupsave">Lưu</button></div>`, true);
+}
  /* Bot giờ mở được ở hai chỗ: trang riêng trên menu bên, và tab con trong Báo cáo Ads */
 const botDangMo = () => route.page === 'botgio' || (route.page === 'adreport' && adReportTab() === 'bot');
 function ensureBot(lamMoi){
@@ -5240,24 +5246,19 @@ const ACTIONS = {
   botreload:   () => { ensureBot(true); toast('Đang tải lại…'); },
   botshop:     id => { botv.shop = id; render(); },
   /* Dừng / chạy lại: data-id rỗng = cả bot, "shop|cid" = một chiến dịch; data-on 1 = dừng */
-  /* ROAS sàn của một chiến dịch — chủ tự điền theo sản phẩm; trống = bot tự tính */
-  botsan:      id => {
-    const c = ((botv.data || {}).camps || []).find(x => x.shop + '|' + x.cid === id);
-    if (!c) return;
-    const dat = ((botv.data.cfg || {}).san || {})[id];
-    formModal({
-      title: 'ROAS sàn · ' + (c.title || c.cid),
-      values: {san: dat != null ? String(dat).replace('.', ',') : ''},
-      fields: [{k:'san', l:'ROAS sàn', t:'text', ph:'vd 12',
-        hint:'Bot không bao giờ hạ mục tiêu xuống dưới số này, kể cả lúc Đẩy. Để trống = bot tự tính: lớn hơn giữa ROAS biên (' +
-             botR(c.bien) + ') và ROAS chuẩn 30 ngày × 0,7' + (c.std ? ' (= ' + botR(c.std * 0.7) + ')' : '') + '.'}],
-      saveLabel: 'Lưu',
-      onSave: async v => {
-        const r = await Server.botSan(id, String(v.san || '').trim());
-        botv.data.cfg = r.cfg;
-        toast('Đã lưu — bot dùng sàn mới từ lượt tới (trong 5 phút)');
-      }
-    });
+  /* Bảng cài đặt từng sản phẩm: ROAS biên + cho bot chỉnh thật. ✎ ở ô sàn cũng mở bảng này. */
+  botsan:      () => botSetupOpen(),
+  botsetup:    () => botSetupOpen(),
+  botsetupsave: async () => {
+    const box = $$('#modals .modal').pop();
+    if (!box) return;
+    const items = [...box.querySelectorAll('tr[data-k]')].map(tr => ({key: tr.dataset.k,
+      san: tr.querySelector('input[name="san"]').value.trim(), live: tr.querySelector('input[name="live"]').checked}));
+    const bad = items.find(it => it.san && !(+it.san.replace(',', '.') >= 1 && +it.san.replace(',', '.') <= 50));
+    if (bad){ toast('ROAS biên phải là số từ 1 đến 50'); return; }
+    try { const r = await Server.botSetup(items); botv.data.cfg = r.cfg; closeModal(); render();
+          toast('Đã lưu — bot dùng cài đặt mới từ lượt tới (trong 5 phút)'); }
+    catch(e){ toast(e.message || 'Không lưu được'); }
   },
   botpause:    async (id, el) => {
     const on = el && el.dataset.on === '1';

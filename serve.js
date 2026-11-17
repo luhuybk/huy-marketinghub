@@ -707,6 +707,11 @@ function api(req, res, body){
       if (!owner()) return;
       return send({ok:true, cfg:botPause(!!inp.on, String(inp.key || '').trim().slice(0, 170), (me && me.name) || 'chủ')});
     }
+    case 'bot_setup': {
+      if (!owner()) return;
+      const r = botSetup(inp.items);
+      return r.error ? fail(r.error) : send({ok:true, cfg:r});
+    }
     case 'bot_san': {
       if (!owner()) return;
       const key = String(inp.key || '').trim().slice(0, 170);
@@ -1448,7 +1453,9 @@ function botCfg(){
   const c = kvGet('bot_cfg', {}) || {};
   const san = {};
   Object.entries(c.san && typeof c.san === 'object' ? c.san : {}).forEach(([k, v]) => { if (+v > 0) san[k] = Math.round(+v * 10) / 10; });
-  return {paused: !!c.paused, off: c.off && typeof c.off === 'object' && !Array.isArray(c.off) ? c.off : {}, san,
+  const live = {};
+  Object.entries(c.live && typeof c.live === 'object' ? c.live : {}).forEach(([k, v]) => { live[k] = !!v; });
+  return {paused: !!c.paused, off: c.off && typeof c.off === 'object' && !Array.isArray(c.off) ? c.off : {}, san, live,
           by: String(c.by || ''), at: String(c.at || '')};
 }
 const botTxt = (v, n = 200) => String(v == null ? '' : v).trim().slice(0, n);
@@ -1494,7 +1501,7 @@ function botSave(inp){
       const d = {title:botTxt(c.title, 255), managed:!!c.managed, base:botNum(c.base), floor:botNum(c.floor), cur:botNum(c.cur),
         std:botNum(c.std), stepUp:botNum(c.stepUp), stepDown:botNum(c.stepDown), mode:botTxt(c.mode, 10), roas:botNum(c.roas),
         cost:botNum(c.cost), gmv:botNum(c.gmv), budget:botNum(c.budget), boost:!!c.boost, next:botTxt(c.next, 60),
-        note:botTxt(c.note, 300), plan, bien:botNum(c.bien), floorT:botNum(c.floorT), live: 'live' in c ? !!c.live : null, sanSrc:botTxt(c.sanSrc, 8),
+        note:botTxt(c.note, 300), plan, bien:botNum(c.bien), floorT:botNum(c.floorT), bienSP:botNum(c.bienSP), live: 'live' in c ? !!c.live : null, sanSrc:botTxt(c.sanSrc, 8),
         heSoGiu:botNum(c.heSoGiu), kDN:botNum(c.kDN),
         std30: c.std30 && typeof c.std30 === 'object' ? {cost:botNum(c.std30.cost), gmv:botNum(c.std30.gmv), orders:botNum(c.std30.orders),
           roas:botNum(c.std30.roas), days:botNum(c.std30.days), skip:botNum(c.std30.skip)} : null};
@@ -1555,6 +1562,20 @@ function botView(){
 function botSan(key, v){
   const c = botCfg();
   if (v == null) delete c.san[key]; else c.san[key] = Math.round(v * 10) / 10;
+  kvSet('bot_cfg', c);
+  return c;
+}
+function botSetup(items){
+  const c = botCfg();
+  for (const it of (Array.isArray(items) ? items : []).slice(0, 100)){
+    const key = String((it || {}).key || '').trim().slice(0, 170);
+    if (!key.includes('|')) continue;
+    const raw = String(it.san == null ? '' : it.san).trim().replace(',', '.');
+    if (raw === '') delete c.san[key];
+    else if (isFinite(+raw) && +raw >= 1 && +raw <= 50) c.san[key] = Math.round(+raw * 10) / 10;
+    else return {error:'ROAS biên phải là số từ 1 đến 50 (để trống = dùng mặc định).'};
+    if ('live' in it) c.live[key] = !!it.live;
+  }
   kvSet('bot_cfg', c);
   return c;
 }

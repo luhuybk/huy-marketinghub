@@ -627,6 +627,12 @@ switch ($action) {
     $key = mb_substr(trim((string)($in['key'] ?? '')), 0, 170, 'UTF-8');
     out(['ok' => true, 'cfg' => botPause(!empty($in['on']), $key, (string)(currentUser()['name'] ?? 'chủ'))]);
   }
+  case 'bot_setup': {
+    requireOwner();
+    $r = botSetup(is_array($in['items'] ?? null) ? $in['items'] : []);
+    if (isset($r['error'])) fail($r['error']);
+    out(['ok' => true, 'cfg' => $r]);
+  }
   case 'bot_san': {
     requireOwner();
     $key = mb_substr(trim((string)($in['key'] ?? '')), 0, 170, 'UTF-8');

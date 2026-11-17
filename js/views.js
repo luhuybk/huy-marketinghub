@@ -6247,6 +6247,28 @@ const botVnNow = () => {
 };
 const botModeChip = m => { const x = BOT_MODE[m]; return x ? `<span class="chip ${x.c}">${x.t}</span>` : ''; };
 
+/* Bảng trong hộp "Cài đặt từng sản phẩm": ROAS biên từng SP + cho bot sửa thật */
+function botSetupBody(d){
+  const cfg = d.cfg || {};
+  const rows = d.camps.filter(c => c.managed).map(c => {
+    const key = c.shop + '|' + c.cid;
+    const bien = (cfg.san || {})[key] != null ? cfg.san[key] : c.sanSrc === 'cfg' && c.bienSP ? c.bienSP : '';
+    const live = (cfg.live || {})[key] != null ? cfg.live[key] : c.live !== false;
+    return `<tr data-k="${esc(key)}" style="cursor:default">
+      <td><b>${esc(c.title || c.cid)}</b><div class="dim" style="font-size:11px">${esc(c.shop)}${c.boost ? ' · <span class="chip acc">Đẩy Nhanh</span>' : ''}</div></td>
+      <td class="r">${botR(c.std)}<div class="dim" style="font-size:11px">× 0,7 = ${botR((c.std || 0) * 0.7)}</div></td>
+      <td><input name="san" inputmode="decimal" style="width:78px" value="${esc(bien === '' ? '' : String(bien).replace('.', ','))}" placeholder="${esc(botR(c.bien))}"></td>
+      <td style="text-align:center"><input type="checkbox" name="live" ${live ? 'checked' : ''}></td>
+    </tr>`;
+  }).join('');
+  return `<div class="dim" style="margin-bottom:10px">
+      <b>ROAS biên</b> = mức hoà vốn của sản phẩm. Bot không bao giờ hạ ROAS mục tiêu dưới
+      <b>sàn = lớn hơn giữa ROAS biên và ROAS chuẩn × 0,7</b>; sản phẩm bật Đẩy Nhanh thì sàn quy ra target
+      còn chia thêm 0,7. Để trống = dùng mặc định ${botR((d.camps[0] || {}).bien)}.<br>
+      <b>Chạy thật</b> bỏ tick = bot chỉ tính và ghi nhật ký, không sửa trên Shopee.</div>
+    <div class="tblwrap"><table class="tbl sm"><thead><tr><th>Sản phẩm</th><th class="r">ROAS chuẩn</th><th>ROAS biên</th><th>Chạy thật</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
+}
 /* ROAS thực so với chuẩn: ▲12% / ▼8% */
 function botSoChuan(thuc, chuan){
   const p = (thuc / chuan - 1) * 100;
@@ -6291,6 +6313,13 @@ function viewAdBot(){
       <button class="btn sm ${!shop ? 'pri' : ''}" data-act="botshop" data-id="">Tất cả</button>` +
       shops.map(s => `<button class="btn sm ${s === shop ? 'pri' : ''}" data-act="botshop" data-id="${esc(s)}">${esc(s)}</button>`).join('') + `</div>`;
 
+  /* ---- nhắc điền ROAS biên cho chiến dịch còn chỉ báo ---- */
+  const choBien = d.camps.filter(c => c.managed && c.live === false);
+  if (chu) h += `<div class="${choBien.length ? 'al al-warn' : 'card'}" style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <div class="grow">${choBien.length ? '<b>' + choBien.length + ' sản phẩm đang chỉ báo</b> — điền ROAS biên rồi tick Chạy thật để bot bắt đầu chỉnh.'
+        : 'ROAS biên và chế độ chạy của từng sản phẩm.'}</div>
+      <button class="btn ${choBien.length ? 'pri' : ''} sm" data-act="botsetup">⚙ Cài đặt từng sản phẩm</button></div>`;
+
   /* ---- chiến dịch bot đang chỉnh ---- */
   const vn = botVnNow();
   const camps = d.camps.filter(c => !shop || c.shop === shop);
@@ -6317,9 +6346,10 @@ function viewAdBot(){
           ${c.live === false && !tat ? '<span class="chip warn" title="Bot tính và ghi nhật ký nhưng chưa sửa trên Shopee">Chỉ báo</span>' : ''}
         </div>
         <div class="tiles mini bot4" style="margin-top:10px">
-          ${(() => { const dat = (cfg.san || {})[key], cho = dat != null && Math.abs(dat - (c.floor || 0)) >= 0.05;
-            return tile('ROAS sàn', botR(dat != null ? dat : c.floor) + (chu ? ` <button class="btn xs" data-act="botsan" data-id="${esc(key)}" title="Đặt ROAS sàn cho chiến dịch này">✎</button>` : ''),
-                        (dat != null || c.sanSrc === 'cfg' ? 'bạn đặt' + (cho ? ' · chờ bot nhận' : '') : 'tự tính') +
+          ${(() => { const dat = (cfg.san || {})[key], bien = dat != null ? dat : c.bienSP != null ? c.bienSP : c.bien;
+            const cho = dat != null && c.bienSP != null && Math.abs(dat - c.bienSP) >= 0.05;
+            return tile('ROAS sàn', botR(c.floor) + (chu ? ` <button class="btn xs" data-act="botsetup" title="Cài đặt ROAS biên từng sản phẩm">✎</button>` : ''),
+                        'biên ' + botR(bien) + (dat != null || c.sanSrc === 'cfg' ? '' : ' (mặc định)') + (cho ? ' · chờ bot nhận' : '') +
                         (c.kDN && c.kDN < 1 && c.floorT ? '<br>target ≥ ' + botR(c.floorT) + ' (÷' + botR(c.kDN) + ')' : '')); })()}
           ${tile('Target đang đặt', botR(c.cur), (c.base ? 'Giữ ' + botR(c.base) : '') + (doiGoc != null && Math.abs(doiGoc) >= 1 ? ' · ' + (doiGoc >= 0 ? '+' : '') + doiGoc.toFixed(0) + '%' : '') +
                  (c.std && c.base ? '<br>= chuẩn × ' + botR(c.heSoGiu || 1.1) + (c.kDN && c.kDN < 1 ? ' ÷ ' + botR(c.kDN) : '') : ''))}
