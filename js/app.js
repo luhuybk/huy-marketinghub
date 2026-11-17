@@ -19,6 +19,7 @@ const NAV = [
   {id:'posttt',   icon:'🎬',label:'Bài TikTok',   perm:'posttt'},
   {id:'ads',      icon:'◎', label:'Shopee Ads',   perm:'ads'},
   {id:'adreport', icon:'📊',label:'Báo cáo Ads',  perm:'adreport'},
+  {id:'botgio',   icon:'🤖',label:'Bot ROAS giờ', perm:'adreport'},
   {id:'keywords', icon:'🔎',label:'Đánh từ khoá',  perm:'keywords'},
   {id:'rival',    icon:'🎯',label:'Theo dõi đối thủ', perm:'rival'},
   {id:'cost',     icon:'🧮',label:'Tính chi phí',  perm:'cost'},
@@ -35,7 +36,7 @@ const TITLES = {today:'Hôm nay', dash:'Tổng quan', pipeline:'Booking', kols:'
                 ads:'Shopee Ads', improve:'Cải thiện sản phẩm',
                 newprod:'Xây dựng sản phẩm mới', compare:'So sánh kênh', resources:'Tài nguyên',
                 review:'Cần bạn duyệt', settings:'Cài đặt', kol:'Hồ sơ KOC', product:'Sản phẩm',
-                sp:'Sức khoẻ trên Shopee', adreport:'Báo cáo quảng cáo',
+                sp:'Sức khoẻ trên Shopee', adreport:'Báo cáo quảng cáo', botgio:'Bot ROAS theo giờ',
                 adcamp:'Chiến dịch', keywords:'Đánh top từ khoá', kw:'Dự án từ khoá',
                 cost:'Tính chi phí', costsp:'Chi phí sản phẩm', pj:'Dự án',
                 launch:'Hàng mới về', rival:'Theo dõi đối thủ', build:'Bảng xây dựng sản phẩm'};
@@ -120,6 +121,7 @@ function render(){
       case 'resources':html = viewResources(); break;
       case 'review':   html = viewReview(); break;
       case 'adreport': ensureBot(); html = viewAdReport(); break;
+      case 'botgio':   ensureBot(); html = viewBotPage(); break;
       case 'adcamp':   html = viewAdcamp(route.id); break;
       case 'keywords': html = viewKeywords(); break;
       case 'rival':    ensureRival(); html = viewRival(); break;
@@ -1426,15 +1428,17 @@ function radarMo(shop, cid){
 /* Bot giờ: hỏi máy chủ khi mở mục này; để mở lâu thì cứ 3 phút hỏi lại
    (bot chỉnh ROAS theo giờ, số cũ vài phút là đã lệch) */
 const BOT_CU_PHUT = 3;
+ /* Bot giờ mở được ở hai chỗ: trang riêng trên menu bên, và tab con trong Báo cáo Ads */
+const botDangMo = () => route.page === 'botgio' || (route.page === 'adreport' && adReportTab() === 'bot');
 function ensureBot(lamMoi){
-  if (adReportTab() !== 'bot' || !window.Server || !Server.authed() || !(may('adreport') || may('ads'))) return;
+  if (!botDangMo() || !window.Server || !Server.authed() || !(may('adreport') || may('ads'))) return;
   if (botv.busy || (!lamMoi && botv.luc && Date.now() - botv.luc < BOT_CU_PHUT * 6e4)) return;
   botv.busy = true; botv.luc = Date.now();
   Server.botView().then(r => { botv.data = r; botv.err = ''; })
     .catch(e => { botv.err = e.message || 'lỗi không rõ'; })
-    .finally(() => { botv.busy = false; if (route.page === 'adreport' && adReportTab() === 'bot') render(); });
+    .finally(() => { botv.busy = false; if (botDangMo()) render(); });
 }
-setInterval(() => { if (route.page === 'adreport' && adReportTab() === 'bot' && !document.hidden) ensureBot(); }, 60e3);
+setInterval(() => { if (botDangMo() && !document.hidden) ensureBot(); }, 60e3);
 const RV_CU_PHUT = 10;      // mở lại trang sau chừng này phút thì hỏi lại máy chủ
 function ensureRival(){
   if (!window.Server || !Server.authed() || !may('rival')) return;
@@ -6443,4 +6447,4 @@ document.addEventListener('paste', e => {
   bUpload(z.dataset.bid, fs);
 });
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "7eee35c8"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "b942d6eb"]);
