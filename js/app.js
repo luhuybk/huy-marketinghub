@@ -4093,7 +4093,7 @@ function siForm(pid, sid){
   const ls = u.siLogs.slice(-8).reverse();
   const el = formModal({
     title: 'Giá sỉ — ' + ten, wide: true, saveLabel: 'Lưu',
-    values: {date: today(), cost: u.von || 0, si1: u.si1 || 0, si2: u.si2 || 0, note: ''},
+    values: {date: today(), cost: u.von || 0, si1: u.si1 || 0, si2: u.si2 || 0, ban: u.ban || 0, note: ''},
     extra: `<div class="explain">Đang dùng: vốn <b>${u.von ? money(u.von) : 'chưa có'}</b>${u.vonAt ? ' (từ ' + esc(fmtDate(u.vonAt)) + ')' : ''}
       · sỉ cấp 1 <b>${u.si1 ? money(u.si1) : '—'}</b> · sỉ thường <b>${u.si2 ? money(u.si2) : '—'}</b>${u.le ? ' · giá lẻ ' + money(u.le) : ''}.
       Đổi giá vốn ở đây là ghi vào Sổ giá vốn — bảng tính Shopee đổi theo.</div>`,
@@ -4102,13 +4102,16 @@ function siForm(pid, sid){
       {k:'cost', l:'Giá vốn (giá nhập của hãng)', t:'money', half:true, ph:'90.000'},
       {k:'si1', l:'Sỉ cấp 1 / nhân viên', t:'money', half:true, ph:'110.000', hint:'Giá đưa nhân viên bán sỉ'},
       {k:'si2', l:'Sỉ thường', t:'money', half:true, ph:'120.000'},
-      {k:'note', l:'Lý do / ghi chú', t:'text', ph:'Hãng tăng giá từ 01/12, lô mới…'}
+      {k:'ban', l:'Giá bán lẻ Shopee — khách trả sau voucher shop', t:'money', half:true, ph:'100.000',
+        hint:'Giá treo mỗi shop = giá này ÷ (1 − voucher của shop) → ROAS cả 5 shop'},
+      {k:'note', l:'Lý do / ghi chú', t:'text', half:true, ph:'Hãng tăng giá từ 01/12, lô mới…'}
     ],
     onSave(v){
       if (!/^\d{4}-\d{2}-\d{2}$/.test(v.date || '')){ toast('Chưa chọn ngày áp dụng'); return false; }
       if (v.date > today()){ toast('Ngày áp dụng chưa tới — lưu khi giá mới bắt đầu dùng'); return false; }
       const cost = parseMoney(v.cost), s1 = parseMoney(v.si1), s2 = parseMoney(v.si2);
       let doi = [];
+      if (siBanSet(pid, u.sid, v.ban, u.sid ? u.nhan : '', u.le)) doi.push('giá bán');
       if (cost && cost !== u.von){
         const rec = costLogAdd(pid, u.sid, cost, v.date, v.note || 'sửa ở bảng giá sỉ');
         const ls2 = costLogsOf(pid, u.sid);
@@ -4126,7 +4129,7 @@ function siForm(pid, sid){
   const g = k => parseMoney((el.querySelector(`[data-f="${k}"]`) || {}).value || 0);
   const dat = (k, n) => { const i = el.querySelector(`[data-f="${k}"]`); if (i) i.value = n ? n.toLocaleString('vi-VN') : ''; };
   const ve = () => {
-    const von = g('cost'), s1 = g('si1'), s2 = g('si2');
+    const von = g('cost'), s1 = g('si1'), s2 = g('si2'), ban = g('ban');
     const lai = (x, ten) => { const l = siLai(x, von); return l == null ? '' : `${ten} <b class="${l <= 0 ? 'bad' : ''}">${l <= 0 ? 'LỖ ' : 'lãi '}${pctText(l, 1)}</b> (${money(x - von)}/sp)`; };
     let t = [lai(s1, 'Sỉ cấp 1'), lai(s2, 'Sỉ thường')].filter(Boolean).join(' · ');
     const g1 = von && von !== u.von ? siGoiY(u.si1, u.von, von) : 0, g2 = von && von !== u.von ? siGoiY(u.si2, u.von, von) : 0;
@@ -4136,11 +4139,13 @@ function siForm(pid, sid){
         <button type="button" class="btn sm" data-goiy="1" style="margin-left:6px">Dùng gợi ý</button></div>`;
     /* bán lẻ ở từng gian hàng: ROAS hoà vốn + lời mỗi đơn sau quảng cáo (ROAS thực tế
        tháng gần nhất của gian hàng) — đặt cạnh lời mỗi sp bán sỉ để chọn giá sỉ */
-    const rs = von ? siRoasShops(u, von).filter(r => r.gia) : [];
-    if (rs.length) t += `<div class="sec sm" style="margin-top:10px">Bán lẻ Shopee theo shop<span class="ln"></span></div>
-      <div class="tblwrap"><table class="tbl sm"><thead><tr><th>Gian hàng</th><th class="r">Giá treo</th><th class="r">ROAS hoà vốn</th>
+    const rs = von ? siRoasShops(u, von, ban).filter(r => r.gia) : [];
+    if (!von) t += `<div class="dim" style="margin-top:8px">Gõ giá vốn để xem ROAS hoà vốn từng shop.</div>`;
+    if (rs.length) t += `<div class="sec sm" style="margin-top:10px">Bán lẻ Shopee theo shop${ban ? ' — khách trả ' + money(ban) : ''}<span class="ln"></span></div>
+      ${ban ? '' : '<div class="dim" style="margin-bottom:4px">Chưa gõ giá bán — đang tính theo giá treo đã lưu ở Giá vốn sản phẩm, chỉ các shop bán hãng này.</div>'}
+      <div class="tblwrap"><table class="tbl sm"><thead><tr><th>Gian hàng</th><th class="r" title="Giá treo = giá bán ÷ (1 − voucher shop)">Giá treo</th><th class="r">ROAS hoà vốn</th>
         <th class="r">Lời/đơn chưa QC</th><th class="r" title="Với ROAS thực tế tháng gần nhất của gian hàng">Lời/đơn sau QC</th></tr></thead><tbody>${
-      rs.map(r => `<tr><td class="nw">${esc(r.ten)}</td><td class="r">${money(r.gia)}</td>
+      rs.map(r => `<tr><td class="nw">${esc(r.ten)}</td><td class="r">${money(r.gia)}${r.vPct ? '<div class="dim si-lai">voucher ' + pctText(r.vPct, 1) + '</div>' : ''}</td>
         <td class="r">${r.lo ? '<b class="bad">lỗ sẵn</b>' : '<b class="' + (r.thuc && r.roas && r.thuc < r.roas ? 'bad' : '') + '">' + xText(r.roas) + '</b>'}</td>
         <td class="r">${r.x ? money(r.x.lai) : '—'}</td>
         <td class="r">${r.sau ? '<b class="' + (r.sau.lai <= 0 ? 'bad' : '') + '">' + money(r.sau.lai) + '</b><div class="dim si-lai">ROAS ' + xText(r.thuc) + ' · T' + esc(r.ym.slice(5)) + '</div>'
@@ -4180,12 +4185,14 @@ function siBrandForm(brand){
       <button type="button" class="btn sm" id="siPOk">Điền vốn mới</button></div></div>
     <div class="fld half"><label>&nbsp;</label><label class="chk"><input type="checkbox" id="siK" checked> Giữ % lãi giá sỉ khi vốn đổi (tròn nghìn)</label></div>
   </div>
-  <div class="tblwrap"><table class="tbl sm si-bulk"><thead><tr><th>Mã</th><th class="r">Vốn mới</th><th class="r">Sỉ cấp 1 / NV</th><th class="r">Sỉ thường</th></tr></thead><tbody>${
+  <div class="tblwrap"><table class="tbl sm si-bulk"><thead><tr><th>Mã</th><th class="r">Vốn mới</th><th class="r">Sỉ cấp 1 / NV</th><th class="r">Sỉ thường</th>
+    <th class="r" title="Khách trả sau voucher shop — để tính ROAS từng shop">Giá bán lẻ</th></tr></thead><tbody>${
     us.map((u, i) => `<tr data-i="${i}"><td><b>${esc(u.p.name)}</b>${u.sid ? ' <span class="dim">· ' + esc(u.nhan) + '</span>' : ''}
         <div class="dim">vốn ${u.von ? money(u.von) : '—'} · sỉ 1 ${u.si1 ? money(u.si1) : '—'} · sỉ thường ${u.si2 ? money(u.si2) : '—'}</div></td>
       <td class="r"><input class="inp" data-sep="money" data-k="cost" value="${o(u.von)}"></td>
       <td class="r"><input class="inp" data-sep="money" data-k="si1" value="${o(u.si1)}"><div class="dim" data-l="si1"></div></td>
-      <td class="r"><input class="inp" data-sep="money" data-k="si2" value="${o(u.si2)}"><div class="dim" data-l="si2"></div></td></tr>`).join('')}</tbody></table></div>`;
+      <td class="r"><input class="inp" data-sep="money" data-k="si2" value="${o(u.si2)}"><div class="dim" data-l="si2"></div></td>
+      <td class="r"><input class="inp" data-sep="money" data-k="ban" value="${o(u.ban)}"></td></tr>`).join('')}</tbody></table></div>`;
   const el = openModal('Hãng đổi giá — ' + (brand || 'chưa gắn thương hiệu') + ' · ' + us.length + ' mã', body,
     `<div class="btns end"><div class="grow"></div><button class="btn" data-act="closem">Huỷ</button><button class="btn pri" id="siSave">Lưu cả bảng</button></div>`, true);
   const row = i => el.querySelector(`tr[data-i="${i}"]`);
@@ -4217,8 +4224,9 @@ function siBrandForm(brand){
     const date = el.querySelector('#siD').value, note = el.querySelector('#siN').value.trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)){ toast('Chưa chọn ngày áp dụng'); return; }
     if (date > today()){ toast('Ngày áp dụng chưa tới'); return; }
-    let nVon = 0, nSi = 0;
+    let nVon = 0, nSi = 0, nBan = 0;
     us.forEach((u, i) => {
+      if (siBanSet(u.p.id, u.sid, gv(i, 'ban'), u.sid ? u.nhan : '', u.le)) nBan++;
       const cost = gv(i, 'cost');
       if (cost && cost !== u.von){
         const rec = costLogAdd(u.p.id, u.sid, cost, date, note || 'hãng đổi giá');
@@ -4228,9 +4236,9 @@ function siBrandForm(brand){
       }
       if (siSet(u.p.id, u.sid, gv(i, 'si1'), gv(i, 'si2'), date, note, u.sid ? u.nhan : '', u.le)) nSi++;
     });
-    if (!nVon && !nSi){ toast('Không có gì thay đổi'); return; }
+    if (!nVon && !nSi && !nBan){ toast('Không có gì thay đổi'); return; }
     ensure(); save(); closeModal(); render();
-    toast('Đã lưu: ' + (nVon ? nVon + ' mã đổi giá vốn' : '') + (nVon && nSi ? ', ' : '') + (nSi ? nSi + ' mã đổi giá sỉ' : ''));
+    toast('Đã lưu: ' + [nVon ? nVon + ' mã đổi giá vốn' : '', nSi ? nSi + ' mã đổi giá sỉ' : '', nBan ? nBan + ' mã đổi giá bán' : ''].filter(Boolean).join(', '));
   };
 }
 async function siCopy(lv){
@@ -6652,4 +6660,4 @@ document.addEventListener('paste', e => {
   bUpload(z.dataset.bid, fs);
 });
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "f8dbdb5a"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "4e471735"]);
