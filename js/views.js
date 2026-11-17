@@ -39,7 +39,7 @@ const ui = {
   costQ:'',
   /* Tính chi phí: 'sp' = bảng giá vốn, 'pj' = dự án so giá. costSel là thứ
      đang xem ở trang chi tiết ('' | s:<sid> | c:<cid>). */
-  costTab:'sp', costSel:'', siTab:'', siQ:''
+  costTab:'sp', costSel:'', siTab:'', siQ:'', siLoc:'', siMo:null
 };
 
 /* Cấu hình Telegram nằm ở máy chủ, không phải trong db — mã bot không bao
@@ -3434,6 +3434,45 @@ function viewCost(){
    bảng xem. Bán sỉ là bán ngoài sàn nên không chia theo gian hàng Shopee. */
 const giasiLoc = us => { const k = norm(ui.siQ || ''); return k ? us.filter(u => norm(u.p.name + ' ' + u.nhan + ' ' + u.brand + ' ' + (u.p.sku || '')).includes(k)) : us; };
 let giasiDBLuc = 0;
+/* ---- khối thương hiệu thu gọn / mở ra ----
+   300+ mã trong một bảng dài thì các hãng dính vào nhau, kéo mỏi tay. Mỗi hãng
+   là một khối riêng; khối nào đang mở nhớ trong máy (localStorage) để quay lại
+   trang vẫn y như lúc rời đi. Đang gõ tìm thì mọi hãng có mã khớp tự mở. */
+const SI_MO_KEY = 'kolhub.siMo';
+const siMoDoc = () => { try { return JSON.parse(localStorage.getItem(SI_MO_KEY) || '{}') || {}; } catch(e){ return {}; } };
+function siMoGhi(){ try { localStorage.setItem(SI_MO_KEY, JSON.stringify(ui.siMo)); } catch(e){} }
+const siKhoa = b => b || '—';
+const siMoRa = b => { if (!ui.siMo) ui.siMo = siMoDoc(); return !!(ui.siQ || ui.siMo[siKhoa(b)]); };
+/* nhóm theo thương hiệu, giữ đúng thứ tự đã xếp */
+function siNhom(ds){
+  const out = [], idx = {};
+  ds.forEach(u => { const b = u.brand || ''; if (!(b in idx)){ idx[b] = out.length; out.push({b, us: []}); } out[idx[b]].us.push(u); });
+  return out;
+}
+/* Thanh nhảy nhanh tới từng hãng + nút mở hết / thu gọn hết */
+function siThanhHang(nhom){
+  if (nhom.length < 2) return '';
+  const moHet = nhom.every(g => siMoRa(g.b));
+  return `<div class="si-nav">
+    <div class="si-chips">${nhom.map(g => `<button class="si-chip ${siMoRa(g.b) ? 'on' : ''}" data-act="sijump" data-id="${esc(g.b)}"
+      title="${siMoRa(g.b) ? 'Đang mở' : 'Mở'} ${esc(g.b || 'Chưa gắn thương hiệu')}">${esc(g.b || 'Chưa gắn')} <span>${g.us.length}</span></button>`).join('')}</div>
+    ${ui.siQ ? '' : `<button class="btn sm" data-act="simo" data-id="${moHet ? 'none' : 'all'}">${moHet ? '▴ Thu gọn hết' : '▾ Mở hết'}</button>`}
+  </div>`;
+}
+/* Một khối hãng: thanh tiêu đề bấm được + bảng riêng (chỉ vẽ khi mở) */
+function siKhoi(b, us, tom, nut, bang){
+  const mo = siMoRa(b);
+  return `<section class="si-grp ${mo ? 'mo' : ''}" data-b="${esc(b)}">
+    <div class="si-gh" data-act="sigrp" data-id="${esc(b)}" role="button" aria-expanded="${mo}">
+      <span class="si-car" aria-hidden="true">${mo ? '▾' : '▸'}</span>
+      <b class="si-gt">${esc(b || 'Chưa gắn thương hiệu')}</b>
+      <span class="dim">${us.length} mã</span>
+      <span class="si-tom">${tom}</span>
+      <span class="grow"></span>${nut || ''}
+    </div>
+    ${mo ? `<div class="tblwrap si-gb">${bang}</div>` : ''}
+  </section>`;
+}
 function viewGiaSi(){
   const chu = may('cost');
   /* chuyển dữ liệu cũ + cập nhật tên size cho nhân viên — tối đa mỗi phút một lần */
@@ -3444,12 +3483,15 @@ function viewGiaSi(){
       <button class="tab ${nv ? '' : 'on'}" data-act="sitab" data-id="">Bảng giá sỉ (có giá vốn)</button>
       <button class="tab ${nv ? 'on' : ''}" data-act="sitab" data-id="nv">👁 Nhân viên thấy</button></div>` : ''}
     <div class="grow"></div>
-    <input class="inp sm" data-inp="siQ" value="${esc(ui.siQ)}" placeholder="Tìm sản phẩm, size, thương hiệu…" style="max-width:230px">
-    ${ui.siQ ? `<button class="btn sm" data-act="siqclear" title="Xoá ô tìm">✕</button>` : ''}
-  </div>
-  <div class="toolbar"><div class="grow"></div>
     <button class="btn sm" data-act="sicopy" data-id="si1" title="Chép bảng giá sỉ cấp 1 để dán Zalo">📋 Chép giá sỉ cấp 1</button>
-    <button class="btn sm" data-act="sicopy" data-id="si2" title="Chép bảng giá sỉ thường để dán Zalo">📋 Chép giá sỉ thường</button></div>`;
+    <button class="btn sm" data-act="sicopy" data-id="si2" title="Chép bảng giá sỉ thường để dán Zalo">📋 Chép giá sỉ thường</button>
+  </div>
+  <div class="si-search">
+    <span class="si-sico" aria-hidden="true">🔍</span>
+    <input class="inp" type="search" data-inp="siQ" value="${esc(ui.siQ)}" aria-label="Tìm sản phẩm"
+      placeholder="Tìm sản phẩm — gõ tên, size hoặc thương hiệu (không cần dấu)…">
+    ${ui.siQ ? `<button class="btn sm" data-act="siqclear" title="Xoá ô tìm">✕ Xoá</button>` : ''}
+  </div>`;
   return h + (nv ? viewSiStaff(chu) : viewSiList());
 }
 /* Bảng chỉ xem — không có giá vốn, chỉ đọc bộ giasi */
@@ -3462,26 +3504,31 @@ function viewSiStaff(chu){
       <div style="margin-top:14px" class="btns center"><button class="btn" data-act="siqclear">✕ Xoá ô tìm</button></div></div>`;
   const moi = ds.reduce((m, u) => u.at > m ? u.at : m, '');
   const moc = addDays(today(), -14);
+  const nhom = siNhom(ds);
   let h = `<div class="mod">` + moduleHead('🏷', 'Bảng giá sỉ',
-    (ui.siQ ? ds.length + '/' + tat.length + ' mã khớp' : ds.length + ' mã') + (moi ? ' · cập nhật lần cuối ' + esc(fmtDate(moi)) : ''));
+    (ui.siQ ? ds.length + '/' + tat.length + ' mã khớp “' + esc(ui.siQ) + '”' : ds.length + ' mã · ' + nhom.length + ' thương hiệu') + (moi ? ' · cập nhật lần cuối ' + esc(fmtDate(moi)) : ''));
   if (chu) h += `<div class="explain">Đây đúng là thứ nhân viên có quyền <b>Xem giá sỉ</b> thấy: không có giá vốn, không sửa được.
     Cấp quyền ở Cài đặt → Tài khoản → tick <b>Xem giá sỉ</b>.</div>`;
-  h += `<div class="tblwrap"><table class="tbl sm ptbl si-tbl si-nv"><thead><tr>
-    <th>Sản phẩm / size</th><th class="r">Sỉ cấp 1 / NV</th><th class="r">Sỉ thường</th></tr></thead><tbody>`;
-  let bCu = null;
-  ds.forEach(u => {
-    if (u.brand !== bCu){ bCu = u.brand; h += `<tr class="si-bh"><td colspan="3"><b>${esc(u.brand || 'Khác')}</b></td></tr>`; }
-    const doi = u.truoc && u.at >= moc;
-    const d1 = doi && u.truoc.si1 && u.si1 !== u.truoc.si1 ? u.si1 - u.truoc.si1 : 0, d2 = doi && u.truoc.si2 && u.si2 !== u.truoc.si2 ? u.si2 - u.truoc.si2 : 0;
-    const dt = d => d ? `<div class="si-lai ${d > 0 ? 'si-tang' : 'si-giam'}">${d > 0 ? '▲ +' : '▼ −'}${moneyShort(Math.abs(d))}</div>` : '';
-    h += `<tr><td><b>${esc(u.p.name)}</b>${u.sid ? ' <span class="dim">· ' + esc(u.nhan) + '</span>' : ''}${
-        doi ? ` <span class="chip warn" title="Đổi giá ngày ${esc(fmtDate(u.at))}">giá mới từ ${esc(fmtDate(u.at).slice(0, 5))}</span>` : ''}${
-        u.le ? `<div class="si-lai">giá lẻ ${money(u.le)}</div>` : ''}</td>
-      <td class="r nw">${u.si1 ? '<b>' + money(u.si1) + '</b>' + dt(d1) : '<span class="dim">—</span>'}</td>
-      <td class="r nw">${u.si2 ? '<b>' + money(u.si2) + '</b>' + dt(d2) : '<span class="dim">—</span>'}</td></tr>`;
+  h += siThanhHang(nhom) + '<div class="si-groups">';
+  nhom.forEach(g => {
+    const nDoi = g.us.filter(u => u.truoc && u.at >= moc).length;
+    let bang = `<table class="tbl sm ptbl si-tbl si-nv"><thead><tr>
+      <th>Sản phẩm / size</th><th class="r">Sỉ cấp 1 / NV</th><th class="r">Sỉ thường</th></tr></thead><tbody>`;
+    g.us.forEach(u => {
+      const doi = u.truoc && u.at >= moc;
+      const d1 = doi && u.truoc.si1 && u.si1 !== u.truoc.si1 ? u.si1 - u.truoc.si1 : 0, d2 = doi && u.truoc.si2 && u.si2 !== u.truoc.si2 ? u.si2 - u.truoc.si2 : 0;
+      const dt = d => d ? `<div class="si-lai ${d > 0 ? 'si-tang' : 'si-giam'}">${d > 0 ? '▲ +' : '▼ −'}${moneyShort(Math.abs(d))}</div>` : '';
+      bang += `<tr><td><b>${esc(u.p.name)}</b>${u.sid ? ' <span class="dim">· ' + esc(u.nhan) + '</span>' : ''}${
+          doi ? ` <span class="chip warn" title="Đổi giá ngày ${esc(fmtDate(u.at))}">giá mới từ ${esc(fmtDate(u.at).slice(0, 5))}</span>` : ''}${
+          u.le ? `<div class="si-lai">giá lẻ ${money(u.le)}</div>` : ''}</td>
+        <td class="r nw">${u.si1 ? '<b>' + money(u.si1) + '</b>' + dt(d1) : '<span class="dim">—</span>'}</td>
+        <td class="r nw">${u.si2 ? '<b>' + money(u.si2) + '</b>' + dt(d2) : '<span class="dim">—</span>'}</td></tr>`;
+    });
+    bang += '</tbody></table>';
+    h += siKhoi(g.b, g.us, nDoi ? `<span class="chip warn">${nDoi} giá mới</span>` : '', '', bang);
   });
-  h += `</tbody></table></div>
-    <div class="dim" style="margin-top:8px">Mã nào đổi giá trong 14 ngày qua có nhãn vàng "giá mới", kèm số tăng / giảm so với giá trước.</div></div>`;
+  h += `</div>
+    <div class="dim" style="margin-top:8px">Bấm tên thương hiệu để mở / thu gọn. Mã nào đổi giá trong 14 ngày qua có nhãn vàng "giá mới", kèm số tăng / giảm so với giá trước.</div></div>`;
   return h;
 }
 /* Ô ROAS hoà vốn của từng gian hàng trong bảng giá sỉ (chỉ chủ thấy) */
@@ -3497,54 +3544,63 @@ function siRoasCell(u){
     return `<div class="si-rs" title="${esc(tt)}"><span class="dim">${esc(r.ten)}</span> <b class="${xau ? 'bad' : ''}">${xText(r.roas)}</b></div>`;
   }).join('');
 }
+/* Lọc nhanh của bảng chủ: chưa điền / đã điền / cần xem lại */
+const SI_LOC = [['', 'Tất cả'], ['chua', 'Chưa điền giá sỉ'], ['du', 'Đã có giá sỉ'], ['xem', 'Cần xem lại']];
+const siLocQua = u => ui.siLoc === 'chua' ? (!u.si1 && !u.si2) : ui.siLoc === 'du' ? !!(u.si1 || u.si2)
+                    : ui.siLoc === 'xem' ? (u.lech || u.duoiVon) : true;
 function viewSiList(){
-  const k = norm(ui.siQ || '');
   const tat = siUnits();
   if (!tat.length)
     return `<div class="empty"><b>Chưa có sản phẩm nào có giá vốn</b>
       Thêm sản phẩm ở tab <b>Giá vốn sản phẩm</b> — mọi sản phẩm ở đó tự hiện sang bảng này để điền giá sỉ.
       <div style="margin-top:14px" class="btns center"><button class="btn pri" data-act="newcostsp">+ Thêm sản phẩm</button></div></div>`;
-  const ds = k ? giasiLoc(tat) : tat;
-  if (!ds.length)
-    return `<div class="empty"><b>Không có mã nào khớp “${esc(ui.siQ)}”</b>
-      <div style="margin-top:14px" class="btns center"><button class="btn" data-act="siqclear">✕ Xoá ô tìm</button></div></div>`;
+  const tim = giasiLoc(tat);
+  const ds = tim.filter(siLocQua);
 
-  const nDu = ds.filter(u => u.si1 && u.si2).length, nChua = ds.filter(u => !u.si1 && !u.si2).length;
-  const nLech = ds.filter(u => u.lech).length, nDuoi = ds.filter(u => u.duoiVon).length;
+  const nDu = tim.filter(u => u.si1 && u.si2).length, nChua = tim.filter(u => !u.si1 && !u.si2).length;
+  const nLech = tim.filter(u => u.lech).length, nDuoi = tim.filter(u => u.duoiVon).length;
   const laiTxt = (g, v) => { const l = siLai(g, v); return l == null ? '' : `<div class="si-lai ${l <= 0 ? 'bad' : ''}">${l > 0 ? 'lãi ' : ''}${pctText(l, 0)}</div>`; };
 
   let h = `<div class="mod">` + moduleHead('🏷', 'Bảng giá sỉ',
-    (k ? ds.length + '/' + tat.length + ' mã khớp “' + esc(ui.siQ) + '”' : ds.length + ' mã') + ' · bấm một dòng để sửa, bấm ✎ Hãng đổi giá để sửa cả thương hiệu một lần');
+    (ui.siQ ? tim.length + '/' + tat.length + ' mã khớp “' + esc(ui.siQ) + '”' : tat.length + ' mã') + ' · bấm tên hãng để mở, bấm một dòng để sửa');
   h += `<div class="tiles" style="margin-bottom:12px">
-    ${tile('Đủ hai giá sỉ', dem(nDu) + '/' + dem(ds.length), nChua ? nChua + ' mã chưa điền giá sỉ nào' : 'mã nào cũng có giá sỉ', nChua ? '' : 'ok')}
+    ${tile('Đủ hai giá sỉ', dem(nDu) + '/' + dem(tim.length), nChua ? nChua + ' mã chưa điền giá sỉ nào' : 'mã nào cũng có giá sỉ', nChua ? '' : 'ok')}
     ${tile('Vốn đổi, giá sỉ chưa chỉnh', dem(nLech), nLech ? 'hãng đổi giá sau lần chỉnh giá sỉ cuối' : 'giá sỉ theo kịp giá vốn', nLech ? 'warn' : 'ok')}
     ${tile('Giá sỉ ≤ giá vốn', dem(nDuoi), nDuoi ? 'bán sỉ là lỗ' : 'không mã nào bán lỗ', nDuoi ? 'bad' : 'ok')}
   </div>`;
+  const dem2 = k => tim.filter(u => { const c = ui.siLoc; ui.siLoc = k; const r = siLocQua(u); ui.siLoc = c; return r; }).length;
+  h += `<div class="tabs si-loc">${SI_LOC.map(([k, l]) => `<button class="tab ${(ui.siLoc || '') === k ? 'on' : ''}" data-act="siloc" data-id="${k}">${l} <span class="dim">${dem2(k)}</span></button>`).join('')}</div>`;
+  if (!ds.length)
+    return h + `<div class="empty"><b>Không có mã nào${ui.siQ ? ' khớp “' + esc(ui.siQ) + '”' : ''} trong mục này</b>
+      <div style="margin-top:14px" class="btns center">${ui.siQ ? '<button class="btn" data-act="siqclear">✕ Xoá ô tìm</button>' : ''}
+      <button class="btn" data-act="siloc" data-id="">Xem tất cả</button></div></div></div>`;
 
-  h += `<div class="tblwrap"><table class="tbl sm ptbl stick si-tbl"><thead><tr>
-    <th class="nw">Sản phẩm / size</th><th class="r">Giá vốn</th><th class="r">Sỉ cấp 1 / NV</th><th class="r">Sỉ thường</th>
-    <th class="r" title="Giá niêm yết của hãng; chưa có thì giá treo Shopee">Giá lẻ</th>
-    <th class="nw" title="ROAS tối thiểu để bán lẻ ở từng gian hàng không lỗ (sau phí Shopee + quảng cáo). Đỏ = ROAS thực tế tháng gần nhất của gian hàng đang thấp hơn mức này">ROAS hoà vốn theo shop</th>
-    <th class="nw">Giá sỉ chỉnh lần cuối</th></tr></thead><tbody>`;
-  let bCu = null;
-  ds.forEach(u => {
-    if (u.brand !== bCu){
-      bCu = u.brand;
-      const n = ds.filter(x => x.brand === u.brand).length;
-      h += `<tr class="si-bh"><td colspan="7"><b>${esc(u.brand || 'Chưa gắn thương hiệu')}</b> <span class="dim">· ${n} mã</span>
-        <button class="btn sm" data-act="sibrand" data-id="${esc(u.brand)}">✎ Hãng đổi giá</button></td></tr>`;
-    }
-    h += `<tr data-act="siedit" data-id="${u.p.id}|${esc(u.sid)}" class="${u.lech ? 'si-lech' : ''}">
-      <td><b>${esc(u.p.name)}</b>${u.sid ? ' <span class="dim">· ' + esc(u.nhan) + '</span>' : ''}${
-        u.lech ? ` <span class="chip warn" title="Giá vốn đổi ngày ${esc(fmtDate(u.vonAt))}, giá sỉ chỉnh lần cuối ${esc(fmtDate(u.siAt))}">vốn đổi ${esc(fmtDate(u.vonAt).slice(0, 5))} — xem lại giá sỉ</span>` : ''}</td>
-      <td class="r">${u.von ? money(u.von) : '<span class="dim">—</span>'}${u.vonAt ? `<div class="dim si-lai">từ ${esc(fmtDate(u.vonAt).slice(0, 5))}</div>` : ''}</td>
-      <td class="r">${u.si1 ? '<b>' + money(u.si1) + '</b>' + laiTxt(u.si1, u.von) : '<span class="dim">chưa điền</span>'}</td>
-      <td class="r">${u.si2 ? '<b>' + money(u.si2) + '</b>' + laiTxt(u.si2, u.von) : '<span class="dim">chưa điền</span>'}</td>
-      <td class="r">${u.le ? money(u.le) : '<span class="dim">—</span>'}</td>
-      <td class="nw si-roas">${siRoasCell(u)}</td>
-      <td class="nw">${u.siAt ? esc(fmtDate(u.siAt)) : '<span class="dim">—</span>'}</td></tr>`;
+  const nhom = siNhom(ds);
+  h += siThanhHang(nhom) + '<div class="si-groups">';
+  nhom.forEach(g => {
+    const us = g.us, co = us.filter(u => u.si1 || u.si2).length, lech = us.filter(u => u.lech).length, duoi = us.filter(u => u.duoiVon).length;
+    const tom = `<span class="si-prog ${co === us.length ? 'ok' : ''}" title="Mã đã có giá sỉ"><i style="width:${Math.round(co / us.length * 100)}%"></i></span>
+      <span class="dim">${co}/${us.length} có giá sỉ</span>${lech ? ` <span class="chip warn">${lech} vốn đổi</span>` : ''}${duoi ? ` <span class="chip bad">${duoi} bán lỗ</span>` : ''}`;
+    let bang = `<table class="tbl sm ptbl si-tbl"><thead><tr>
+      <th class="nw">Sản phẩm / size</th><th class="r">Giá vốn</th><th class="r">Sỉ cấp 1 / NV</th><th class="r">Sỉ thường</th>
+      <th class="r" title="Giá niêm yết của hãng; chưa có thì giá treo Shopee">Giá lẻ</th>
+      <th class="nw" title="ROAS tối thiểu để bán lẻ ở từng gian hàng không lỗ (sau phí Shopee + quảng cáo). Đỏ = ROAS thực tế tháng gần nhất của gian hàng đang thấp hơn mức này">ROAS hoà vốn theo shop</th>
+      <th class="nw">Giá sỉ chỉnh lần cuối</th></tr></thead><tbody>`;
+    us.forEach(u => {
+      bang += `<tr data-act="siedit" data-id="${u.p.id}|${esc(u.sid)}" class="${u.lech ? 'si-lech' : ''}">
+        <td><b>${esc(u.p.name)}</b>${u.sid ? ' <span class="dim">· ' + esc(u.nhan) + '</span>' : ''}${
+          u.lech ? ` <span class="chip warn" title="Giá vốn đổi ngày ${esc(fmtDate(u.vonAt))}, giá sỉ chỉnh lần cuối ${esc(fmtDate(u.siAt))}">vốn đổi ${esc(fmtDate(u.vonAt).slice(0, 5))} — xem lại giá sỉ</span>` : ''}</td>
+        <td class="r">${u.von ? money(u.von) : '<span class="dim">—</span>'}${u.vonAt ? `<div class="dim si-lai">từ ${esc(fmtDate(u.vonAt).slice(0, 5))}</div>` : ''}</td>
+        <td class="r">${u.si1 ? '<b>' + money(u.si1) + '</b>' + laiTxt(u.si1, u.von) : '<span class="dim">chưa điền</span>'}</td>
+        <td class="r">${u.si2 ? '<b>' + money(u.si2) + '</b>' + laiTxt(u.si2, u.von) : '<span class="dim">chưa điền</span>'}</td>
+        <td class="r">${u.le ? money(u.le) : '<span class="dim">—</span>'}</td>
+        <td class="nw si-roas">${siRoasCell(u)}</td>
+        <td class="nw">${u.siAt ? esc(fmtDate(u.siAt)) : '<span class="dim">—</span>'}</td></tr>`;
+    });
+    bang += '</tbody></table>';
+    h += siKhoi(g.b, us, tom, `<button class="btn sm" data-act="sibrand" data-id="${esc(g.b)}">✎ Hãng đổi giá</button>`, bang);
   });
-  h += `</tbody></table></div>
+  h += `</div>
     <div class="dim" style="margin-top:8px">ROAS hoà vốn theo shop: bán lẻ ở gian hàng đó cần ROAS quảng cáo tối thiểu bao nhiêu để không lỗ
       (tính từ giá lẻ, giá vốn và bảng phí từng gian hàng; chỉ hiện các shop Waxshop và shop mang tên thương hiệu đó). Số <b class="bad">đỏ</b> = ROAS thực tế tháng gần nhất của gian hàng đang thấp hơn —
       bán lẻ có quảng cáo đang lỗ, giá sỉ càng nên giữ chắc. Bấm một dòng để xem lời mỗi đơn bán lẻ so với bán sỉ.</div>

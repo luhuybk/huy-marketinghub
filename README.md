@@ -355,6 +355,13 @@ lời/đơn chưa QC và sau QC (ROAS thực tế tháng gần nhất của gian
 gói, voucher riêng của sản phẩm; gian hàng khác dùng bảng phí của nó
 (`siRoasShops` trong state.js). Đỏ = ROAS thực tế < hoà vốn.
 
+**Giao diện (17/11)**: ô tìm to riêng một hàng (`ui.siQ`, không cần dấu); mỗi
+thương hiệu là một khối thu gọn / mở ra (`siKhoi`), khối đang mở nhớ trong
+localStorage `kolhub.siMo`, đang tìm thì mọi hãng khớp tự mở; hàng nút hãng
+(`sijump`) nhảy tới + mở; Mở hết / Thu gọn hết (`simo`). Bảng chủ có lọc
+Tất cả / Chưa điền giá sỉ / Đã có giá sỉ / Cần xem lại (`ui.siLoc`), đầu khối
+có thanh tiến độ "x/y có giá sỉ" + chip vốn đổi / bán lỗ.
+
 **Tin đăng phụ (`products.goc`)**: tin đăng Shopee thứ hai của cùng món hàng
 (vd "PJ - Butterfly") trỏ `goc` về sản phẩm chính → không hiện trong Giá sỉ
 (cả bảng chủ lẫn nhân viên); quảng cáo, giá vốn, Tính chi phí của tin vẫn như cũ.

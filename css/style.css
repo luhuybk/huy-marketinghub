@@ -1125,3 +1125,30 @@ tr.rv-dang{background:var(--bg3)}
 @media (max-width:600px){ .si-nv td,.si-nv th{padding-left:8px;padding-right:8px} }
 .si-roas{font-size:12px;line-height:1.45}
 .si-rs{white-space:nowrap}
+/* Giá sỉ: ô tìm to + khối thương hiệu thu gọn được */
+.si-search{display:flex;align-items:center;gap:8px;margin:4px 0 14px;position:relative}
+.si-search .inp{flex:1;min-width:0;font-size:15px;padding:11px 12px 11px 38px;border-radius:12px}
+.si-sico{position:absolute;left:13px;top:50%;transform:translateY(-50%);font-size:14px;opacity:.6;pointer-events:none}
+.si-loc{margin:0 0 12px;flex-wrap:wrap}
+.si-nav{display:flex;align-items:flex-start;gap:10px;margin-bottom:12px}
+.si-chips{display:flex;flex-wrap:wrap;gap:6px;flex:1;min-width:0}
+.si-chip{font:inherit;font-size:12px;border:1px solid var(--line);background:var(--bg2);color:var(--tx2);border-radius:999px;padding:4px 10px;cursor:pointer}
+.si-chip span{color:var(--tx3);margin-left:2px}
+.si-chip.on{border-color:var(--acc);color:var(--tx)}
+.si-chip:hover{border-color:var(--acc)}
+.si-groups{display:flex;flex-direction:column;gap:10px}
+.si-grp{border:1px solid var(--line);border-radius:12px;background:var(--bg2);overflow:hidden;scroll-margin-top:70px}
+.si-grp.mo{border-color:color-mix(in srgb,var(--acc) 45%,var(--line))}
+.si-gh{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;padding:11px 14px;cursor:pointer;user-select:none}
+.si-gh:hover{background:var(--bg3)}
+.si-grp.mo .si-gh{border-bottom:1px solid var(--line);background:var(--bg3)}
+.si-car{width:16px;color:var(--tx2);font-size:15px;line-height:1}
+.si-gt{font-size:14px;letter-spacing:.02em}
+.si-tom{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.si-prog{display:inline-block;width:54px;height:5px;border-radius:3px;background:var(--line);overflow:hidden;vertical-align:middle}
+.si-prog i{display:block;height:100%;background:var(--warn)}
+.si-prog.ok i{background:var(--ok)}
+.si-gb{border:0;border-radius:0;margin:0}
+.si-gb .tbl{margin:0}
+@media (max-width:640px){.si-gh{padding:10px 12px}.si-nav{flex-direction:column}}
+.si-search input::-webkit-search-cancel-button{-webkit-appearance:none;display:none}
