@@ -988,6 +988,12 @@ function viewAdReport(){
                               : viewAdDay(shopId));
 }
 
+/* Trang riêng trên menu bên — cùng nội dung tab 🤖 Bot giờ, chỉ bỏ hàng tab */
+function viewBotPage(){
+  return `<div class="toolbar"><div class="grow"></div>
+    <button class="btn" data-act="botreload">↻ Tải lại</button></div>` + viewAdBot();
+}
+
 /* Tab đang mở của Báo cáo Ads. Radar là mặc định — đó là cách đọc số người
    dùng đã quen từ trang cũ của tác vụ mỗi sáng. */
 const adReportTab = () => ['radar','month','gio','now','day','bot'].includes(ui.adTab) ? ui.adTab : 'radar';
