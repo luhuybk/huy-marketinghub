@@ -231,6 +231,9 @@ const Server = (() => {
   /* Gợi ý nâng ROAS mục tiêu — máy chủ tự tính từ số quảng cáo tự động */
   const adTgUp = () => call('ad_tg_up');
   const adTgMute = id => call('ad_tg_mute', {id});
+  /* 📈 Tổng quan QC: số từng ngày (cùng nguồn với Radar) + mốc cải tiến sản phẩm */
+  const adRadar = ()   => call('ad_radar');
+  const adMoc   = body => call('ad_moc', body);
   /* Bot ROAS theo giờ (Báo cáo Ads → Bot giờ) */
   const botView  = ()        => call('bot_view');
   const botPause = (on, key) => call('bot_pause', {on: !!on, key: key || ''});
@@ -261,7 +264,7 @@ const Server = (() => {
 
   return {probe, login, logout, logoutAll, pull, push, pushBeacon, stats,
           tgGet, tgSave, tgTest, tgReport, tgHook, remind, ingestList, ingestSet,
-          rivalState, rivalScans, rivalKwSave, rivalKwDel, rivalScanDel, rivalMine, rivalShops, rivalLatest, rivalDesc, rivalShopDel, rivalShopSave, bimgUp, bimgDel, imgUrl, adTgUp, adTgMute, botView, botPause, botSan, botSetup,
+          rivalState, rivalScans, rivalKwSave, rivalKwDel, rivalScanDel, rivalMine, rivalShops, rivalLatest, rivalDesc, rivalShopDel, rivalShopSave, bimgUp, bimgDel, imgUrl, adTgUp, adTgMute, botView, botPause, botSan, botSetup, adRadar, adMoc,
           users, userNames, userSave, userDel, takeWhoChanged, notePerms,
           available, authed, state, role, isOwner, name, perms, may, call};
 })();
@@ -363,4 +366,4 @@ const Gate = (() => {
 })();
 window.Gate = Gate;
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/api.js", "4e471735"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/api.js", "3f9534f4"]);

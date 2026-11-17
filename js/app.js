@@ -4143,13 +4143,13 @@ function siForm(pid, sid){
     if (!von) t += `<div class="dim" style="margin-top:8px">Gõ giá vốn để xem ROAS hoà vốn từng shop.</div>`;
     if (rs.length) t += `<div class="sec sm" style="margin-top:10px">Bán lẻ Shopee theo shop${ban ? ' — khách trả ' + money(ban) : ''}<span class="ln"></span></div>
       ${ban ? '' : '<div class="dim" style="margin-bottom:4px">Chưa gõ giá bán — đang tính theo giá treo đã lưu ở Giá vốn sản phẩm, chỉ các shop bán hãng này.</div>'}
-      <div class="tblwrap"><table class="tbl sm"><thead><tr><th>Gian hàng</th><th class="r" title="Giá treo = giá bán ÷ (1 − voucher shop)">Giá treo</th><th class="r">ROAS hoà vốn</th>
-        <th class="r">Lời/đơn chưa QC</th><th class="r" title="Với ROAS thực tế tháng gần nhất của gian hàng">Lời/đơn sau QC</th></tr></thead><tbody>${
-      rs.map(r => `<tr><td class="nw">${esc(r.ten)}</td><td class="r">${money(r.gia)}${r.vPct ? '<div class="dim si-lai">voucher ' + pctText(r.vPct, 1) + '</div>' : ''}</td>
-        <td class="r">${r.lo ? '<b class="bad">lỗ sẵn</b>' : '<b class="' + (r.thuc && r.roas && r.thuc < r.roas ? 'bad' : '') + '">' + xText(r.roas) + '</b>'}</td>
-        <td class="r">${r.x ? money(r.x.lai) : '—'}</td>
-        <td class="r">${r.sau ? '<b class="' + (r.sau.lai <= 0 ? 'bad' : '') + '">' + money(r.sau.lai) + '</b><div class="dim si-lai">ROAS ' + xText(r.thuc) + ' · T' + esc(r.ym.slice(5)) + '</div>'
-                               : '<span class="dim">chưa có số QC</span>'}</td></tr>`).join('')}</tbody></table></div>
+      <div class="si-shops">${rs.map(r => `<div class="si-shop">
+        <div class="si-shn">${esc(r.ten)}</div>
+        <div><span>Giá treo</span><b>${money(r.gia)}</b>${r.vPct ? '<i>voucher ' + pctText(r.vPct, 1) + '</i>' : '<i>không voucher</i>'}</div>
+        <div><span>ROAS hoà vốn</span>${r.lo ? '<b class="bad">lỗ sẵn</b>' : '<b class="' + (r.thuc && r.roas && r.thuc < r.roas ? 'bad' : '') + '">' + xText(r.roas) + '</b>'}</div>
+        <div><span>Lời/đơn chưa QC</span><b class="${r.x && r.x.lai <= 0 ? 'bad' : ''}">${r.x ? money(r.x.lai) : '—'}</b></div>
+        <div title="Với ROAS thực tế tháng gần nhất của gian hàng"><span>Lời/đơn sau QC</span>${r.sau ? '<b class="' + (r.sau.lai <= 0 ? 'bad' : '') + '">' + money(r.sau.lai) + '</b><i>ROAS ' + xText(r.thuc) + ' · T' + esc(r.ym.slice(5)) + '</i>'
+                               : '<i>chưa có số QC</i>'}</div></div>`).join('')}</div>
       <div class="dim" style="margin-top:4px">So với bán sỉ: ${[s1 ? 'sỉ cấp 1 lời <b>' + money(s1 - von) + '</b>/sp' : '', s2 ? 'sỉ thường lời <b>' + money(s2 - von) + '</b>/sp' : ''].filter(Boolean).join(' · ') || 'gõ giá sỉ để so'}.</div>`;
     box.innerHTML = t || 'Gõ giá vốn và giá sỉ để xem lãi mỗi mức.';
     const b = box.querySelector('[data-goiy]');
@@ -4159,7 +4159,8 @@ function siForm(pid, sid){
   form.appendChild(box);
   if (ls.length){
     const his = document.createElement('div');
-    his.innerHTML = `<div class="sec sm">Lịch sử giá sỉ<span class="ln"></span></div><div class="tblwrap"><table class="tbl sm"><thead><tr>
+    his.className = 'fwide';
+    his.innerHTML = `<div class="sec sm">Lịch sử giá sỉ<span class="ln"></span></div><div class="tblwrap"><table class="tbl sm si-fit"><thead><tr>
       <th>Ngày</th><th class="r">Sỉ cấp 1</th><th class="r">Sỉ thường</th><th>Ghi chú</th></tr></thead><tbody>${
       ls.map(l => `<tr><td class="nw">${esc(fmtDate(l.date))}</td><td class="r">${l.si1 ? money(l.si1) : '—'}</td><td class="r">${l.si2 ? money(l.si2) : '—'}</td>
         <td>${esc(l.note || '')}</td></tr>`).join('')}</tbody></table></div>`;
@@ -4189,10 +4190,10 @@ function siBrandForm(brand){
     <th class="r" title="Khách trả sau voucher shop — để tính ROAS từng shop">Giá bán lẻ</th></tr></thead><tbody>${
     us.map((u, i) => `<tr data-i="${i}"><td><b>${esc(u.p.name)}</b>${u.sid ? ' <span class="dim">· ' + esc(u.nhan) + '</span>' : ''}
         <div class="dim">vốn ${u.von ? money(u.von) : '—'} · sỉ 1 ${u.si1 ? money(u.si1) : '—'} · sỉ thường ${u.si2 ? money(u.si2) : '—'}</div></td>
-      <td class="r"><input class="inp" data-sep="money" data-k="cost" value="${o(u.von)}"></td>
-      <td class="r"><input class="inp" data-sep="money" data-k="si1" value="${o(u.si1)}"><div class="dim" data-l="si1"></div></td>
-      <td class="r"><input class="inp" data-sep="money" data-k="si2" value="${o(u.si2)}"><div class="dim" data-l="si2"></div></td>
-      <td class="r"><input class="inp" data-sep="money" data-k="ban" value="${o(u.ban)}"></td></tr>`).join('')}</tbody></table></div>`;
+      <td class="r" data-h="Vốn mới"><input class="inp" data-sep="money" data-k="cost" value="${o(u.von)}"></td>
+      <td class="r" data-h="Sỉ cấp 1 / NV"><input class="inp" data-sep="money" data-k="si1" value="${o(u.si1)}"><div class="dim" data-l="si1"></div></td>
+      <td class="r" data-h="Sỉ thường"><input class="inp" data-sep="money" data-k="si2" value="${o(u.si2)}"><div class="dim" data-l="si2"></div></td>
+      <td class="r" data-h="Giá bán lẻ"><input class="inp" data-sep="money" data-k="ban" value="${o(u.ban)}"></td></tr>`).join('')}</tbody></table></div>`;
   const el = openModal('Hãng đổi giá — ' + (brand || 'chưa gắn thương hiệu') + ' · ' + us.length + ' mã', body,
     `<div class="btns end"><div class="grow"></div><button class="btn" data-act="closem">Huỷ</button><button class="btn pri" id="siSave">Lưu cả bảng</button></div>`, true);
   const row = i => el.querySelector(`tr[data-i="${i}"]`);
@@ -6660,4 +6661,4 @@ document.addEventListener('paste', e => {
   bUpload(z.dataset.bid, fs);
 });
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "4e471735"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "3f9534f4"]);
