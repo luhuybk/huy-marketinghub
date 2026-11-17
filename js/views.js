@@ -3484,6 +3484,19 @@ function viewSiStaff(chu){
     <div class="dim" style="margin-top:8px">Mã nào đổi giá trong 14 ngày qua có nhãn vàng "giá mới", kèm số tăng / giảm so với giá trước.</div></div>`;
   return h;
 }
+/* Ô ROAS hoà vốn của từng gian hàng trong bảng giá sỉ (chỉ chủ thấy) */
+function siRoasCell(u){
+  if (!u.von) return '<span class="dim">cần giá vốn</span>';
+  const rs = siRoasShops(u);
+  if (!rs.length) return '<span class="dim">—</span>';
+  return rs.map(r => {
+    const tt = r.thuc ? 'ROAS thực tế ' + shopTenNgan(r.sh) + ' tháng ' + r.ym.slice(5) + '/' + r.ym.slice(0, 4) + ': ' + xText(r.thuc) : 'gian hàng chưa có số quảng cáo';
+    if (!r.gia) return `<div class="si-rs"><span class="dim">${esc(r.ten)}</span> <span class="dim">chưa có giá lẻ</span></div>`;
+    if (r.lo) return `<div class="si-rs" title="${esc(tt)}"><span class="dim">${esc(r.ten)}</span> <b class="bad">lỗ sẵn</b></div>`;
+    const xau = r.thuc && r.roas && r.thuc < r.roas;
+    return `<div class="si-rs" title="${esc(tt)}"><span class="dim">${esc(r.ten)}</span> <b class="${xau ? 'bad' : ''}">${xText(r.roas)}</b></div>`;
+  }).join('');
+}
 function viewSiList(){
   const k = norm(ui.siQ || '');
   const tat = siUnits();
@@ -3510,13 +3523,15 @@ function viewSiList(){
 
   h += `<div class="tblwrap"><table class="tbl sm ptbl stick si-tbl"><thead><tr>
     <th class="nw">Sản phẩm / size</th><th class="r">Giá vốn</th><th class="r">Sỉ cấp 1 / NV</th><th class="r">Sỉ thường</th>
-    <th class="r" title="Giá niêm yết của hãng; chưa có thì giá treo Shopee">Giá lẻ</th><th class="nw">Giá sỉ chỉnh lần cuối</th></tr></thead><tbody>`;
+    <th class="r" title="Giá niêm yết của hãng; chưa có thì giá treo Shopee">Giá lẻ</th>
+    <th class="nw" title="ROAS tối thiểu để bán lẻ ở từng gian hàng không lỗ (sau phí Shopee + quảng cáo). Đỏ = ROAS thực tế tháng gần nhất của gian hàng đang thấp hơn mức này">ROAS hoà vốn theo shop</th>
+    <th class="nw">Giá sỉ chỉnh lần cuối</th></tr></thead><tbody>`;
   let bCu = null;
   ds.forEach(u => {
     if (u.brand !== bCu){
       bCu = u.brand;
       const n = ds.filter(x => x.brand === u.brand).length;
-      h += `<tr class="si-bh"><td colspan="6"><b>${esc(u.brand || 'Chưa gắn thương hiệu')}</b> <span class="dim">· ${n} mã</span>
+      h += `<tr class="si-bh"><td colspan="7"><b>${esc(u.brand || 'Chưa gắn thương hiệu')}</b> <span class="dim">· ${n} mã</span>
         <button class="btn sm" data-act="sibrand" data-id="${esc(u.brand)}">✎ Hãng đổi giá</button></td></tr>`;
     }
     h += `<tr data-act="siedit" data-id="${u.p.id}|${esc(u.sid)}" class="${u.lech ? 'si-lech' : ''}">
@@ -3526,9 +3541,13 @@ function viewSiList(){
       <td class="r">${u.si1 ? '<b>' + money(u.si1) + '</b>' + laiTxt(u.si1, u.von) : '<span class="dim">chưa điền</span>'}</td>
       <td class="r">${u.si2 ? '<b>' + money(u.si2) + '</b>' + laiTxt(u.si2, u.von) : '<span class="dim">chưa điền</span>'}</td>
       <td class="r">${u.le ? money(u.le) : '<span class="dim">—</span>'}</td>
+      <td class="nw si-roas">${siRoasCell(u)}</td>
       <td class="nw">${u.siAt ? esc(fmtDate(u.siAt)) : '<span class="dim">—</span>'}</td></tr>`;
   });
   h += `</tbody></table></div>
+    <div class="dim" style="margin-top:8px">ROAS hoà vốn theo shop: bán lẻ ở gian hàng đó cần ROAS quảng cáo tối thiểu bao nhiêu để không lỗ
+      (tính từ giá lẻ, giá vốn và bảng phí từng gian hàng). Số <b class="bad">đỏ</b> = ROAS thực tế tháng gần nhất của gian hàng đang thấp hơn —
+      bán lẻ có quảng cáo đang lỗ, giá sỉ càng nên giữ chắc. Bấm một dòng để xem lời mỗi đơn bán lẻ so với bán sỉ.</div>
     <div class="dim" style="margin-top:8px">Giá vốn ở đây là đúng con số của tab Giá vốn sản phẩm — sửa ở đây thì Sổ giá vốn, lãi Shopee
       và ROAS hoà vốn đổi theo. "Lãi %" tính trên giá vốn. Giá sỉ lưu riêng, không kèm giá vốn — nhân viên có quyền
       <b>Xem giá sỉ</b> thấy đúng như tab 👁 Nhân viên thấy. Hai nút 📋 chép bảng giá sỉ để dán Zalo.</div></div>`;
@@ -6550,4 +6569,4 @@ function botHoursView(rows, vn, logs){
   return h;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "ee54ca55"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "bcc881df"]);

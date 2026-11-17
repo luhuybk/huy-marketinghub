@@ -4134,6 +4134,18 @@ function siForm(pid, sid){
       t += `<div style="margin-top:6px">Vốn ${von > u.von ? 'tăng' : 'giảm'} ${pctText(Math.abs(von - u.von) / u.von * 100, 1)} — giữ % lãi cũ thì
         ${g1 ? 'sỉ cấp 1 <b>' + money(g1) + '</b>' : ''}${g1 && g2 ? ', ' : ''}${g2 ? 'sỉ thường <b>' + money(g2) + '</b>' : ''}
         <button type="button" class="btn sm" data-goiy="1" style="margin-left:6px">Dùng gợi ý</button></div>`;
+    /* bán lẻ ở từng gian hàng: ROAS hoà vốn + lời mỗi đơn sau quảng cáo (ROAS thực tế
+       tháng gần nhất của gian hàng) — đặt cạnh lời mỗi sp bán sỉ để chọn giá sỉ */
+    const rs = von ? siRoasShops(u, von).filter(r => r.gia) : [];
+    if (rs.length) t += `<div class="sec sm" style="margin-top:10px">Bán lẻ Shopee theo shop<span class="ln"></span></div>
+      <div class="tblwrap"><table class="tbl sm"><thead><tr><th>Gian hàng</th><th class="r">Giá treo</th><th class="r">ROAS hoà vốn</th>
+        <th class="r">Lời/đơn chưa QC</th><th class="r" title="Với ROAS thực tế tháng gần nhất của gian hàng">Lời/đơn sau QC</th></tr></thead><tbody>${
+      rs.map(r => `<tr><td class="nw">${esc(r.ten)}</td><td class="r">${money(r.gia)}</td>
+        <td class="r">${r.lo ? '<b class="bad">lỗ sẵn</b>' : '<b class="' + (r.thuc && r.roas && r.thuc < r.roas ? 'bad' : '') + '">' + xText(r.roas) + '</b>'}</td>
+        <td class="r">${r.x ? money(r.x.lai) : '—'}</td>
+        <td class="r">${r.sau ? '<b class="' + (r.sau.lai <= 0 ? 'bad' : '') + '">' + money(r.sau.lai) + '</b><div class="dim si-lai">ROAS ' + xText(r.thuc) + ' · T' + esc(r.ym.slice(5)) + '</div>'
+                               : '<span class="dim">chưa có số QC</span>'}</td></tr>`).join('')}</tbody></table></div>
+      <div class="dim" style="margin-top:4px">So với bán sỉ: ${[s1 ? 'sỉ cấp 1 lời <b>' + money(s1 - von) + '</b>/sp' : '', s2 ? 'sỉ thường lời <b>' + money(s2 - von) + '</b>/sp' : ''].filter(Boolean).join(' · ') || 'gõ giá sỉ để so'}.</div>`;
     box.innerHTML = t || 'Gõ giá vốn và giá sỉ để xem lãi mỗi mức.';
     const b = box.querySelector('[data-goiy]');
     if (b) b.onclick = () => { if (g1) dat('si1', g1); if (g2) dat('si2', g2); ve(); };
@@ -6630,4 +6642,4 @@ document.addEventListener('paste', e => {
   bUpload(z.dataset.bid, fs);
 });
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "ee54ca55"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "bcc881df"]);

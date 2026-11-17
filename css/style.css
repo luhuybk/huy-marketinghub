@@ -1123,3 +1123,5 @@ tr.rv-dang{background:var(--bg3)}
 .si-nv tbody tr{cursor:default}
 .si-nv th:nth-child(n+2){width:1%;white-space:nowrap}
 @media (max-width:600px){ .si-nv td,.si-nv th{padding-left:8px;padding-right:8px} }
+.si-roas{font-size:12px;line-height:1.45}
+.si-rs{white-space:nowrap}
