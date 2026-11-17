@@ -627,6 +627,14 @@ switch ($action) {
     $key = mb_substr(trim((string)($in['key'] ?? '')), 0, 170, 'UTF-8');
     out(['ok' => true, 'cfg' => botPause(!empty($in['on']), $key, (string)(currentUser()['name'] ?? 'chủ'))]);
   }
+  case 'bot_san': {
+    requireOwner();
+    $key = mb_substr(trim((string)($in['key'] ?? '')), 0, 170, 'UTF-8');
+    if ($key === '' || strpos($key, '|') === false) fail('Thiếu chiến dịch.');
+    $raw = trim(str_replace(',', '.', (string)($in['san'] ?? '')));
+    if ($raw !== '' && (!is_numeric($raw) || (float)$raw < 1 || (float)$raw > 50)) fail('ROAS sàn phải là số từ 1 đến 50 (để trống = bot tự tính).');
+    out(['ok' => true, 'cfg' => botSan($key, $raw === '' ? null : (float)$raw)]);
+  }
   /* Gợi ý nâng ROAS mục tiêu, dạng việc cho trang Hôm nay (xem adTgTasks) */
   case 'ad_tg_up': {
     requireAuth();

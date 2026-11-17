@@ -1928,13 +1928,17 @@ function botCfg(): array {
   $c = kvGet('bot_cfg', []);
   if (!is_array($c)) $c = [];
   $off = $c['off'] ?? [];
-  return ['paused' => !empty($c['paused']), 'off' => is_array($off) ? $off : [],
+  $san = [];
+  foreach ((is_array($c['san'] ?? null) ? $c['san'] : []) as $k => $v)
+    if (is_numeric($v) && $v > 0) $san[(string)$k] = round((float)$v, 1);
+  return ['paused' => !empty($c['paused']), 'off' => is_array($off) ? $off : [], 'san' => $san,
           'by' => (string)($c['by'] ?? ''), 'at' => (string)($c['at'] ?? '')];
 }
 /* Bản trả ra ngoài: off rỗng vẫn phải là {} (json_encode mảng rỗng ra []) */
 function botCfgOut(?array $c = null): array {
   $c = $c ?? botCfg();
   $c['off'] = (object)$c['off'];
+  $c['san'] = (object)($c['san'] ?? []);
   return $c;
 }
 function botTxt($v, int $n = 200): string { return mb_substr(trim((string)$v), 0, $n, 'UTF-8'); }
@@ -2002,7 +2006,9 @@ function botSave(array $in): array {
             'mode' => botTxt($c['mode'] ?? '', 10), 'roas' => botNum($c['roas'] ?? null),
             'cost' => botNum($c['cost'] ?? null), 'gmv' => botNum($c['gmv'] ?? null), 'budget' => botNum($c['budget'] ?? null),
             'boost' => !empty($c['boost']), 'next' => botTxt($c['next'] ?? '', 60), 'note' => botTxt($c['note'] ?? '', 300),
-            'plan' => $plan];
+            'plan' => $plan, 'bien' => botNum($c['bien'] ?? null),
+            'std30' => is_array($c['std30'] ?? null) ? ['cost' => botNum($c['std30']['cost'] ?? null), 'gmv' => botNum($c['std30']['gmv'] ?? null),
+                         'orders' => botNum($c['std30']['orders'] ?? null), 'roas' => botNum($c['std30']['roas'] ?? null)] : null];
       $ins->execute([$shop, $cid, json_encode($d, JSON_UNESCAPED_UNICODE), $now]);
       $n++;
     }
@@ -2095,6 +2101,13 @@ function botTouch(string $id, array $in): void {
                           'dates' => $dates ? [$dates[0], end($dates)] : null, 'bot' => $do];
   }
   kvSet('ingest_devs', $devs);
+}
+/* ROAS sàn chủ tự đặt cho một chiến dịch ("shop|cid"); null = bỏ, bot tự tính lại */
+function botSan(string $key, ?float $v): array {
+  $c = botCfg();
+  if ($v === null) unset($c['san'][$key]); else $c['san'][$key] = round($v, 1);
+  kvSet('bot_cfg', $c);
+  return botCfgOut($c);
 }
 /* Chủ bấm dừng/chạy lại — cả bot, hoặc một chiến dịch */
 function botPause(bool $on, string $key, string $by): array {

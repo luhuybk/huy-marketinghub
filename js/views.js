@@ -6247,6 +6247,11 @@ const botVnNow = () => {
 };
 const botModeChip = m => { const x = BOT_MODE[m]; return x ? `<span class="chip ${x.c}">${x.t}</span>` : ''; };
 
+/* ROAS thực so với chuẩn: ▲12% / ▼8% */
+function botSoChuan(thuc, chuan){
+  const p = (thuc / chuan - 1) * 100;
+  return `<span class="${p >= 0 ? 'ok' : 'bad'}">${p >= 0 ? '▲' : '▼'}${Math.abs(p).toFixed(0)}% so chuẩn</span>`;
+}
 function viewAdBot(){
   const d = botv.data;
   if (!d) return botv.err
@@ -6310,11 +6315,17 @@ function viewAdBot(){
             <div class="dim" style="font-size:12px;margin-top:2px">ID ${esc(c.cid)}${c.boost ? ' · <span class="chip acc">Đẩy Nhanh</span>' : ''}</div></div>
           ${tat ? '<span class="chip bad">Đã dừng</span>' : !c.managed ? '<span class="chip">Chỉ theo dõi</span>' : botModeChip(c.mode)}
         </div>
-        <div class="tiles mini bot3" style="margin-top:10px">
-          ${tile('Mục tiêu đang đặt', botR(c.cur), doiGoc == null ? '' : 'gốc ' + botR(c.base) + ' · ' + (doiGoc >= 0 ? '+' : '') + doiGoc.toFixed(0) + '%')}
-          ${tile('ROAS hôm nay', botR(c.roas), c.cost != null ? 'chi ' + moneyShort(c.cost) : '',
-                 c.roas != null && c.floor && c.roas < c.floor ? 'bad' : '')}
-          ${tile('Sàn của bot', botR(c.floor), c.std ? 'chuẩn ' + botR(c.std) : '')}
+        <div class="tiles mini bot4" style="margin-top:10px">
+          ${(() => { const dat = (cfg.san || {})[key], cho = dat != null && Math.abs(dat - (c.floor || 0)) >= 0.05;
+            return tile('ROAS sàn', botR(dat != null ? dat : c.floor) + (chu ? ` <button class="btn xs" data-act="botsan" data-id="${esc(key)}" title="Đặt ROAS sàn cho chiến dịch này">✎</button>` : ''),
+                        dat != null ? 'bạn đặt' + (cho ? ' · chờ bot nhận' : '') : 'tự tính'); })()}
+          ${tile('Target đang đặt', botR(c.cur), doiGoc == null ? '' : 'gốc ' + botR(c.base) + ' · ' + (doiGoc >= 0 ? '+' : '') + doiGoc.toFixed(0) + '%')}
+          ${tile('ROAS thực hôm nay', botR(c.roas),
+                 (c.cost != null ? 'chi ' + moneyShort(c.cost) : '') + (c.roas != null && c.std ? ' · ' + botSoChuan(c.roas, c.std) : '') +
+                 (c.at ? '<br>cập nhật ' + esc(botHm(c.at)) : ''),
+                 c.roas != null && c.floor && c.roas < c.floor ? 'bad' : c.roas != null && c.std && c.roas >= c.std ? 'ok' : '')}
+          ${tile('ROAS chuẩn 30 ngày', botR(c.std),
+                 c.std30 ? 'chi ' + moneyShort(c.std30.cost) + ' · ' + num(c.std30.orders || 0) + ' đơn' : c.std ? 'số cấu hình' : '')}
         </div>
         ${strip}
         <div class="dim" style="font-size:12px;margin-top:8px">${lan ? 'Chỉnh gần nhất ' + esc(botHm(lan.at)) + ': ' + botR(lan.old) + ' → ' + botR(lan.new) : 'Chưa chỉnh lần nào'}${

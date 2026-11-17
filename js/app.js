@@ -5240,6 +5240,25 @@ const ACTIONS = {
   botreload:   () => { ensureBot(true); toast('Đang tải lại…'); },
   botshop:     id => { botv.shop = id; render(); },
   /* Dừng / chạy lại: data-id rỗng = cả bot, "shop|cid" = một chiến dịch; data-on 1 = dừng */
+  /* ROAS sàn của một chiến dịch — chủ tự điền theo sản phẩm; trống = bot tự tính */
+  botsan:      id => {
+    const c = ((botv.data || {}).camps || []).find(x => x.shop + '|' + x.cid === id);
+    if (!c) return;
+    const dat = ((botv.data.cfg || {}).san || {})[id];
+    formModal({
+      title: 'ROAS sàn · ' + (c.title || c.cid),
+      values: {san: dat != null ? String(dat).replace('.', ',') : ''},
+      fields: [{k:'san', l:'ROAS sàn', t:'text', ph:'vd 12',
+        hint:'Bot không bao giờ hạ mục tiêu xuống dưới số này, kể cả lúc Đẩy. Để trống = bot tự tính: lớn hơn giữa ROAS biên (' +
+             botR(c.bien) + ') và ROAS chuẩn 30 ngày × 0,7' + (c.std ? ' (= ' + botR(c.std * 0.7) + ')' : '') + '.'}],
+      saveLabel: 'Lưu',
+      onSave: async v => {
+        const r = await Server.botSan(id, String(v.san || '').trim());
+        botv.data.cfg = r.cfg;
+        toast('Đã lưu — bot dùng sàn mới từ lượt tới (trong 5 phút)');
+      }
+    });
+  },
   botpause:    async (id, el) => {
     const on = el && el.dataset.on === '1';
     if (on && !confirm(id ? 'Tạm dừng bot ở chiến dịch này? Bot sẽ không chỉnh ROAS của nó nữa cho tới khi bạn chạy lại.'

@@ -1102,3 +1102,6 @@ tr.rv-dang{background:var(--bg3)}
 .botgrid{display:grid;gap:10px}
 @media(min-width:900px){.botgrid{grid-template-columns:repeat(2,1fr)}}
 .tiles.bot3{grid-template-columns:repeat(3,1fr)}
+.tiles.bot4{grid-template-columns:repeat(4,1fr)}
+@media(max-width:520px){.tiles.bot4{grid-template-columns:repeat(2,1fr)}}
+.tiles .t-v .btn.xs{padding:0 6px;font-size:11px;vertical-align:middle;line-height:18px}

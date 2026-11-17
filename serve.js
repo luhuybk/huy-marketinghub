@@ -707,6 +707,14 @@ function api(req, res, body){
       if (!owner()) return;
       return send({ok:true, cfg:botPause(!!inp.on, String(inp.key || '').trim().slice(0, 170), (me && me.name) || 'chủ')});
     }
+    case 'bot_san': {
+      if (!owner()) return;
+      const key = String(inp.key || '').trim().slice(0, 170);
+      if (!key.includes('|')) return fail('Thiếu chiến dịch.');
+      const raw = String(inp.san == null ? '' : inp.san).trim().replace(',', '.');
+      if (raw !== '' && (!isFinite(+raw) || +raw < 1 || +raw > 50)) return fail('ROAS sàn phải là số từ 1 đến 50 (để trống = bot tự tính).');
+      return send({ok:true, cfg:botSan(key, raw === '' ? null : +raw)});
+    }
     case 'ad_tg_up': {
       if (!need()) return;
       if (!khMay(me, 'adreport') && !khMay(me, 'ads')) return fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
@@ -1438,7 +1446,9 @@ function botTables(){
 }
 function botCfg(){
   const c = kvGet('bot_cfg', {}) || {};
-  return {paused: !!c.paused, off: c.off && typeof c.off === 'object' && !Array.isArray(c.off) ? c.off : {},
+  const san = {};
+  Object.entries(c.san && typeof c.san === 'object' ? c.san : {}).forEach(([k, v]) => { if (+v > 0) san[k] = Math.round(+v * 10) / 10; });
+  return {paused: !!c.paused, off: c.off && typeof c.off === 'object' && !Array.isArray(c.off) ? c.off : {}, san,
           by: String(c.by || ''), at: String(c.at || '')};
 }
 const botTxt = (v, n = 200) => String(v == null ? '' : v).trim().slice(0, n);
@@ -1484,7 +1494,8 @@ function botSave(inp){
       const d = {title:botTxt(c.title, 255), managed:!!c.managed, base:botNum(c.base), floor:botNum(c.floor), cur:botNum(c.cur),
         std:botNum(c.std), stepUp:botNum(c.stepUp), stepDown:botNum(c.stepDown), mode:botTxt(c.mode, 10), roas:botNum(c.roas),
         cost:botNum(c.cost), gmv:botNum(c.gmv), budget:botNum(c.budget), boost:!!c.boost, next:botTxt(c.next, 60),
-        note:botTxt(c.note, 300), plan};
+        note:botTxt(c.note, 300), plan, bien:botNum(c.bien),
+        std30: c.std30 && typeof c.std30 === 'object' ? {cost:botNum(c.std30.cost), gmv:botNum(c.std30.gmv), orders:botNum(c.std30.orders), roas:botNum(c.std30.roas)} : null};
       ins.run(shop, cid, JSON.stringify(d), now); n++;
     }
     r.camps = n;
@@ -1538,6 +1549,12 @@ function botView(){
   const hours = D.prepare('SELECT shop, date, hour, cost, gmv, orders, clicks FROM bot_hour WHERE date >= ? ORDER BY shop, date, hour').all(tu)
     .map(x => [x.shop, x.date, x.hour, x.cost, x.gmv, x.orders, x.clicks]);
   return {cfg:botCfg(), seen:kvGet('bot_seen', null), camps, logs, hours, now:botIso()};
+}
+function botSan(key, v){
+  const c = botCfg();
+  if (v == null) delete c.san[key]; else c.san[key] = Math.round(v * 10) / 10;
+  kvSet('bot_cfg', c);
+  return c;
 }
 function botPause(on, key, by){
   const c = botCfg();
