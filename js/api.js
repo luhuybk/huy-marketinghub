@@ -234,6 +234,7 @@ const Server = (() => {
   /* Bot ROAS theo giờ (Báo cáo Ads → Bot giờ) */
   const botView  = ()        => call('bot_view');
   const botPause = (on, key) => call('bot_pause', {on: !!on, key: key || ''});
+  const botSan   = (key, san) => call('bot_san', {key, san});
   /* Theo dõi đối thủ — dữ liệu ở máy chủ, chỉ chủ gọi được */
   const rivalState   = ()      => call('rival_state');
   const rivalScans   = kwId    => call('rival_scans', {kw_id: kwId});
@@ -259,7 +260,7 @@ const Server = (() => {
 
   return {probe, login, logout, logoutAll, pull, push, pushBeacon, stats,
           tgGet, tgSave, tgTest, tgReport, tgHook, remind, ingestList, ingestSet,
-          rivalState, rivalScans, rivalKwSave, rivalKwDel, rivalScanDel, rivalMine, rivalShops, rivalLatest, rivalDesc, rivalShopDel, rivalShopSave, bimgUp, bimgDel, imgUrl, adTgUp, adTgMute, botView, botPause,
+          rivalState, rivalScans, rivalKwSave, rivalKwDel, rivalScanDel, rivalMine, rivalShops, rivalLatest, rivalDesc, rivalShopDel, rivalShopSave, bimgUp, bimgDel, imgUrl, adTgUp, adTgMute, botView, botPause, botSan,
           users, userNames, userSave, userDel, takeWhoChanged, notePerms,
           available, authed, state, role, isOwner, name, perms, may, call};
 })();
@@ -361,4 +362,4 @@ const Gate = (() => {
 })();
 window.Gate = Gate;
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/api.js", "2fd3fc02"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/api.js", "85ba4c97"]);
