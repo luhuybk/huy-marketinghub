@@ -6442,14 +6442,14 @@ function botSetupBody(d){
     return `<tr data-k="${esc(key)}" style="cursor:default">
       <td><b>${esc(c.title || c.cid)}</b><div class="dim" style="font-size:11px">${esc(c.shop)}${c.boost ? ' · <span class="chip acc">Đẩy Nhanh</span>' : ''}</div></td>
       <td class="r">${botR(c.std)}<div class="dim" style="font-size:11px">× 0,7 = ${botR((c.std || 0) * 0.7)}</div></td>
-      <td><input name="san" inputmode="decimal" style="width:78px" value="${esc(bien === '' ? '' : String(bien).replace('.', ','))}" placeholder="${esc(botR(c.bien))}"></td>
+      <td><input name="san" inputmode="decimal" style="width:78px" value="${esc(bien === '' ? '' : String(bien).replace('.', ','))}" placeholder="trống"></td>
       <td style="text-align:center"><input type="checkbox" name="live" ${live ? 'checked' : ''}></td>
     </tr>`;
   }).join('');
   return `<div class="dim" style="margin-bottom:10px">
       <b>ROAS biên</b> = mức hoà vốn của sản phẩm. Bot không bao giờ hạ ROAS mục tiêu dưới
       <b>sàn = lớn hơn giữa ROAS biên và ROAS chuẩn × 0,7</b>; sản phẩm bật Đẩy Nhanh thì sàn quy ra target
-      còn chia thêm 0,7. Để trống = dùng mặc định ${botR((d.camps[0] || {}).bien)}.<br>
+      còn chia thêm 0,7. Để trống = sàn chỉ theo ROAS chuẩn × 0,7.<br>
       <b>Chạy thật</b> bỏ tick = bot chỉ tính và ghi nhật ký, không sửa trên Shopee.</div>
     <div class="tblwrap"><table class="tbl sm"><thead><tr><th>Sản phẩm</th><th class="r">ROAS chuẩn</th><th>ROAS biên</th><th>Chạy thật</th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
@@ -6484,6 +6484,7 @@ function viewAdBot(){
       <div class="dim" style="margin-top:3px">${seen ? 'Liên lạc lần cuối ' + esc(botTruoc(seen.at)) + ' (' + esc(botHm(seen.at)) + ')' +
         (seen.ver ? ' · bản ' + esc(seen.ver) : '') : 'Chưa liên lạc lần nào'}${cfg.paused && cfg.by ? ' · dừng bởi ' + esc(cfg.by) + ' lúc ' + esc(botHm(cfg.at)) : ''}</div>
     </div>
+    <button class="btn sm" data-act="botguide" data-id="">📘 Bot hoạt động thế nào?</button>
     ${chu ? (cfg.paused
       ? `<button class="btn pri" data-act="botpause" data-id="" data-on="0">▶ Chạy lại</button>`
       : `<button class="btn dngr" data-act="botpause" data-id="" data-on="1">⏸ Tạm dừng bot</button>`) : ''}
@@ -6520,8 +6521,9 @@ function viewAdBot(){
       const lan = d.logs.find(l => l.shop === c.shop && l.cid === c.cid && l.kind === 'roas' && l.ok);
       const doiGoc = c.base && c.cur ? (c.cur / c.base - 1) * 100 : null;
       const strip = Array.isArray(c.plan) ? `<div style="display:grid;grid-template-columns:repeat(24,1fr);gap:2px;margin-top:10px">` +
-        c.plan.map((m, hh) => `<div title="${gioLabel(hh)}: ${(BOT_MODE[m] || {}).t || ''}" style="height:16px;border-radius:3px;background:${
-          m === 'day' ? 'var(--ok)' : m === 'siet' ? 'var(--warn)' : 'var(--line)'};${hh === vn.hour ? 'outline:2px solid var(--tx);outline-offset:1px;' : ''}"></div>`).join('') +
+        c.plan.map((m, hh) => { const som = c.som && m !== 'day' && c.plan[(hh + 1) % 24] === 'day';
+          return `<div title="${gioLabel(hh)}: ${(BOT_MODE[m] || {}).t || ''}${som ? ' · Đẩy sớm từ :' + String(60 - c.som).padStart(2, '0') : ''}" style="height:16px;border-radius:3px;background:${
+          som ? `linear-gradient(90deg,${m === 'siet' ? 'var(--warn)' : 'var(--line)'} ${Math.round((60 - c.som) / 60 * 100)}%,var(--ok) 0)` : m === 'day' ? 'var(--ok)' : m === 'siet' ? 'var(--warn)' : 'var(--line)'};${hh === vn.hour ? 'outline:2px solid var(--tx);outline-offset:1px;' : ''}"></div>`; }).join('') +
         `</div><div style="display:flex;justify-content:space-between;font-size:10px" class="dim"><span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span></div>` : '';
       return `<div class="card" style="${tat || !c.managed ? 'opacity:.6' : ''}">
         <div style="display:flex;gap:8px;align-items:flex-start">
@@ -6534,7 +6536,7 @@ function viewAdBot(){
           ${(() => { const dat = (cfg.san || {})[key], bien = dat != null ? dat : c.bienSP != null ? c.bienSP : c.bien;
             const cho = dat != null && c.bienSP != null && Math.abs(dat - c.bienSP) >= 0.05;
             return tile('ROAS sàn', botR(c.floor) + (chu ? ` <button class="btn xs" data-act="botsetup" title="Cài đặt ROAS biên từng sản phẩm">✎</button>` : ''),
-                        'biên ' + botR(bien) + (dat != null || c.sanSrc === 'cfg' ? '' : ' (mặc định)') + (cho ? ' · chờ bot nhận' : '') +
+                        (bien ? 'biên ' + botR(bien) + (dat != null || c.sanSrc === 'cfg' ? '' : ' (mặc định)') : '= chuẩn × 0,7 (chưa điền biên)') + (cho ? ' · chờ bot nhận' : '') +
                         (c.kDN && c.kDN < 1 && c.floorT ? '<br>target ≥ ' + botR(c.floorT) + ' (÷' + botR(c.kDN) + ')' : '')); })()}
           ${tile('Target đang đặt', botR(c.cur), (c.base ? 'Giữ ' + botR(c.base) : '') + (doiGoc != null && Math.abs(doiGoc) >= 1 ? ' · ' + (doiGoc >= 0 ? '+' : '') + doiGoc.toFixed(0) + '%' : '') +
                  (c.std && c.base ? '<br>= chuẩn × ' + botR(c.heSoGiu || 1.1) + (c.kDN && c.kDN < 1 ? ' ÷ ' + botR(c.kDN) : '') : ''))}
@@ -6556,25 +6558,14 @@ function viewAdBot(){
     }).join('') + `</div>`;
   });
   h += `<div class="dim" style="font-size:12px;margin-top:6px">Ô xanh = Đẩy (hạ ROAS mục tiêu cho phân phối nhiều) · ô cam = Siết (nâng
-    mục tiêu) · ô xám = Giữ. Ô có viền là giờ hiện tại.</div>`;
+    mục tiêu) · ô xám = Giữ · ô nửa xanh = Đẩy sớm 30 phút. Ô có viền là giờ hiện tại.
+    <a href="#" data-act="botguide" data-id="">📘 Bot tính các số này thế nào?</a></div>`;
 
   /* ---- quảng cáo theo giờ ---- */
   h += botHoursView(d.hours.filter(x => !shop || x[0] === shop), vn, d.logs);
 
-  /* ---- nhật ký ---- */
-  const logs = d.logs.filter(l => !shop || l.shop === shop).slice(0, 150);
-  h += sectionTitle('Nhật ký chỉnh', `<span class="dim">${logs.length} dòng gần nhất</span>`);
-  h += !logs.length ? `<div class="card dim">Chưa có lần chỉnh nào.</div>` : `<div class="tblwrap"><table class="tbl sm">
-    <thead><tr><th>Lúc</th>${shops.length > 1 && !shop ? '<th>Gian hàng</th>' : ''}<th>Chiến dịch</th><th>Chế độ</th>
-      <th class="r">Mục tiêu</th><th class="r">ROAS lúc đó</th><th>Ghi chú</th></tr></thead><tbody>` +
-    logs.map(l => `<tr style="cursor:default">
-      <td>${esc(botHm(l.at))}</td>${shops.length > 1 && !shop ? `<td>${esc(l.shop)}</td>` : ''}
-      <td>${esc(l.title || l.cid)}</td>
-      <td>${l.kind === 'roas' ? botModeChip(l.mode) : `<span class="chip ${l.ok ? '' : 'bad'}">${esc(l.kind === 'error' ? 'Lỗi' : l.kind)}</span>`}</td>
-      <td class="r">${l.old != null || l.new != null ? botR(l.old) + ' → <b class="' + (l.new < l.old ? 'ok' : 'warn') + '">' + botR(l.new) + '</b>' : '—'}</td>
-      <td class="r">${botR(l.roas)}${l.cost != null ? '<div class="dim" style="font-size:11px">chi ' + moneyShort(l.cost) + '</div>' : ''}</td>
-      <td>${esc(l.reason || '')}${!l.ok && l.err ? '<div class="bad">' + esc(l.err) + '</div>' : ''}</td></tr>`).join('') +
-    `</tbody></table></div>`;
+  /* ---- nhật ký: gom theo sản phẩm ---- */
+  h += botLogGroups(d, shop, shops.length > 1 && !shop);
 
   h += `<div class="explain" style="margin-top:14px">📦 Đơn hàng quá khứ theo giờ (từng sản phẩm, thứ trong tuần, tỉ lệ huỷ) nằm ở mục
     <a href="#" data-act="adtab" data-id="gio">Khung giờ</a> — bot tự xuất đơn hàng và nạp vào đó đầu mỗi tháng.</div>`;
@@ -6624,6 +6615,161 @@ function botHoursView(rows, vn, logs){
       <th class="r">${botR(tongA.r)}</th><th class="r">${botR(khoi(B, [...Array(24).keys()]).r)}</th><th></th></tr></tfoot></table></div>`;
   h += `<div class="dim" style="font-size:12px;margin-top:6px">Shopee tính doanh số vào giờ RA ĐƠN chứ không phải giờ click — click lúc 23h mà 0h mới
     mua thì doanh số nằm ở khối 00–01h. Nên đọc theo khối, đừng đọc từng giờ lẻ.</div>`;
+  return h;
+}
+
+/* ---- nhật ký gom theo sản phẩm ----
+   Mỗi sản phẩm một khối: đầu khối là lịch trình chỉnh HÔM NAY dạng chuỗi
+   "05:30 Đẩy 13,9 · 11:00 Giữ 16,4…", bấm mở ra thì xem từng ngày (7 ngày). */
+const botVnDate = iso => new Intl.DateTimeFormat('en-CA', {timeZone:'Asia/Ho_Chi_Minh'}).format(new Date(iso));
+const botGio = iso => new Intl.DateTimeFormat('en-GB', {timeZone:'Asia/Ho_Chi_Minh', hour:'2-digit', minute:'2-digit', hour12:false}).format(new Date(iso));
+function botLogLine(l){
+  const loi = l.kind === 'error' || l.ok === false;
+  const chip = l.kind === 'roas' || l.kind === 'dry' ? botModeChip(l.mode) + (l.kind === 'dry' ? '<span class="chip warn">chỉ báo</span>' : '')
+    : `<span class="chip ${loi ? 'bad' : ''}">${l.kind === 'error' ? 'Lỗi' : l.kind === 'info' ? 'Ghi chú' : esc(l.kind)}</span>`;
+  const so = l.old != null || l.new != null ? `${botR(l.old)} → <b class="${l.new < l.old ? 'ok' : 'warn'}">${botR(l.new)}</b>` : '';
+  return `<div class="bl-li ${loi ? 'loi' : l.kind === 'info' ? 'info' : ''}">
+    <span class="bl-t">${esc(botGio(l.at))}</span><span class="bl-c">${chip}</span><span class="bl-so">${so}</span>
+    <span class="bl-r">${l.roas != null ? 'ROAS lúc đó ' + botR(l.roas) + (l.cost != null ? ' · chi ' + moneyShort(l.cost) : '') : ''}</span>
+    <div class="bl-ly">${esc(l.reason || '')}${loi && l.err ? ` <span class="bad">${esc(l.err)}</span>` : ''}</div></div>`;
+}
+function botLogGroups(d, shop, nhieuShop){
+  const logs = d.logs.filter(l => !shop || l.shop === shop || l.shop === '-');
+  const homNay = botVnNow().date;
+  const nhom = new Map();
+  /* thứ tự khối: theo thẻ chiến dịch ở trên, chiến dịch lạ (đã bỏ khỏi bot) xếp sau */
+  d.camps.filter(c => !shop || c.shop === shop).forEach(c => nhom.set(c.shop + '|' + c.cid, {c, ls:[]}));
+  logs.forEach(l => {
+    const k = l.cid === '-' ? '-' : l.shop + '|' + l.cid;
+    if (!nhom.has(k)) nhom.set(k, {c: k === '-' ? null : {shop:l.shop, cid:l.cid, title:l.title}, ls:[]});
+    nhom.get(k).ls.push(l);
+  });
+  const open = ui.botLogOpen || {};
+  let h = sectionTitle('Nhật ký theo sản phẩm', `<span class="dim">bấm một sản phẩm để xem từng ngày</span>`);
+  const khoi = [...nhom.entries()].filter(([, g]) => g.ls.length);
+  if (!khoi.length) return h + `<div class="card dim">Chưa có lần chỉnh nào.</div>`;
+  h += `<div class="bl-list">`;
+  khoi.forEach(([k, g]) => {
+    const chung = k === '-';
+    const nay = g.ls.filter(l => botVnDate(l.at) === homNay).slice().reverse();
+    const chinhNay = nay.filter(l => l.kind === 'roas' && l.ok || l.kind === 'dry');
+    const loiNay = nay.filter(l => l.kind === 'error' || l.ok === false).length;
+    const lich = chinhNay.map(l => `<span class="bl-step"><i>${esc(botGio(l.at))}</i>${botModeChip(l.mode)}<b>${botR(l.new)}</b></span>`).join('<span class="bl-arr">›</span>');
+    const mo = !!open[k];
+    h += `<div class="bl-g ${mo ? 'on' : ''}">
+      <div class="bl-hd" data-act="botlogopen" data-id="${esc(k)}">
+        <div class="bl-ten"><b>${chung ? '⚠ Lỗi chung của bot' : esc(g.c.title || 'Chiến dịch ' + g.c.cid)}</b>
+          <div class="dim" style="font-size:11.5px">${chung ? 'đăng nhập, chuyển shop…' : (nhieuShop ? esc(g.c.shop) + ' · ' : '') + 'ID ' + esc(g.c.cid)}${
+            g.c && g.c.cur != null ? ' · đang đặt <b>' + botR(g.c.cur) + '</b>' : ''}</div></div>
+        <div class="bl-nay">${chinhNay.length ? `<span class="dim" style="font-size:11px">Hôm nay ${chinhNay.length} lần:</span> ${lich}`
+          : `<span class="dim" style="font-size:12px">${chung ? 'Lỗi gần nhất' : 'Hôm nay chưa chỉnh · lần cuối'} ${g.ls[0] ? esc(botHm(g.ls[0].at)) : ''}</span>`}${
+          loiNay ? ` <span class="chip bad">${loiNay} lỗi</span>` : ''}</div>
+        <span class="bl-mo">${mo ? '▾' : '▸'}</span>
+      </div>`;
+    if (mo){
+      const theoNgay = new Map();
+      g.ls.forEach(l => { const dt = botVnDate(l.at); if (!theoNgay.has(dt)) theoNgay.set(dt, []); theoNgay.get(dt).push(l); });
+      h += `<div class="bl-body">` + [...theoNgay.entries()].slice(0, 7).map(([dt, ls]) =>
+        `<div class="bl-day"><div class="bl-dh">${dt === homNay ? 'Hôm nay' : fmtDate(dt)} <span class="dim">· ${ls.length} dòng</span></div>` +
+        ls.slice().reverse().map(botLogLine).join('') + `</div>`).join('') +
+        (theoNgay.size > 7 ? `<div class="dim" style="font-size:12px">… còn ${theoNgay.size - 7} ngày cũ hơn</div>` : '') + `</div>`;
+    }
+    h += `</div>`;
+  });
+  return h + `</div>`;
+}
+
+/* ---- 📘 hướng dẫn: bot hoạt động thế nào (viết cho người mới) ---- */
+/* Lịch trong ngày của một chiến dịch thành các đoạn liền nhau, đã tính Đẩy sớm */
+function botDoan(c){
+  const plan = Array.isArray(c.plan) ? c.plan : Array(24).fill('giu');
+  const som = +c.som || 0, mins = [];
+  for (let m = 0; m < 1440; m += 5){
+    const raw = plan[Math.floor(m / 60)], sau = plan[Math.floor(((m + som) % 1440) / 60)];
+    mins.push(som && raw !== 'day' && sau === 'day' ? 'day' : raw);
+  }
+  const doan = [];
+  mins.forEach((md, i) => { const t = i * 5; if (!doan.length || doan[doan.length - 1].m !== md) doan.push({m:md, tu:t}); });
+  doan.forEach((x, i) => x.den = i + 1 < doan.length ? doan[i + 1].tu : 1440);
+  return doan;
+}
+const botHhmm = t => String(Math.floor(t / 60) % 24).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0');
+function botMuc(c, m){
+  const base = c.base || 0, w = m === 'day' ? base * (1 - (c.stepDown || 0) / 100) : m === 'siet' ? base * (1 + (c.stepUp || 0) / 100) : base;
+  const san = c.floorT != null ? c.floorT : c.floor || 0;
+  return Math.round(Math.max(w, san) * 10) / 10;
+}
+function botGuideHtml(d, key){
+  const ds = d.camps.filter(c => c.managed);
+  const c = ds.find(x => x.shop + '|' + x.cid === key) || ds[0];
+  const v = n => `<b class="bg-n">${botR(n)}</b>`;
+  let h = `<div class="bg">
+  <p class="bg-lead">Bot giống một người trực quảng cáo 24/24: cứ 5 phút xem đồng hồ một lần, tới giờ thì vào Shopee
+    <b>vặn ROAS mục tiêu</b> của từng sản phẩm lên hoặc xuống. Bot <b>không</b> đụng vào ngân sách, giá, hay bật/tắt quảng cáo.</p>
+
+  <h4>1 · ROAS mục tiêu là cái núm vặn</h4>
+  <p>ROAS = doanh thu ÷ tiền quảng cáo. ROAS 10 nghĩa là bỏ 1 đồng quảng cáo thu về 10 đồng doanh thu.</p>
+  <div class="bg-2">
+    <div class="bg-box"><b>Đặt mục tiêu CAO</b> = “kén khách”<br>Shopee chỉ cho quảng cáo hiện với người rất dễ mua →
+      <span class="ok">mỗi đồng lời hơn</span>, nhưng <span class="warn">ít đơn, ít tiền được tiêu</span>.</div>
+    <div class="bg-box"><b>Đặt mục tiêu THẤP</b> = “dễ dãi”<br>Shopee cho hiện rộng hơn →
+      <span class="ok">nhiều đơn hơn</span>, nhưng <span class="warn">mỗi đồng thu về ít hơn</span>.</div>
+  </div>
+  <p>Ý tưởng của bot: <b>giờ khách mua nhiều thì dễ dãi</b> (để không bỏ lỡ đơn), <b>giờ khách chỉ lướt xem thì kén</b>
+    (để khỏi đốt tiền vào người không mua).</p>
+
+  <h4>2 · Các con số cần biết</h4>
+  <table class="tbl sm bg-t"><tbody>
+    <tr><td><b>ROAS thực</b></td><td>Số Shopee báo thật sự đạt được (doanh thu ÷ chi).</td></tr>
+    <tr><td><b>ROAS chuẩn</b></td><td>ROAS thực của <b>30 ngày gần nhất</b>, bỏ ngày sale và 1 ngày trước/sau (những ngày đó số lệch hẳn).
+      Đây là “sức học bình thường” của sản phẩm.</td></tr>
+    <tr><td><b>ROAS biên</b></td><td>Mức hoà vốn: thấp hơn là lỗ. Bạn điền ở ⚙ Cài đặt từng sản phẩm (không bắt buộc).</td></tr>
+    <tr><td><b>Sàn</b></td><td>Mức thấp nhất bot được phép hạ xuống = lớn hơn giữa <b>ROAS biên</b> và <b>ROAS chuẩn × 0,7</b>
+      (tức chuẩn trừ 30%). Chưa điền biên thì sàn = chuẩn × 0,7.</td></tr>
+  </tbody></table>
+
+  <h4>3 · Ba chế độ trong ngày</h4>
+  <div class="bg-3">
+    <div class="bg-box"><span class="chip">Giữ</span><br>Mức bình thường = <b>ROAS chuẩn × 1,1</b> — muốn tốt hơn tháng trước 10%.</div>
+    <div class="bg-box"><span class="chip ok">Đẩy</span><br>Giờ đông khách: <b>hạ</b> mục tiêu khoảng 15% so với Giữ cho quảng cáo chạy mạnh.</div>
+    <div class="bg-box"><span class="chip warn">Siết</span><br>Giờ ít mua: <b>nâng</b> mục tiêu 10–15% so với Giữ cho đỡ tốn tiền.</div>
+  </div>
+  <p>Mỗi ngày bot chỉ vặn vài lần — đúng lúc đổi chế độ — chứ không vặn liên tục. <b>Đẩy luôn bắt đầu sớm 30 phút</b>
+    (lịch Đẩy từ 6h thì 5h30 đã hạ): Shopee cần một lúc mới phân phối theo mục tiêu mới, mà đơn tăng ngay từ 6h.</p>
+  <p><b>Ngày sale</b> (9/9, 10/10, 11/11… và ngày 25): tối hôm trước 21–23h bot <b>Siết</b> (khách đang để giỏ chờ voucher),
+    rồi Đẩy từ 23h30 tới hết 1h sáng ngày sale.</p>
+  <p><b>Đẩy Nhanh</b>: sản phẩm bật chế độ này thì Shopee tự thử mục tiêu thấp hơn khoảng 30%. Vì vậy bot đặt mục tiêu
+    <b>chia thêm 0,7</b> (đặt cao hơn) để khi Shopee tự hạ thì vẫn rơi đúng chỗ mong muốn.</p>`;
+
+  if (c){
+    const dn = c.kDN && c.kDN < 1, s = c.std30;
+    const day = botMuc(c, 'day'), siet = botMuc(c, 'siet'), giu = botMuc(c, 'giu');
+    const sanThuc = c.floor, sanT = c.floorT != null ? c.floorT : c.floor;
+    h += `<h4>4 · Làm thử bằng số thật</h4>
+    <div class="chips" style="margin-bottom:10px">${ds.map(x => `<button class="btn xs ${x === c ? 'pri' : ''}" data-act="botguide" data-id="${esc(x.shop + '|' + x.cid)}">${esc((x.title || x.cid).slice(0, 34))}</button>`).join('')}</div>
+    <div class="bg-ex">
+      <div class="bg-ex-hd"><b>${esc(c.title || c.cid)}</b> <span class="dim">· ${esc(c.shop)}${dn ? ' · đang bật Đẩy Nhanh' : ''}</span></div>
+      <ol class="bg-steps">
+        <li><b>ROAS chuẩn</b>${s ? ` = doanh thu ${moneyShort(s.gmv)} ÷ chi ${moneyShort(s.cost)} (${s.days} ngày${s.skip ? ', đã bỏ ' + s.skip + ' ngày sale' : ''})` : ''} = ${v(c.std)}</li>
+        <li><b>Mức Giữ</b> = ${botR(c.std)} × 1,1${dn ? ' ÷ 0,7 (Đẩy Nhanh)' : ''} = ${v(c.base)}</li>
+        <li><b>Mức Đẩy</b> = ${botR(c.base)} × (1 − ${Math.round(c.stepDown || 0)}%) = ${v(day)} &nbsp;·&nbsp; <b>Mức Siết</b> = ${botR(c.base)} × (1 + ${Math.round(c.stepUp || 0)}%) = ${v(siet)}</li>
+        <li><b>Sàn</b> = lớn hơn giữa biên ${c.bienSP ? botR(c.bienSP) : '(chưa điền)'} và ${botR(c.std)} × 0,7 = ${botR((c.std || 0) * 0.7)} → ${v(sanThuc)}${
+          dn ? `; quy ra mục tiêu đặt (÷ 0,7) = ${v(sanT)}` : ''}. Mức nào thấp hơn sàn thì bot đặt bằng sàn.</li>
+      </ol>
+      <div class="bg-day">${botDoan(c).map(x => `<div class="bg-seg ${x.m}" style="flex:${x.den - x.tu}">
+          <span>${botHhmm(x.tu)}</span><b>${botMuc(c, x.m) ? botR(botMuc(c, x.m)) : ''}</b></div>`).join('')}</div>
+      <div class="dim" style="font-size:11.5px;margin-top:6px">Lịch một ngày thường của sản phẩm này: xanh = Đẩy, cam = Siết, xám = Giữ. Số trong ô là ROAS mục tiêu bot đặt.</div>
+    </div>`;
+  }
+
+  h += `<h4>5 · Những điều nên biết</h4>
+  <ul class="bg-ul">
+    <li>Bạn tự sửa mục tiêu trên Shopee → lần đổi chế độ kế tiếp bot vẫn đặt lại theo công thức. Muốn bot thôi đụng vào một sản phẩm: bấm <b>⏸ Dừng riêng chiến dịch này</b>.</li>
+    <li>ROAS chuẩn tự cập nhật mỗi sáng, nên mức Giữ/Đẩy/Siết đổi dần theo sức bán thật của sản phẩm.</li>
+    <li>Sản phẩm bỏ tick <b>Chạy thật</b> thì bot chỉ tính và ghi nhật ký “chỉ báo”, không sửa Shopee.</li>
+    <li>Đổi ROAS từ 2 lần/tuần trở lên thì sản phẩm <b>không được Shopee hỗ trợ kinh phí</b> tuần đó — đã chấp nhận đánh đổi này.</li>
+    <li>Muốn biết bot có giúp không: xem bảng <b>ROAS theo khối giờ</b> (7 ngày gần nhất so với 28 ngày trước) và trang <b>📈 Tổng quan QC</b>.</li>
+  </ul></div>`;
   return h;
 }
 

@@ -1557,6 +1557,14 @@ bot (VPS) ── POST api/bot.php ──▶ bot_camp  : trạng thái từng chi
   Shopee hết hạn, phải đăng nhập lại trên VPS).
 - Luật máy chủ ở `botSave()/botView()/botPause()` trong `api/lib.php`, bản Node
   đối xứng trong `serve.js`. `bot_cfg`, `bot_seen` nằm trong bảng `kv`.
+- **Nhật ký theo sản phẩm** (`botLogGroups()`): mỗi chiến dịch một khối, đầu khối
+  là chuỗi lần chỉnh HÔM NAY (giờ · chế độ · mục tiêu mới), bấm mở xem từng ngày
+  (7 ngày; `ui.botLogOpen`). Lỗi không gắn chiến dịch (`cid "-"`) gom thành khối
+  "Lỗi chung". `botView()` trả 1.500 dòng gần nhất.
+- **📘 Bot hoạt động thế nào?** (`botGuideHtml()`): hướng dẫn viết cho người mới +
+  ví dụ tính bằng số thật của từng sản phẩm (chuẩn → Giữ → Đẩy/Siết → sàn) và
+  lịch một ngày đã tính Đẩy sớm (`som` phút, bot 1.4 gửi lên). Hub chỉ dựng lại từ
+  số bot gửi (`base`, `stepDown/Up`, `floorT`, `plan`, `som`) — luật vẫn ở bot.
 
 ## Hôm nay — ads đang chạy có gì bất thường chưa
 

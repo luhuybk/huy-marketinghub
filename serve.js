@@ -1533,7 +1533,7 @@ function botSave(inp){
         std:botNum(c.std), stepUp:botNum(c.stepUp), stepDown:botNum(c.stepDown), mode:botTxt(c.mode, 10), roas:botNum(c.roas),
         cost:botNum(c.cost), gmv:botNum(c.gmv), budget:botNum(c.budget), boost:!!c.boost, next:botTxt(c.next, 60),
         note:botTxt(c.note, 300), plan, bien:botNum(c.bien), floorT:botNum(c.floorT), bienSP:botNum(c.bienSP), live: 'live' in c ? !!c.live : null, sanSrc:botTxt(c.sanSrc, 8),
-        heSoGiu:botNum(c.heSoGiu), kDN:botNum(c.kDN),
+        heSoGiu:botNum(c.heSoGiu), kDN:botNum(c.kDN), som:botNum(c.som),
         std30: c.std30 && typeof c.std30 === 'object' ? {cost:botNum(c.std30.cost), gmv:botNum(c.std30.gmv), orders:botNum(c.std30.orders),
           roas:botNum(c.std30.roas), days:botNum(c.std30.days), skip:botNum(c.std30.skip)} : null};
       ins.run(shop, cid, JSON.stringify(d), now); n++;
@@ -1583,7 +1583,7 @@ function botView(){
   const D = db();
   const camps = D.prepare('SELECT shop, cid, data, at FROM bot_camp ORDER BY shop, cid').all()
     .map(x => { try { return Object.assign({shop:x.shop, cid:x.cid, at:x.at}, JSON.parse(x.data)); } catch(e){ return null; } }).filter(Boolean);
-  const logs = D.prepare('SELECT id, at, shop, cid, data FROM bot_log ORDER BY at DESC, id DESC LIMIT 400').all()
+  const logs = D.prepare('SELECT id, at, shop, cid, data FROM bot_log ORDER BY at DESC, id DESC LIMIT 1500').all()
     .map(x => { try { return Object.assign({id:x.id, at:x.at, shop:x.shop, cid:x.cid}, JSON.parse(x.data)); } catch(e){ return null; } }).filter(Boolean);
   const tu = new Date(Date.parse(vnNow().date) - 90 * 864e5).toISOString().slice(0, 10);
   const hours = D.prepare('SELECT shop, date, hour, cost, gmv, orders, clicks FROM bot_hour WHERE date >= ? ORDER BY shop, date, hour').all(tu)
