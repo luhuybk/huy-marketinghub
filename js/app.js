@@ -1442,6 +1442,14 @@ function radarMo(shop, cid){
 /* Bot giờ: hỏi máy chủ khi mở mục này; để mở lâu thì cứ 3 phút hỏi lại
    (bot chỉnh ROAS theo giờ, số cũ vài phút là đã lệch) */
 const BOT_CU_PHUT = 3;
+/* 📘 Hướng dẫn: mở hộp, hoặc đổi sản phẩm ví dụ ngay trong hộp đang mở */
+function botGuideOpen(key){
+  const d = botv.data; if (!d) return;
+  const m = [...$$('#modals .modal')].find(x => x.dataset.bg);
+  if (m){ m.querySelector('.mbody').innerHTML = botGuideHtml(d, key); return; }
+  const el = openModal('📘 Bot ROAS theo giờ hoạt động thế nào?', botGuideHtml(d, key), '', true);
+  el.dataset.bg = '1';
+}
 function botSetupOpen(){
   const d = botv.data; if (!d) return;
   openModal('Cài đặt từng sản phẩm', botSetupBody(d),
@@ -5493,6 +5501,8 @@ const ACTIONS = {
     catch(e){ toast(e.message || 'Không xoá được'); }
   },
   botshop:     id => { botv.shop = id; render(); },
+  botlogopen:  id => { ui.botLogOpen = Object.assign({}, ui.botLogOpen); ui.botLogOpen[id] = !ui.botLogOpen[id]; render(); },
+  botguide:    id => botGuideOpen(id),
   /* Dừng / chạy lại: data-id rỗng = cả bot, "shop|cid" = một chiến dịch; data-on 1 = dừng */
   /* Bảng cài đặt từng sản phẩm: ROAS biên + cho bot chỉnh thật. ✎ ở ô sàn cũng mở bảng này. */
   botsan:      () => botSetupOpen(),
@@ -6719,4 +6729,4 @@ document.addEventListener('paste', e => {
   bUpload(z.dataset.bid, fs);
 });
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "889b2a0c"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "3a8eb870"]);

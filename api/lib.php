@@ -2054,7 +2054,7 @@ function botSave(array $in): array {
             'cost' => botNum($c['cost'] ?? null), 'gmv' => botNum($c['gmv'] ?? null), 'budget' => botNum($c['budget'] ?? null),
             'boost' => !empty($c['boost']), 'next' => botTxt($c['next'] ?? '', 60), 'note' => botTxt($c['note'] ?? '', 300),
             'plan' => $plan, 'bien' => botNum($c['bien'] ?? null), 'floorT' => botNum($c['floorT'] ?? null), 'bienSP' => botNum($c['bienSP'] ?? null), 'live' => array_key_exists('live', $c) ? !empty($c['live']) : null,
-            'sanSrc' => botTxt($c['sanSrc'] ?? '', 8), 'heSoGiu' => botNum($c['heSoGiu'] ?? null), 'kDN' => botNum($c['kDN'] ?? null),
+            'sanSrc' => botTxt($c['sanSrc'] ?? '', 8), 'heSoGiu' => botNum($c['heSoGiu'] ?? null), 'kDN' => botNum($c['kDN'] ?? null), 'som' => botNum($c['som'] ?? null),
             'std30' => is_array($c['std30'] ?? null) ? ['cost' => botNum($c['std30']['cost'] ?? null), 'gmv' => botNum($c['std30']['gmv'] ?? null),
                          'orders' => botNum($c['std30']['orders'] ?? null), 'roas' => botNum($c['std30']['roas'] ?? null),
                          'days' => botNum($c['std30']['days'] ?? null), 'skip' => botNum($c['std30']['skip'] ?? null)] : null];
@@ -2120,7 +2120,7 @@ function botView(): array {
     if (is_array($d)) $camps[] = ['shop' => $x['shop'], 'cid' => $x['cid'], 'at' => $x['at']] + $d;
   }
   $logs = [];
-  foreach ($pdo->query('SELECT id, at, shop, cid, data FROM bot_log ORDER BY at DESC, id DESC LIMIT 400')->fetchAll() as $x) {
+  foreach ($pdo->query('SELECT id, at, shop, cid, data FROM bot_log ORDER BY at DESC, id DESC LIMIT 1500')->fetchAll() as $x) {
     $d = json_decode((string)$x['data'], true);
     if (is_array($d)) $logs[] = ['id' => (int)$x['id'], 'at' => $x['at'], 'shop' => $x['shop'], 'cid' => $x['cid']] + $d;
   }
