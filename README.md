@@ -1557,6 +1557,12 @@ bot (VPS) ── POST api/bot.php ──▶ bot_camp  : trạng thái từng chi
   Shopee hết hạn, phải đăng nhập lại trên VPS).
 - Luật máy chủ ở `botSave()/botView()/botPause()` trong `api/lib.php`, bản Node
   đối xứng trong `serve.js`. `bot_cfg`, `bot_seen` nằm trong bảng `kv`.
+- **Bố cục trang** (18/11): mỗi gian hàng một khối — thanh **Lịch hôm nay** vẽ một
+  lần (`botLichNgay()`: các đoạn Giữ/Đẩy/Siết đã tính Đẩy sớm, kim = giờ hiện tại)
+  vì sản phẩm cùng shop dùng chung lịch; dưới là **bảng sản phẩm** (`botBang()`, lưới
+  `.bt-row`, container query → thẻ trên khung hẹp): đang đặt, 3 mức Đẩy/Giữ/Siết
+  (mức đang chạy được tô), ROAS hôm nay so chuẩn, lần đổi tới. Bấm dòng → hộp chi tiết
+  (`botCampHtml()`: ô số, lịch có ghi mức, nút dừng riêng, nhật ký riêng của SP).
 - **Nhật ký theo sản phẩm** (`botLogGroups()`): mỗi chiến dịch một khối, đầu khối
   là chuỗi lần chỉnh HÔM NAY (giờ · chế độ · mục tiêu mới), bấm mở xem từng ngày
   (7 ngày; `ui.botLogOpen`). Lỗi không gắn chiến dịch (`cid "-"`) gom thành khối
