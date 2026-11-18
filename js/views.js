@@ -6770,8 +6770,9 @@ function botGuideHtml(d, key){
   </div>
   <p>Mỗi ngày bot chỉ vặn vài lần — đúng lúc đổi chế độ — chứ không vặn liên tục. <b>Đẩy luôn bắt đầu sớm 30 phút</b>
     (lịch Đẩy từ 6h thì 5h30 đã hạ): Shopee cần một lúc mới phân phối theo mục tiêu mới, mà đơn tăng ngay từ 6h.</p>
-  <p><b>Ngày sale</b> (9/9, 10/10, 11/11… và ngày 25): tối hôm trước 21–23h bot <b>Siết</b> (khách đang để giỏ chờ voucher),
-    rồi Đẩy từ 23h30 tới hết 1h sáng ngày sale.</p>
+  <p><b>Ngày sale</b> (9/9, 10/10, 11/11… và ngày 25): tối hôm trước 21–23h bot <b>Giữ</b> (không Siết):
+    khách thêm giỏ rồi để đó chờ voucher 0h — bỏ giỏ tối đó tới 38–60%, nhưng 0–1h ngày sale số đơn vượt hẳn số giỏ, tức là giỏ quay lại chốt.
+    Từ 23h30 bot Đẩy tới hết 1h sáng ngày sale.</p>
   <p><b>Đẩy Nhanh</b>: sản phẩm bật chế độ này thì Shopee tự thử mục tiêu thấp hơn khoảng 30%. Vì vậy bot đặt mục tiêu
     <b>chia thêm 0,7</b> (đặt cao hơn) để khi Shopee tự hạ thì vẫn rơi đúng chỗ mong muốn.</p>`;
 
@@ -7145,4 +7146,4 @@ function atDetailHtml(key){
   return h + form + `</div>`;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "c341fe5a"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "3e5f31b5"]);
