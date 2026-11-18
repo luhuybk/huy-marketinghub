@@ -1442,6 +1442,10 @@ function radarMo(shop, cid){
 /* Bot giờ: hỏi máy chủ khi mở mục này; để mở lâu thì cứ 3 phút hỏi lại
    (bot chỉnh ROAS theo giờ, số cũ vài phút là đã lệch) */
 const BOT_CU_PHUT = 3;
+/* Hộp chi tiết chiến dịch đang mở: vẽ lại khi bấm dừng/chạy hoặc khi số mới về */
+function botVeLaiCamp(){
+  $$('#modals .modal').forEach(m => { if (m.dataset.bc) m.querySelector('.mbody').innerHTML = botCampHtml(m.dataset.bc); });
+}
 /* 📘 Hướng dẫn: mở hộp, hoặc đổi sản phẩm ví dụ ngay trong hộp đang mở */
 function botGuideOpen(key){
   const d = botv.data; if (!d) return;
@@ -1462,7 +1466,7 @@ function ensureBot(lamMoi){
   if (!botDangMo() || !window.Server || !Server.authed() || !(may('adreport') || may('ads'))) return;
   if (botv.busy || (!lamMoi && botv.luc && Date.now() - botv.luc < BOT_CU_PHUT * 6e4)) return;
   botv.busy = true; botv.luc = Date.now();
-  Server.botView().then(r => { botv.data = r; botv.err = ''; })
+  Server.botView().then(r => { botv.data = r; botv.err = ''; botVeLaiCamp(); })
     .catch(e => { botv.err = e.message || 'lỗi không rõ'; })
     .finally(() => { botv.busy = false; if (botDangMo()) render(); });
 }
@@ -5503,6 +5507,8 @@ const ACTIONS = {
   botshop:     id => { botv.shop = id; render(); },
   botlogopen:  id => { ui.botLogOpen = Object.assign({}, ui.botLogOpen); ui.botLogOpen[id] = !ui.botLogOpen[id]; render(); },
   botguide:    id => botGuideOpen(id),
+  botcamp:     id => { if (!botv.data) return;
+    const m = openModal('Chi tiết sản phẩm', botCampHtml(id), '', true); m.dataset.bc = id; m.querySelector('.mbox').classList.add('at-mbox'); },
   /* Dừng / chạy lại: data-id rỗng = cả bot, "shop|cid" = một chiến dịch; data-on 1 = dừng */
   /* Bảng cài đặt từng sản phẩm: ROAS biên + cho bot chỉnh thật. ✎ ở ô sàn cũng mở bảng này. */
   botsan:      () => botSetupOpen(),
@@ -5523,7 +5529,7 @@ const ACTIONS = {
     if (on && !confirm(id ? 'Tạm dừng bot ở chiến dịch này? Bot sẽ không chỉnh ROAS của nó nữa cho tới khi bạn chạy lại.'
                           : 'Tạm dừng TOÀN BỘ bot? Bot sẽ giữ nguyên ROAS mục tiêu đang đặt, không chỉnh gì thêm.')) return;
     try { const r = await Server.botPause(on, id); if (botv.data) botv.data.cfg = r.cfg;
-          toast(on ? 'Đã tạm dừng — bot nhận lệnh trong vòng 5 phút' : 'Đã cho chạy lại'); render(); }
+          toast(on ? 'Đã tạm dừng — bot nhận lệnh trong vòng 5 phút' : 'Đã cho chạy lại'); render(); botVeLaiCamp(); }
     catch(e){ toast(e.message || 'Không lưu được'); }
   },
   adtab:       id => { ui.adTab = ['radar','month','gio','day','now','bot'].includes(id) ? id : 'radar'; ui.adQ = '';
@@ -6729,4 +6735,4 @@ document.addEventListener('paste', e => {
   bUpload(z.dataset.bid, fs);
 });
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "3a8eb870"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "c341fe5a"]);
