@@ -6720,7 +6720,7 @@ function botDoan(c){
   const som = +c.som || 0, mins = [];
   for (let m = 0; m < 1440; m += 5){
     const raw = plan[Math.floor(m / 60)], sau = plan[Math.floor(((m + som) % 1440) / 60)];
-    mins.push(som && raw !== 'day' && sau === 'day' ? 'day' : raw);
+    mins.push(som && raw === 'giu' && sau === 'day' ? 'day' : raw);   // bot 1.6: chỉ đẩy sớm khi đang Giữ
   }
   const doan = [];
   mins.forEach((md, i) => { const t = i * 5; if (!doan.length || doan[doan.length - 1].m !== md) doan.push({m:md, tu:t}); });
@@ -6768,8 +6768,10 @@ function botGuideHtml(d, key){
     <div class="bg-box"><span class="chip ok">Đẩy</span><br>Giờ đông khách: <b>hạ</b> mục tiêu khoảng 15% so với Giữ cho quảng cáo chạy mạnh.</div>
     <div class="bg-box"><span class="chip warn">Siết</span><br>Giờ ít mua: <b>nâng</b> mục tiêu 10–15% so với Giữ cho đỡ tốn tiền.</div>
   </div>
-  <p>Mỗi ngày bot chỉ vặn vài lần — đúng lúc đổi chế độ — chứ không vặn liên tục. <b>Đẩy luôn bắt đầu sớm 30 phút</b>
-    (lịch Đẩy từ 6h thì 5h30 đã hạ): Shopee cần một lúc mới phân phối theo mục tiêu mới, mà đơn tăng ngay từ 6h.</p>
+  <p>Mỗi ngày bot chỉ vặn vài lần — đúng lúc đổi chế độ — chứ không vặn liên tục. Khi đang <b>Giữ</b> mà sắp tới giờ Đẩy thì bot
+    <b>đẩy sớm 30 phút</b> (lịch Đẩy từ 6h thì 5h30 đã hạ) — đơn buổi sáng nhích từ 5h45. Còn đang <b>Siết</b> thì vào Đẩy đúng giờ.</p>
+  <p><b>0h ngày thường</b>: bot Đẩy đúng 0h00 tới 0h59 rồi về Giữ. Lúc 0h khách vào là mua luôn (chuyển đổi gần 20%, ROAS cao hơn trung bình ngày),
+    còn giỏ bỏ lúc 23h ngày thường thì không quay lại — nên 23h vẫn Siết và không đẩy sớm.</p>
   <p><b>Ngày sale</b> (9/9, 10/10, 11/11… và ngày 25): tối hôm trước 21–23h bot <b>Giữ</b> (không Siết):
     khách thêm giỏ rồi để đó chờ voucher 0h — bỏ giỏ tối đó tới 38–60%, nhưng 0–1h ngày sale số đơn vượt hẳn số giỏ, tức là giỏ quay lại chốt.
     Từ 23h30 bot Đẩy tới hết 1h sáng ngày sale.</p>
@@ -7146,4 +7148,4 @@ function atDetailHtml(key){
   return h + form + `</div>`;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "3e5f31b5"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "bcbf224e"]);
