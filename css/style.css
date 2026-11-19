@@ -1432,3 +1432,8 @@ tr.rv-dang{background:var(--bg3)}
   .bt-c-roas .chip{margin-left:3px}
 }
 @media(max-width:640px){ .bt-seg{padding:0 3px} .bt-seg b{font-size:11px} .bt-seg span{font-size:9.5px} }
+
+/* 🤖 Bot giờ 1.8: khung cảnh báo cắn tiền */
+.bt-canh{margin-top:10px;display:grid;cursor:default;gap:6px;background:color-mix(in srgb,var(--bad) 8%,var(--bg2))}
+.bt-canh ul{margin:4px 0 0;padding-left:18px;display:grid;gap:6px;font-size:13px}
+.bt-canh li div{font-size:12.5px;color:var(--tx2)}

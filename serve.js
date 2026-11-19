@@ -1533,7 +1533,7 @@ function botSave(inp){
         std:botNum(c.std), stepUp:botNum(c.stepUp), stepDown:botNum(c.stepDown), mode:botTxt(c.mode, 10), roas:botNum(c.roas),
         cost:botNum(c.cost), gmv:botNum(c.gmv), budget:botNum(c.budget), boost:!!c.boost, next:botTxt(c.next, 60),
         note:botTxt(c.note, 300), plan, bien:botNum(c.bien), floorT:botNum(c.floorT), bienSP:botNum(c.bienSP), live: 'live' in c ? !!c.live : null, sanSrc:botTxt(c.sanSrc, 8),
-        heSoGiu:botNum(c.heSoGiu), kDN:botNum(c.kDN), som:botNum(c.som),
+        heSoGiu:botNum(c.heSoGiu), kDN:botNum(c.kDN), som:botNum(c.som), xk:botTxt(c.xk, 12), nsGoc:botNum(c.nsGoc), nsLan:botNum(c.nsLan),
         std30: c.std30 && typeof c.std30 === 'object' ? {cost:botNum(c.std30.cost), gmv:botNum(c.std30.gmv), orders:botNum(c.std30.orders),
           roas:botNum(c.std30.roas), days:botNum(c.std30.days), skip:botNum(c.std30.skip)} : null};
       ins.run(shop, cid, JSON.stringify(d), now); n++;

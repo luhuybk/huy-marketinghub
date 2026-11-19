@@ -1541,6 +1541,12 @@ bot (VPS) ── POST api/bot.php ──▶ bot_camp  : trạng thái từng chi
           ◀── cfg {paused, off} ── mọi câu trả lời kèm cờ dừng
 ```
 
+- **Bot 1.8 (19/11/2026)** gửi thêm ba loại dòng/trường, Hub chỉ hiển thị, luật nằm ở bot:
+  `bot_log.kind = 'canhbao'` (cắn tiền, mọi chiến dịch kể cả bot không quản → khung đỏ đầu trang, gom
+  theo chiến dịch trong ngày), `kind = 'ngansach'` (bot nới / trả ngân sách, old/new là đồng → dòng xanh
+  "Hôm nay bot nới ngân sách"), và ở `bot_camp`: `xk` (`doichung` | `chay` | `sale` — thử xen kẽ),
+  `nsGoc` / `nsLan` (ngân sách gốc, số lần nới hôm nay). Thêm trường mới vào bot_camp thì nhớ sửa CẢ
+  `api/lib.php` lẫn `serve.js` (hai nơi lọc trường).
 - **Ghép nối** giống `ingest.php`: lần đầu bot gửi, Hub để thiết bị "Bot ROAS theo
   giờ (VPS)" ở trạng thái chờ → Cài đặt → Nhận số liệu quảng cáo tự động → Cho phép.
 - **Luật nằm ở bot.** Hub hiện đúng lịch, sàn, bước % bot gửi lên (`plan` 24 ô
