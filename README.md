@@ -1343,7 +1343,7 @@ trong `js/views.js`, `ensureAdTong()` + thao tác `at…` trong `js/app.js`.
   (+ ACOS), đơn, chi/đơn, giá trị đơn TB, CTR, tỉ lệ chuyển đổi (conv ÷ click,
   như Radar). Tính cả ngày sale — đây là tiền thật đã chi.
 - **ROAS 30N** = 30 ngày gần nhất so với 30 ngày liền trước, mặc định **bỏ ngày
-  sale ±1** (cùng luật ROAS chuẩn của bot; nút tắt được). Đổi ≥ 8% (so trên số %
+  sale** — ngày đôi ±1 và chính ngày 15, 25 (cùng luật ROAS chuẩn của bot 1.7; nút tắt được). Đổi ≥ 8% (so trên số %
   đã làm tròn, khớp với chip) mới là *Cải thiện / Đi xuống*; một trong hai kỳ chi
   < 200k hoặc < 10 đơn thì *Ít số liệu*. Bảng bày thêm Chuyển đổi và CTR vì ROAS
   thực bị ROAS mục tiêu kéo theo, còn hai số kia phản ánh chính sản phẩm.
