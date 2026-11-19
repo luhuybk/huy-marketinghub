@@ -6669,8 +6669,8 @@ function botLichNgay(c, vals){
 function botBang(list, cfg){
   const muc = (c, m) => `<span class="bt-m ${m} ${c.mode === m ? 'on' : ''}"><i>${BOT_TEN[m]}</i>${botR(botMuc(c, m))}</span>`;
   return `<div class="bt-list">
-    <div class="bt-row bt-head"><div>Sản phẩm</div><div class="r">Đang đặt</div><div>Mục tiêu theo chế độ</div>
-      <div class="r">ROAS hôm nay</div><div class="r">Chuẩn 30N</div><div>Lần đổi tới</div><div></div></div>` +
+    <div class="bt-row bt-head"><div>Sản phẩm</div><div class="r">Đang đặt</div><div class="r">ROAS hôm nay</div><div class="r">Chuẩn 30N</div>
+      <div>Ngân sách · Chi · GMV</div><div>Mục tiêu theo chế độ</div><div>Lần đổi tới</div><div></div></div>` +
     list.map(c => {
       const key = c.shop + '|' + c.cid, tat = !!(cfg.off || {})[key];
       const tag = [c.boost ? '<span class="chip acc">Đẩy Nhanh</span>' : '', tat ? '<span class="chip bad">Đã dừng</span>' : '',
@@ -6679,15 +6679,18 @@ function botBang(list, cfg){
         c.nsLan > 0 ? `<span class="chip ok">NS nới ${c.nsLan} lần</span>` : '',
         !tat && c.live === false ? '<span class="chip warn">Chỉ báo</span>' : '', !c.managed ? '<span class="chip">Chỉ theo dõi</span>' : ''].join('');
       const lech = c.roas != null && c.std ? c.roas / c.std - 1 : null;
+      const phan = c.budget && c.cost != null ? Math.min(1, c.cost / c.budget) : null;
       const [gio, ...ve] = String(c.next || '').split(' ');
       return `<div class="bt-row ${tat ? 'tat' : ''}" data-act="botcamp" data-id="${esc(key)}" title="Bấm để xem chi tiết, nhật ký và dừng riêng">
         <div class="bt-c-ten"><div class="bt-ten">${esc(c.title || 'Chiến dịch ' + c.cid)}</div><div class="bt-sub">${tag}<span>sàn ${botR(c.floorT != null ? c.floorT : c.floor)}</span></div></div>
         <div class="bt-c-dat r"><span class="bt-lb">Đang đặt</span><b class="bt-big">${botR(c.cur)}</b>${botModeChip(c.mode)}</div>
+        <div class="bt-c-roas r"><span class="bt-lb">ROAS hôm nay</span><b class="bt-big ${c.roas != null && c.floor && c.roas < c.floor ? 'bad' : ''}">${botR(c.roas)}</b>${
+          lech != null ? `<span class="chip ${lech >= 0 ? 'ok' : 'bad'}" title="so với ROAS chuẩn 30 ngày">${lech >= 0 ? '▲' : '▼'}${Math.abs(lech * 100).toFixed(0)}%</span>` : ''}</div>
+        <div class="bt-c-std r"><span class="bt-lb">Chuẩn 30N</span><b class="bt-big bt-mid">${botR(c.std)}</b></div>
+        <div class="bt-c-tien"><span class="bt-lb">Ngân sách · Chi · GMV</span>
+          <div class="bt-tien"><span><i>NS</i><b>${c.budget ? moneyShort(c.budget) : '∞'}</b></span><span><i>Chi</i><b>${c.cost != null ? moneyShort(c.cost) : '—'}</b></span><span><i>GMV</i><b>${c.gmv != null ? moneyShort(c.gmv) : '—'}</b></span></div>
+          ${phan != null ? `<div class="bt-bar2 ${phan >= 0.8 ? 'gan' : ''}" title="Đã chi ${Math.round(phan * 100)}% ngân sách ngày"><i style="width:${(phan * 100).toFixed(1)}%"></i></div>` : '<div class="bt-mini">không giới hạn ngân sách</div>'}</div>
         <div class="bt-c-muc"><span class="bt-lb">Mục tiêu theo chế độ</span><div class="bt-ms">${muc(c, 'day')}${muc(c, 'giu')}${muc(c, 'siet')}</div></div>
-        <div class="bt-c-roas r"><span class="bt-lb">ROAS hôm nay</span><b class="${c.roas != null && c.floor && c.roas < c.floor ? 'bad' : ''}">${botR(c.roas)}</b>${
-          lech != null ? `<span class="chip ${lech >= 0 ? 'ok' : 'bad'}">${lech >= 0 ? '▲' : '▼'}${Math.abs(lech * 100).toFixed(0)}%</span>` : ''}
-          <div class="bt-mini">${c.cost != null ? 'chi ' + moneyShort(c.cost) : ''}${c.budget ? ' / NS ' + moneyShort(c.budget) : ''}</div></div>
-        <div class="bt-c-std r"><span class="bt-lb">Chuẩn 30N</span><b>${botR(c.std)}</b></div>
         <div class="bt-c-next"><span class="bt-lb">Lần đổi tới</span>${c.next ? `<b>${esc(gio)}</b> <span class="dim">${esc(ve.join(' '))}</span>` : '<span class="dim">—</span>'}${
           c.note ? `<div class="bt-note">${esc(c.note)}</div>` : ''}</div>
         <div class="bt-go">›</div>
