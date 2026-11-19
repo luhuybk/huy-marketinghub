@@ -366,4 +366,4 @@ const Gate = (() => {
 })();
 window.Gate = Gate;
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/api.js", "14c87725"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/api.js", "024216d2"]);
