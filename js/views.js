@@ -6493,6 +6493,19 @@ function viewAdBot(){
         : `<button class="btn dngr sm" data-act="botpause" data-id="" data-on="1">⏸ Tạm dừng bot</button>`) : ''}
     </div>
   </div>`;
+  /* ---- 1.8: cảnh báo cắn tiền + ngân sách bot nới hôm nay ---- */
+  const homNay = botVnNow().date;
+  const canhNay = d.logs.filter(l => l.kind === 'canhbao' && botVnDate(l.at) === homNay);
+  const nsNay = d.logs.filter(l => l.kind === 'ngansach' && l.ok !== false && botVnDate(l.at) === homNay && l.new > l.old);
+  if (canhNay.length){
+    const moi = new Map(); canhNay.forEach(l => { const k = l.shop + '|' + l.cid; if (!moi.has(k)) moi.set(k, l); });   // logs mới nhất trước
+    h += `<div class="al al-bad bt-canh"><b>⚠️ ${moi.size} chiến dịch cắn tiền hôm nay</b>
+      <div class="dim" style="font-size:12px">Chi gấp đôi mức thường tới giờ đó mà ROAS tụt. Bot chỉ báo, không tự sửa — bấm vào để xem, hoặc vào Shopee kiểm Đẩy Nhanh / ngân sách / mục tiêu.</div>
+      <ul>${[...moi.values()].map(l => `<li><span class="dim">${esc(botGio(l.at))}</span> <b>${esc(l.title || 'Chiến dịch ' + l.cid)}</b>
+        <span class="dim">· ${esc(l.shop)} · ID ${esc(l.cid)}</span><div>${esc(String(l.reason || '').replace(/^⚠️ Cắn tiền: /, ''))}</div></li>`).join('')}</ul></div>`;
+  }
+  if (nsNay.length) h += `<div class="al al-ok" style="margin-top:10px">💰 Hôm nay bot nới ngân sách ${nsNay.length} lần: ${
+    nsNay.map(l => `<b>${esc(l.title || l.cid)}</b> ${moneyShort(l.old)} → ${moneyShort(l.new)}`).join(' · ')} <span class="dim">(sang ngày mới tự trả về gốc)</span></div>`;
   if (chu && choBien.length) h += `<div class="al al-warn" style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <div class="grow"><b>${choBien.length} sản phẩm đang chỉ báo</b> — điền ROAS biên rồi tick Chạy thật để bot bắt đầu chỉnh.</div>
       <button class="btn pri sm" data-act="botsetup">⚙ Cài đặt</button></div>`;
@@ -6580,11 +6593,13 @@ function botHoursView(rows, vn, logs){
 const botVnDate = iso => new Intl.DateTimeFormat('en-CA', {timeZone:'Asia/Ho_Chi_Minh'}).format(new Date(iso));
 const botGio = iso => new Intl.DateTimeFormat('en-GB', {timeZone:'Asia/Ho_Chi_Minh', hour:'2-digit', minute:'2-digit', hour12:false}).format(new Date(iso));
 function botLogLine(l){
-  const loi = l.kind === 'error' || l.ok === false;
+  const loi = l.kind === 'error' || l.ok === false, canh = l.kind === 'canhbao', ns = l.kind === 'ngansach';
   const chip = l.kind === 'roas' || l.kind === 'dry' ? botModeChip(l.mode) + (l.kind === 'dry' ? '<span class="chip warn">chỉ báo</span>' : '')
+    : canh ? '<span class="chip bad">⚠️ Cắn tiền</span>' : ns ? `<span class="chip ${loi ? 'bad' : 'ok'}">Ngân sách</span>`
     : `<span class="chip ${loi ? 'bad' : ''}">${l.kind === 'error' ? 'Lỗi' : l.kind === 'info' ? 'Ghi chú' : esc(l.kind)}</span>`;
-  const so = l.old != null || l.new != null ? `${botR(l.old)} → <b class="${l.new < l.old ? 'ok' : 'warn'}">${botR(l.new)}</b>` : '';
-  return `<div class="bl-li ${loi ? 'loi' : l.kind === 'info' ? 'info' : ''}">
+  const so = ns && l.old != null ? `${moneyShort(l.old)} → <b class="${l.new < l.old ? 'warn' : 'ok'}">${moneyShort(l.new)}</b>`
+    : l.old != null || l.new != null ? `${botR(l.old)} → <b class="${l.new < l.old ? 'ok' : 'warn'}">${botR(l.new)}</b>` : '';
+  return `<div class="bl-li ${loi || canh ? 'loi' : l.kind === 'info' ? 'info' : ''}">
     <span class="bl-t">${esc(botGio(l.at))}</span><span class="bl-c">${chip}</span><span class="bl-so">${so}</span>
     <span class="bl-r">${l.roas != null ? 'ROAS lúc đó ' + botR(l.roas) + (l.cost != null ? ' · chi ' + moneyShort(l.cost) : '') : ''}</span>
     <div class="bl-ly">${esc(l.reason || '')}${loi && l.err ? ` <span class="bad">${esc(l.err)}</span>` : ''}</div></div>`;
@@ -6659,6 +6674,9 @@ function botBang(list, cfg){
     list.map(c => {
       const key = c.shop + '|' + c.cid, tat = !!(cfg.off || {})[key];
       const tag = [c.boost ? '<span class="chip acc">Đẩy Nhanh</span>' : '', tat ? '<span class="chip bad">Đã dừng</span>' : '',
+        c.xk === 'doichung' ? '<span class="chip warn" title="Thử xen kẽ: hôm nay Giữ cả ngày để so với ngày chạy lịch">Đối chứng hôm nay</span>'
+          : c.xk === 'chay' ? '<span class="chip" title="Thử xen kẽ: hôm nay chạy lịch Đẩy/Giữ/Siết">Xen kẽ · chạy lịch</span>' : '',
+        c.nsLan > 0 ? `<span class="chip ok">NS nới ${c.nsLan} lần</span>` : '',
         !tat && c.live === false ? '<span class="chip warn">Chỉ báo</span>' : '', !c.managed ? '<span class="chip">Chỉ theo dõi</span>' : ''].join('');
       const lech = c.roas != null && c.std ? c.roas / c.std - 1 : null;
       const [gio, ...ve] = String(c.next || '').split(' ');
@@ -6668,7 +6686,7 @@ function botBang(list, cfg){
         <div class="bt-c-muc"><span class="bt-lb">Mục tiêu theo chế độ</span><div class="bt-ms">${muc(c, 'day')}${muc(c, 'giu')}${muc(c, 'siet')}</div></div>
         <div class="bt-c-roas r"><span class="bt-lb">ROAS hôm nay</span><b class="${c.roas != null && c.floor && c.roas < c.floor ? 'bad' : ''}">${botR(c.roas)}</b>${
           lech != null ? `<span class="chip ${lech >= 0 ? 'ok' : 'bad'}">${lech >= 0 ? '▲' : '▼'}${Math.abs(lech * 100).toFixed(0)}%</span>` : ''}
-          <div class="bt-mini">${c.cost != null ? 'chi ' + moneyShort(c.cost) : ''}</div></div>
+          <div class="bt-mini">${c.cost != null ? 'chi ' + moneyShort(c.cost) : ''}${c.budget ? ' / NS ' + moneyShort(c.budget) : ''}</div></div>
         <div class="bt-c-std r"><span class="bt-lb">Chuẩn 30N</span><b>${botR(c.std)}</b></div>
         <div class="bt-c-next"><span class="bt-lb">Lần đổi tới</span>${c.next ? `<b>${esc(gio)}</b> <span class="dim">${esc(ve.join(' '))}</span>` : '<span class="dim">—</span>'}${
           c.note ? `<div class="bt-note">${esc(c.note)}</div>` : ''}</div>
@@ -6690,12 +6708,15 @@ function botCampHtml(key){
   <div class="at-kpi">
     <div class="at-kpib lon"><div class="at-lb">Đang đặt</div><div class="at-cmpv"><b>${botR(c.cur)}</b>${botModeChip(c.mode)}</div>
       <div class="at-was">Giữ ${botR(c.base)} = chuẩn ${botR(c.std)} × ${botR(c.heSoGiu || 1.1)}${dn ? ' ÷ ' + botR(c.kDN) : ''}</div></div>
-    <div class="at-kpib"><div class="at-lb">ROAS hôm nay</div><div class="at-cmpv"><b>${botR(c.roas)}</b></div><div class="at-was">${c.cost != null ? 'chi ' + moneyShort(c.cost) : ''}${c.at ? ' · ' + esc(botHm(c.at)) : ''}</div></div>
+    <div class="at-kpib"><div class="at-lb">ROAS hôm nay</div><div class="at-cmpv"><b>${botR(c.roas)}</b></div><div class="at-was">${c.cost != null ? 'chi ' + moneyShort(c.cost) : ''}${c.at ? ' · ' + esc(botHm(c.at)) : ''}${
+      c.budget ? '<br>ngân sách ' + moneyShort(c.budget) + (c.nsGoc && Math.abs(c.nsGoc - c.budget) > 1 ? ' (gốc ' + moneyShort(c.nsGoc) + ', bot đã nới)' : '') : '<br>không giới hạn ngân sách'}</div></div>
     <div class="at-kpib"><div class="at-lb">ROAS chuẩn 30N</div><div class="at-cmpv"><b>${botR(c.std)}</b></div><div class="at-was">${s ? 'chi ' + moneyShort(s.cost) + ' · ' + num(s.orders || 0) + ' đơn' : ''}</div></div>
     <div class="at-kpib"><div class="at-lb">Sàn</div><div class="at-cmpv"><b>${botR(c.floorT != null ? c.floorT : c.floor)}</b></div>
       <div class="at-was">${c.bienSP ? 'biên ' + botR(c.bienSP) : 'chuẩn × 0,7'}${dn ? ' ÷ 0,7' : ''}</div></div>
   </div>
   ${botLichNgay(c, true)}
+  ${c.xk ? `<div class="at-note">🧪 <b>Thử xen kẽ</b>: ${c.xk === 'doichung' ? 'hôm nay là ngày <b>đối chứng</b> — Giữ cả ngày, không Đẩy/Siết.' : c.xk === 'sale' ? 'quanh ngày sale nên chạy lịch bình thường, không tính vào thử.' : 'hôm nay chạy lịch Đẩy/Giữ/Siết; ngày mai là ngày đối chứng.'}
+    Sau 2–3 tuần so ROAS và lợi nhuận giữa ngày chạy lịch và ngày đối chứng để biết lịch giờ có giúp thật không.</div>` : ''}
   ${c.note ? `<div class="at-note">${esc(c.note)}</div>` : ''}
   <div class="btns" style="margin:12px 0 4px">
     <button class="btn sm" data-act="botguide" data-id="${esc(key)}">📘 Cách tính các số này</button>
@@ -6779,7 +6800,15 @@ function botGuideHtml(d, key){
     (ROAS chỉ 5,8–7,2) nên tối đó vẫn <b>Siết</b> như ngày thường. Ngày 10, 20 gần như ngày thường. <b>Ngày sau sale</b> đơn ít hơn
     nhưng ROAS không kém (Shopee tự chi ít đi), nên bot không Siết thêm.</p>
   <p><b>Đẩy Nhanh</b>: sản phẩm bật chế độ này thì Shopee tự thử mục tiêu thấp hơn khoảng 30%. Vì vậy bot đặt mục tiêu
-    <b>chia thêm 0,7</b> (đặt cao hơn) để khi Shopee tự hạ thì vẫn rơi đúng chỗ mong muốn.</p>`;
+    <b>chia thêm 0,7</b> (đặt cao hơn) để khi Shopee tự hạ thì vẫn rơi đúng chỗ mong muốn. Từ 19/11 các sản phẩm bot quản đã tắt Đẩy Nhanh.</p>
+  <p><b>⚠️ Cảnh báo cắn tiền</b> (mọi chiến dịch của 2 shop, cả con bot không quản): chi hôm nay từ 100k, gấp đôi mức thường tới giờ đó
+    (chi trung bình 7 ngày thường × phần chi thường đã qua tới giờ này), mà ROAS tụt dưới 60% mức thường (hoặc dưới 3) → hiện khung đỏ đầu trang.
+    Bot chỉ báo, không tự sửa. Mỗi chiến dịch báo 1 lần/ngày, chi tăng thêm 50% thì báo lại.</p>
+  <p><b>💰 Nới ngân sách</b> (chỉ sản phẩm bot quản có đặt ngân sách ngày): khi đã chi 80% ngân sách, ROAS hôm nay ≥ ROAS chuẩn và có từ 3 đơn,
+    trước 22h → bot nới +25%, tối đa 2 lần/ngày và không quá 2 lần ngân sách gốc. Sang ngày mới tự trả về ngân sách gốc.
+    Bạn tự đổi ngân sách thì bot lấy số mới làm gốc.</p>
+  <p><b>🧪 Thử xen kẽ</b> (Gôm Butterfly C2 và Akuma Fluffy, từ 20/11): một ngày chạy lịch Đẩy/Giữ/Siết, một ngày <b>đối chứng</b> Giữ cả ngày.
+    Hai sản phẩm lệch nhau một ngày. Quanh ngày sale chạy bình thường. Sau 2–3 tuần so hai loại ngày để biết lịch giờ có làm lời hơn không.</p>`;
 
   if (c){
     const dn = c.kDN && c.kDN < 1, s = c.std30;
@@ -7153,4 +7182,4 @@ function atDetailHtml(key){
   return h + form + `</div>`;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "73802a15"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "14c87725"]);
