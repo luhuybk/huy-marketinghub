@@ -6755,7 +6755,7 @@ function botGuideHtml(d, key){
   <h4>2 · Các con số cần biết</h4>
   <table class="tbl sm bg-t"><tbody>
     <tr><td><b>ROAS thực</b></td><td>Số Shopee báo thật sự đạt được (doanh thu ÷ chi).</td></tr>
-    <tr><td><b>ROAS chuẩn</b></td><td>ROAS thực của <b>30 ngày gần nhất</b>, bỏ ngày sale và 1 ngày trước/sau (những ngày đó số lệch hẳn).
+    <tr><td><b>ROAS chuẩn</b></td><td>ROAS thực của <b>30 ngày gần nhất</b>, bỏ ngày sale đôi kèm 1 ngày trước/sau, và chính ngày 15, 25 (những ngày đó số lệch hẳn).
       Đây là “sức học bình thường” của sản phẩm.</td></tr>
     <tr><td><b>ROAS biên</b></td><td>Mức hoà vốn: thấp hơn là lỗ. Bạn điền ở ⚙ Cài đặt từng sản phẩm (không bắt buộc).</td></tr>
     <tr><td><b>Sàn</b></td><td>Mức thấp nhất bot được phép hạ xuống = lớn hơn giữa <b>ROAS biên</b> và <b>ROAS chuẩn × 0,7</b>
@@ -6772,9 +6772,12 @@ function botGuideHtml(d, key){
     <b>đẩy sớm 30 phút</b> (lịch Đẩy từ 6h thì 5h30 đã hạ) — đơn buổi sáng nhích từ 5h45. Còn đang <b>Siết</b> thì vào Đẩy đúng giờ.</p>
   <p><b>0h ngày thường</b>: bot Đẩy đúng 0h00 tới 0h59 rồi về Giữ. Lúc 0h khách vào là mua luôn (chuyển đổi gần 20%, ROAS cao hơn trung bình ngày),
     còn giỏ bỏ lúc 23h ngày thường thì không quay lại — nên 23h vẫn Siết và không đẩy sớm.</p>
-  <p><b>Ngày sale</b> (9/9, 10/10, 11/11… và ngày 25): tối hôm trước 21–23h bot <b>Giữ</b> (không Siết):
+  <p><b>Sale lớn — ngày đôi</b> (9/9, 10/10, 11/11…, đơn gấp 3–5 lần ngày thường): tối hôm trước 21–23h bot <b>Giữ</b> (không Siết):
     khách thêm giỏ rồi để đó chờ voucher 0h — bỏ giỏ tối đó tới 38–60%, nhưng 0–1h ngày sale số đơn vượt hẳn số giỏ, tức là giỏ quay lại chốt.
     Từ 23h30 bot Đẩy tới hết 1h sáng ngày sale.</p>
+  <p><b>Sale nhỏ — ngày 15 và 25</b> (đơn tăng 20–80%): 0–2h rất mạnh nên bot Đẩy tới hết 1h59, nhưng tối hôm trước là khung tệ nhất tháng
+    (ROAS chỉ 5,8–7,2) nên tối đó vẫn <b>Siết</b> như ngày thường. Ngày 10, 20 gần như ngày thường. <b>Ngày sau sale</b> đơn ít hơn
+    nhưng ROAS không kém (Shopee tự chi ít đi), nên bot không Siết thêm.</p>
   <p><b>Đẩy Nhanh</b>: sản phẩm bật chế độ này thì Shopee tự thử mục tiêu thấp hơn khoảng 30%. Vì vậy bot đặt mục tiêu
     <b>chia thêm 0,7</b> (đặt cao hơn) để khi Shopee tự hạ thì vẫn rơi đúng chỗ mong muốn.</p>`;
 
@@ -6828,15 +6831,17 @@ function botGuideHtml(d, key){
 const AT_NGUONG = 0.08;               // ROAS 30N đổi ≥ 8% mới gọi là cải thiện / đi xuống
 const AT_MIN_CHI = 200000, AT_MIN_DON = 10;   // dưới mức này một trong hai kỳ thì "Ít số liệu"
 const AT_NGAY_VE = 90;                // biểu đồ xu hướng: 90 ngày gần nhất
-const atSaleDay = ds => { const p = String(ds).split('-'); return +p[2] === +p[1] || +p[2] === 25; };
+/* Cùng luật ROAS chuẩn của bot 1.7: bỏ ngày đôi ±1, và chính ngày sale nhỏ 15/25 */
+const atSaleDay = ds => { const p = String(ds).split('-'); return +p[2] === +p[1] || +p[2] === 15 || +p[2] === 25; };
+const atSaleLon = ds => { const p = String(ds).split('-'); return +p[2] === +p[1]; };
 const atF1 = v => v == null || !isFinite(v) ? '—' : (+v).toFixed(1).replace('.', ',');
 const atPc = (v, d) => v == null || !isFinite(v) ? '—' : (v * 100).toFixed(d == null ? 1 : d).replace('.', ',') + '%';
 const atSkip = () => ui.atSkip !== false;
 
 function atPrep(D){
   if (D._p) return D._p;
-  const N = D.dates.length, sale = D.dates.map(atSaleDay);
-  D._p = {N, sale, loai: sale.map((s, i) => s || !!sale[i - 1] || !!sale[i + 1])};
+  const N = D.dates.length, sale = D.dates.map(atSaleDay), lon = D.dates.map(atSaleLon);
+  D._p = {N, sale, loai: sale.map((s, i) => s || !!lon[i - 1] || !!lon[i + 1])};
   return D._p;
 }
 /* Cộng số của một nhóm chiến dịch trong khoảng chỉ số ngày [a, b] */
@@ -6872,7 +6877,7 @@ function atVerdict(now, prev){
 }
 
 /* Biểu đồ xu hướng: cột mờ = chi/ngày (trục phải), chấm mờ = ROAS từng ngày,
-   đường đậm = ROAS 30 ngày trượt (trục trái). Dải hồng = ngày sale ±1,
+   đường đậm = ROAS 30 ngày trượt (trục trái). Dải hồng = ngày sale (đôi ±1, 15, 25),
    vạch xanh = mốc cải tiến, vạch vàng = ROAS mục tiêu đổi. */
 function atChart(D, P, cs, o){
   o = o || {};
@@ -6894,7 +6899,7 @@ function atChart(D, P, cs, o){
   const yR = v => pt + ph - Math.min(v, maxR) / maxR * ph, yC = v => pt + ph - v / maxC * ph;
   let s = '';
   for (let k = 0; k < n; k++) if (skip && P.loai[i0 + k])
-    s += `<rect x="${(x(k) - pw / n / 2).toFixed(1)}" y="${pt}" width="${(pw / n).toFixed(1)}" height="${ph}" class="at-sale"><title>${fmtDate(D.dates[i0 + k])}: ngày sale ±1 — không tính vào ROAS 30N</title></rect>`;
+    s += `<rect x="${(x(k) - pw / n / 2).toFixed(1)}" y="${pt}" width="${(pw / n).toFixed(1)}" height="${ph}" class="at-sale"><title>${fmtDate(D.dates[i0 + k])}: ngày sale (đôi ±1, ngày 15, 25) — không tính vào ROAS 30N</title></rect>`;
   for (let g = 0; g <= 4; g++){
     const y = pt + ph - ph * g / 4;
     s += `<line x1="${pl}" x2="${W - pr}" y1="${y}" y2="${y}" class="c-grid"/>
@@ -6916,7 +6921,7 @@ function atChart(D, P, cs, o){
   const buoc = Math.max(1, Math.round(n / 7));
   for (let k = 0; k < n; k += buoc) s += `<text x="${x(k)}" y="${H - 6}" class="c-ax" text-anchor="middle">${D.dates[i0 + k].slice(8, 10)}/${D.dates[i0 + k].slice(5, 7)}</text>`;
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img">${s}</svg>
-    <div class="at-leg"><span><i class="l1"></i>ROAS 30 ngày trượt${skip ? ' (bỏ ngày sale ±1)' : ''}</span><span><i class="l2"></i>ROAS từng ngày</span><span><i class="l3"></i>Chi QC/ngày (trục phải)</span>${o.tg && o.tg.length ? '<span><i class="l4"></i>Đổi ROAS mục tiêu</span>' : ''}${o.moc && o.moc.length ? '<span><i class="l5"></i>Mốc cải tiến</span>' : ''}</div>`;
+    <div class="at-leg"><span><i class="l1"></i>ROAS 30 ngày trượt${skip ? ' (bỏ ngày sale)' : ''}</span><span><i class="l2"></i>ROAS từng ngày</span><span><i class="l3"></i>Chi QC/ngày (trục phải)</span>${o.tg && o.tg.length ? '<span><i class="l4"></i>Đổi ROAS mục tiêu</span>' : ''}${o.moc && o.moc.length ? '<span><i class="l5"></i>Mốc cải tiến</span>' : ''}</div>`;
 }
 
 function viewAdTong(){
@@ -6974,7 +6979,7 @@ function viewAdTong(){
       </div>
     </div>
     ${atChart(D, P, cs)}
-    <div class="chips" style="margin-top:8px"><button class="btn sm ${skip ? 'pri' : ''}" data-act="atskip">${skip ? '✓ ' : ''}Bỏ ngày sale ±1 khi tính ROAS 30N</button></div>
+    <div class="chips" style="margin-top:8px"><button class="btn sm ${skip ? 'pri' : ''}" data-act="atskip">${skip ? '✓ ' : ''}Bỏ ngày sale khi tính ROAS 30N</button></div>
   </div>`;
 
   return h + viewAdTongSp(D, P, cs, !sh);
@@ -7025,7 +7030,7 @@ function viewAdTongSp(D, P, cs, nhieuShop){
   let h = `<div class="card at-sp" style="margin-top:12px">
     <div class="at-sp-hd">
       <div class="grow"><h3 style="margin:0">Xu hướng ROAS 30 ngày theo sản phẩm</h3>
-        <div class="dim" style="font-size:12px;margin-top:2px">So 30 ngày gần nhất với 30 ngày liền trước${skip ? ', bỏ ngày sale ±1' : ''} ·
+        <div class="dim" style="font-size:12px;margin-top:2px">So 30 ngày gần nhất với 30 ngày liền trước${skip ? ', bỏ ngày sale' : ''} ·
           đổi từ ${Math.round(AT_NGUONG * 100)}% mới tính là lên / xuống · <b>bấm một sản phẩm</b> để xem biểu đồ và ghi 📌 mốc cải tiến</div></div>
     </div>
     <div class="at-filt">
@@ -7148,4 +7153,4 @@ function atDetailHtml(key){
   return h + form + `</div>`;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "bcbf224e"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "73802a15"]);
