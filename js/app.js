@@ -5520,7 +5520,10 @@ const ACTIONS = {
       ? `Giao cho bot quản:\n«${ten}»\n\nTừ lượt tới (trong 5 phút) bot đổi ROAS mục tiêu theo giờ trên Shopee:\n` +
         (std ? `• Giữ = chuẩn 30N ${botR(std)} × 1,1${a.dn ? ' ÷ 0,7 (Đẩy Nhanh)' : ''} ≈ ${botR(std * 1.1 / kDN)}\n• Đẩy −15%, Siết +15% theo lịch giờ\n• Không bao giờ dưới sàn ≈ ${botR(std * 0.7 / kDN)}\n`
              : `• Chưa có ROAS 30 ngày — bot chưa chỉnh cho tới khi có số\n`) +
-        `• Có thể tự nới ngân sách ngày khi ROAS tốt (sang ngày trả về gốc)\n\nĐồng ý?`
+        `• Có thể tự nới ngân sách ngày khi ROAS tốt (sang ngày trả về gốc)\n` +
+        (std && std < 6 ? `\n⚠️ ROAS 30N chỉ ${botR(std)} (dưới 6): bot sẽ CHỈ BÁO, chưa sửa thật — vì hạ mục tiêu cho con ROAS thấp là chi thêm cho con đang lỗ. Muốn chạy thật: điền ROAS biên rồi tick Chạy thật trong ⚙ Cài đặt từng sản phẩm.\n`
+          : std && a.cur && std * 1.1 / kDN < a.cur * 0.75 ? `\n⚠️ Mức Giữ ≈ ${botR(std * 1.1 / kDN)} thấp hơn nhiều so với mục tiêu đang đặt ${botR(a.cur)} — Shopee sẽ chi mạnh hơn hẳn. Nên điền ROAS biên trước (⚙ Cài đặt từng sản phẩm).\n` : '') +
+        (a.dn ? `\nℹ️ Quảng cáo đang bật Đẩy Nhanh — nên tắt trên Shopee như các SP bot đang quản.\n` : '') + `\nĐồng ý?`
       : `Bỏ khỏi bot:\n«${ten}»\n\nLượt tới bot trả ROAS mục tiêu về mức Giữ${c && c.base ? ' (' + botR(c.base) + ')' : ''}, ngân sách về gốc nếu hôm nay đã nới, rồi thôi chỉnh.\n\nĐồng ý?`;
     if (!confirm(msg)) return;
     try { const r = await Server.botPick(id, on, ten); d.cfg = r.cfg;
