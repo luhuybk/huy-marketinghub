@@ -635,6 +635,14 @@ switch ($action) {
     $key = mb_substr(trim((string)($in['key'] ?? '')), 0, 170, 'UTF-8');
     out(['ok' => true, 'cfg' => botPause(!empty($in['on']), $key, (string)(currentUser()['name'] ?? 'chủ'))]);
   }
+  /* Chọn chiến dịch cho bot quản / thôi quản (Bot giờ → Tất cả quảng cáo) — chỉ chủ */
+  case 'bot_pick': {
+    requireOwner();
+    $key = mb_substr(trim((string)($in['key'] ?? '')), 0, 170, 'UTF-8');
+    $p = strrpos($key, '|');
+    if ($p === false || !preg_match('/^\d{3,20}$/', substr($key, $p + 1))) fail('Thiếu chiến dịch.');
+    out(['ok' => true, 'cfg' => botPick($key, !empty($in['on']), (string)($in['title'] ?? ''), (string)(currentUser()['name'] ?? 'chủ'))]);
+  }
   case 'bot_setup': {
     requireOwner();
     $r = botSetup(is_array($in['items'] ?? null) ? $in['items'] : []);

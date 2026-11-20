@@ -5504,7 +5504,32 @@ const ACTIONS = {
     try { const r = await Server.adMoc({key:k, del:id}); if (atv.data) atv.data.moc = r.moc; atVeLaiChiTiet(k); render(); }
     catch(e){ toast(e.message || 'Không xoá được'); }
   },
-  botshop:     id => { botv.shop = id; render(); },
+  botshop:     id => { botv.shop = id; ui.botAdN = 0; render(); },
+  /* 1.9 Tất cả quảng cáo: lọc / sắp xếp / xem thêm / giao hoặc bỏ khỏi bot */
+  botadf:      id => { ui.botAdF = id; ui.botAdN = 0; render(); },
+  botadsort:   (id, el) => { ui.botAdSort = el.value; render(); },
+  botadmore:   () => { ui.botAdN = Math.max(40, +ui.botAdN || 40) + 60; render(); },
+  botpick:     async (id, el) => {
+    const d = botv.data; if (!d) return;
+    const on = el && el.dataset.on === '1';
+    const a = (d.ads || []).find(x => x.shop + '|' + x.cid === id) || {};
+    const c = d.camps.find(x => x.shop + '|' + x.cid === id);
+    const ten = a.title || (c && c.title) || 'chiến dịch ' + id.split('|').pop();
+    const kDN = a.dn ? 0.7 : 1, std = a.r30;
+    const msg = on
+      ? `Giao cho bot quản:\n«${ten}»\n\nTừ lượt tới (trong 5 phút) bot đổi ROAS mục tiêu theo giờ trên Shopee:\n` +
+        (std ? `• Giữ = chuẩn 30N ${botR(std)} × 1,1${a.dn ? ' ÷ 0,7 (Đẩy Nhanh)' : ''} ≈ ${botR(std * 1.1 / kDN)}\n• Đẩy −15%, Siết +15% theo lịch giờ\n• Không bao giờ dưới sàn ≈ ${botR(std * 0.7 / kDN)}\n`
+             : `• Chưa có ROAS 30 ngày — bot chưa chỉnh cho tới khi có số\n`) +
+        `• Có thể tự nới ngân sách ngày khi ROAS tốt (sang ngày trả về gốc)\n` +
+        (std && std < 6 ? `\n⚠️ ROAS 30N chỉ ${botR(std)} (dưới 6): bot sẽ CHỈ BÁO, chưa sửa thật — vì hạ mục tiêu cho con ROAS thấp là chi thêm cho con đang lỗ. Muốn chạy thật: điền ROAS biên rồi tick Chạy thật trong ⚙ Cài đặt từng sản phẩm.\n`
+          : std && a.cur && std * 1.1 / kDN < a.cur * 0.75 ? `\n⚠️ Mức Giữ ≈ ${botR(std * 1.1 / kDN)} thấp hơn nhiều so với mục tiêu đang đặt ${botR(a.cur)} — Shopee sẽ chi mạnh hơn hẳn. Nên điền ROAS biên trước (⚙ Cài đặt từng sản phẩm).\n` : '') +
+        (a.dn ? `\nℹ️ Quảng cáo đang bật Đẩy Nhanh — nên tắt trên Shopee như các SP bot đang quản.\n` : '') + `\nĐồng ý?`
+      : `Bỏ khỏi bot:\n«${ten}»\n\nLượt tới bot trả ROAS mục tiêu về mức Giữ${c && c.base ? ' (' + botR(c.base) + ')' : ''}, ngân sách về gốc nếu hôm nay đã nới, rồi thôi chỉnh.\n\nĐồng ý?`;
+    if (!confirm(msg)) return;
+    try { const r = await Server.botPick(id, on, ten); d.cfg = r.cfg;
+          toast(on ? 'Đã giao cho bot — bot nhận trong vòng 5 phút' : 'Đã bỏ khỏi bot — lượt tới bot trả về mức Giữ'); render(); }
+    catch(e){ toast(e.message || 'Không lưu được'); }
+  },
   botlogopen:  id => { ui.botLogOpen = Object.assign({}, ui.botLogOpen); ui.botLogOpen[id] = !ui.botLogOpen[id]; render(); },
   botguide:    id => botGuideOpen(id),
   botcamp:     id => { if (!botv.data) return;
@@ -6735,4 +6760,4 @@ document.addEventListener('paste', e => {
   bUpload(z.dataset.bid, fs);
 });
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "024216d2"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "ea75349a"]);
