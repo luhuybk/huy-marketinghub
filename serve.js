@@ -716,6 +716,12 @@ function api(req, res, body){
       if (!owner()) return;
       return send({ok:true, cfg:botPause(!!inp.on, String(inp.key || '').trim().slice(0, 170), (me && me.name) || 'chủ')});
     }
+    case 'bot_pick': {
+      if (!owner()) return;
+      const key = String(inp.key || '').trim().slice(0, 170);
+      if (!/\|\d{3,20}$/.test(key)) return fail('Thiếu chiến dịch.');
+      return send({ok:true, cfg:botPick(key, !!inp.on, inp.title, (me && me.name) || 'chủ')});
+    }
     case 'bot_setup': {
       if (!owner()) return;
       const r = botSetup(inp.items);
@@ -1478,7 +1484,9 @@ function botTables(){
       shop TEXT NOT NULL, cid TEXT NOT NULL, data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS bot_hour (shop TEXT NOT NULL, date TEXT NOT NULL, hour INTEGER NOT NULL,
       cost INTEGER NOT NULL DEFAULT 0, gmv INTEGER NOT NULL DEFAULT 0, orders INTEGER NOT NULL DEFAULT 0,
-      clicks INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (shop, date, hour));`);
+      clicks INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (shop, date, hour));
+    CREATE TABLE IF NOT EXISTS bot_ad (shop TEXT NOT NULL, cid TEXT NOT NULL, data TEXT NOT NULL,
+      at TEXT NOT NULL, PRIMARY KEY (shop, cid));`);
 }
 function botCfg(){
   const c = kvGet('bot_cfg', {}) || {};
@@ -1486,7 +1494,10 @@ function botCfg(){
   Object.entries(c.san && typeof c.san === 'object' ? c.san : {}).forEach(([k, v]) => { if (+v > 0) san[k] = Math.round(+v * 10) / 10; });
   const live = {};
   Object.entries(c.live && typeof c.live === 'object' ? c.live : {}).forEach(([k, v]) => { live[k] = !!v; });
-  return {paused: !!c.paused, off: c.off && typeof c.off === 'object' && !Array.isArray(c.off) ? c.off : {}, san, live,
+  const pick = {};
+  Object.entries(c.pick && typeof c.pick === 'object' ? c.pick : {}).forEach(([k, v]) => {
+    if (v && typeof v === 'object') pick[k] = {on:!!v.on, by:String(v.by || ''), at:String(v.at || ''), title:String(v.title || '')}; });
+  return {paused: !!c.paused, off: c.off && typeof c.off === 'object' && !Array.isArray(c.off) ? c.off : {}, san, live, pick,
           by: String(c.by || ''), at: String(c.at || '')};
 }
 const botTxt = (v, n = 200) => String(v == null ? '' : v).trim().slice(0, n);
@@ -1524,7 +1535,7 @@ function botSave(inp){
   if (dd === 'state'){
     const ins = D.prepare(`INSERT INTO bot_camp (shop, cid, data, at) VALUES (?,?,?,?)
         ON CONFLICT(shop, cid) DO UPDATE SET data = excluded.data, at = excluded.at`);
-    let n = 0;
+    let n = 0; const giu = {};
     for (const c of (Array.isArray(inp.camps) ? inp.camps : []).slice(0, 100)){
       const shop = botTxt(c.shop, 120), cid = botTxt(c.cid, 40);
       if (!shop || !cid) continue;
@@ -1537,6 +1548,13 @@ function botSave(inp){
         std30: c.std30 && typeof c.std30 === 'object' ? {cost:botNum(c.std30.cost), gmv:botNum(c.std30.gmv), orders:botNum(c.std30.orders),
           roas:botNum(c.std30.roas), days:botNum(c.std30.days), skip:botNum(c.std30.skip)} : null};
       ins.run(shop, cid, JSON.stringify(d), now); n++;
+      (giu[shop] = giu[shop] || []).push(cid);
+    }
+    /* đủ bộ của các shop vừa chạy → chiến dịch bot thôi quản thì bỏ khỏi bảng */
+    for (const sh0 of (Array.isArray(inp.shops) ? inp.shops : []).slice(0, 20)){
+      const sh = botTxt(sh0, 120), ids = giu[sh] || [];
+      if (!sh) continue;
+      D.prepare('DELETE FROM bot_camp WHERE shop = ?' + (ids.length ? ' AND cid NOT IN (' + ids.map(() => '?').join(',') + ')' : '')).run(sh, ...ids);
     }
     r.camps = n;
   } else if (dd === 'log'){
@@ -1568,6 +1586,20 @@ function botSave(inp){
     const giu = new Date(Date.parse(vnNow().date) - BOT_HOUR_KEEP * 864e5).toISOString().slice(0, 10);
     D.prepare('DELETE FROM bot_hour WHERE date < ?').run(giu);
     r.rows = n;
+  } else if (dd === 'ads'){
+    const shop = botTxt(inp.shop, 120);
+    if (!shop) return {error:'Thiếu tên gian hàng.'};
+    D.prepare('DELETE FROM bot_ad WHERE shop = ?').run(shop);
+    const ins = D.prepare('INSERT OR REPLACE INTO bot_ad (shop, cid, data, at) VALUES (?,?,?,?)');
+    let n = 0;
+    for (const x of (Array.isArray(inp.rows) ? inp.rows : []).slice(0, 1500)){
+      const cid = botTxt(x && x.cid, 40);
+      if (!cid) continue;
+      const d = {title:botTxt(x.title, 255), st:botTxt(x.st, 12), ty:botTxt(x.ty, 24), ok:!!x.ok, quan:!!x.quan, dn:!!x.dn, img:botTxt(x.img, 80)};
+      ['cur', 'bud', 'c', 'g', 'o', 'c30', 'g30', 'o30', 'r30', 'd30', 'c7', 'g7'].forEach(k => { d[k] = botNum(x[k]); });
+      ins.run(shop, cid, JSON.stringify(d), now); n++;
+    }
+    r.ads = n;
   } else if (dd === 'ostat'){
     const shop = botTxt(inp.shop, 120);
     if (!shop || !inp.rec || typeof inp.rec !== 'object') return {error:'Thiếu gian hàng hoặc bản ghi.'};
@@ -1588,7 +1620,9 @@ function botView(){
   const tu = new Date(Date.parse(vnNow().date) - 90 * 864e5).toISOString().slice(0, 10);
   const hours = D.prepare('SELECT shop, date, hour, cost, gmv, orders, clicks FROM bot_hour WHERE date >= ? ORDER BY shop, date, hour').all(tu)
     .map(x => [x.shop, x.date, x.hour, x.cost, x.gmv, x.orders, x.clicks]);
-  return {cfg:botCfg(), seen:kvGet('bot_seen', null), camps, logs, hours, now:botIso()};
+  const ads = D.prepare('SELECT shop, cid, data, at FROM bot_ad ORDER BY shop, cid').all()
+    .map(x => { try { return Object.assign({shop:x.shop, cid:x.cid, at:x.at}, JSON.parse(x.data)); } catch(e){ return null; } }).filter(Boolean);
+  return {cfg:botCfg(), seen:kvGet('bot_seen', null), camps, logs, hours, ads, now:botIso()};
 }
 function botSan(key, v){
   const c = botCfg();
@@ -1607,6 +1641,12 @@ function botSetup(items){
     else return {error:'ROAS biên phải là số từ 1 đến 50 (để trống = dùng mặc định).'};
     if ('live' in it) c.live[key] = !!it.live;
   }
+  kvSet('bot_cfg', c);
+  return c;
+}
+function botPick(key, on, title, by){
+  const c = botCfg();
+  c.pick[key] = {on:!!on, by, at:botIso(), title:String(title || '').trim().slice(0, 255)};
   kvSet('bot_cfg', c);
   return c;
 }

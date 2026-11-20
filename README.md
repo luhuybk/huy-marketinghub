@@ -1547,6 +1547,15 @@ bot (VPS) ── POST api/bot.php ──▶ bot_camp  : trạng thái từng chi
   "Hôm nay bot nới ngân sách"), và ở `bot_camp`: `xk` (`doichung` | `chay` | `sale` — thử xen kẽ),
   `nsGoc` / `nsLan` (ngân sách gốc, số lần nới hôm nay). Thêm trường mới vào bot_camp thì nhớ sửa CẢ
   `api/lib.php` lẫn `serve.js` (hai nơi lọc trường).
+- **Bot 1.9 (20/11/2026) — Tất cả quảng cáo + chọn trên Hub.** Mỗi lượt bot gửi `do:"ads"` {shop, rows}:
+  mọi quảng cáo đang chạy / tạm dừng / có chi 30 ngày (bảng `bot_ad`, thay cả bộ của shop mỗi lần), mỗi dòng có
+  `st, ty, ok` (bot sửa được không: chỉ `product_manual` có ROAS mục tiêu), `quan` (bot đang quản), `cur, bud, dn`,
+  số hôm nay `c, g, o` (đồng) và 30 ngày bỏ ngày sale `c30, g30, o30, r30, d30`. Chủ bật/tắt "Giao bot" →
+  `bot_pick` ghi `cfg.pick["shop|cid"] = {on, by, at, title}`; bot đọc ở lượt tới: bật = quản như SP trong
+  config (lịch/bước `macDinh` trong config.json), tắt = trả mục tiêu về mức Giữ + ngân sách về gốc rồi thôi.
+  `do:"state"` giờ kèm `shops:[…]` = đủ bộ của các shop đó → Hub xoá dòng `bot_camp` bot thôi quản.
+  Viền vấn đề tính ở Hub (`botAdVanDe` trong js/views.js): đỏ = cắn tiền hôm nay / ROAS 30N < 4;
+  cam = ROAS 30N < 7, hôm nay tụt, Đẩy Nhanh khi ROAS thấp; xanh = sắp hết ngân sách mà ROAS tốt.
 - **Ghép nối** giống `ingest.php`: lần đầu bot gửi, Hub để thiết bị "Bot ROAS theo
   giờ (VPS)" ở trạng thái chờ → Cài đặt → Nhận số liệu quảng cáo tự động → Cho phép.
 - **Luật nằm ở bot.** Hub hiện đúng lịch, sàn, bước % bot gửi lên (`plan` 24 ô

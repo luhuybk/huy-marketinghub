@@ -1966,7 +1966,9 @@ function botTables(PDO $pdo): void {
       shop TEXT NOT NULL, cid TEXT NOT NULL, data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS bot_hour (shop TEXT NOT NULL, date TEXT NOT NULL, hour INTEGER NOT NULL,
       cost INTEGER NOT NULL DEFAULT 0, gmv INTEGER NOT NULL DEFAULT 0, orders INTEGER NOT NULL DEFAULT 0,
-      clicks INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (shop, date, hour));');
+      clicks INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (shop, date, hour));
+    CREATE TABLE IF NOT EXISTS bot_ad (shop TEXT NOT NULL, cid TEXT NOT NULL, data TEXT NOT NULL,
+      at TEXT NOT NULL, PRIMARY KEY (shop, cid));');
 }
 function botCfg(): array {
   $c = kvGet('bot_cfg', []);
@@ -1977,8 +1979,14 @@ function botCfg(): array {
     if (is_numeric($v) && $v > 0) $san[(string)$k] = round((float)$v, 1);
   $live = [];
   foreach ((is_array($c['live'] ?? null) ? $c['live'] : []) as $k => $v) $live[(string)$k] = !empty($v);
+  /* pick["shop|cid"] = {on, by, at, title}: chủ chọn trên Hub chiến dịch nào bot quản (on) / thôi quản (!on).
+     Không có trong pick = theo config.json trên VPS. */
+  $pick = [];
+  foreach ((is_array($c['pick'] ?? null) ? $c['pick'] : []) as $k => $v)
+    if (is_array($v)) $pick[(string)$k] = ['on' => !empty($v['on']), 'by' => (string)($v['by'] ?? ''),
+                                           'at' => (string)($v['at'] ?? ''), 'title' => (string)($v['title'] ?? '')];
   return ['paused' => !empty($c['paused']), 'off' => is_array($off) ? $off : [], 'san' => $san, 'live' => $live,
-          'by' => (string)($c['by'] ?? ''), 'at' => (string)($c['at'] ?? '')];
+          'pick' => $pick, 'by' => (string)($c['by'] ?? ''), 'at' => (string)($c['at'] ?? '')];
 }
 /* Bản trả ra ngoài: off rỗng vẫn phải là {} (json_encode mảng rỗng ra []) */
 function botCfgOut(?array $c = null): array {
@@ -1986,6 +1994,7 @@ function botCfgOut(?array $c = null): array {
   $c['off'] = (object)$c['off'];
   $c['san'] = (object)($c['san'] ?? []);
   $c['live'] = (object)($c['live'] ?? []);
+  $c['pick'] = (object)($c['pick'] ?? []);
   return $c;
 }
 function botTxt($v, int $n = 200): string { return mb_substr(trim((string)$v), 0, $n, 'UTF-8'); }
@@ -2041,7 +2050,7 @@ function botSave(array $in): array {
   if ($do === 'state') {
     $ins = $pdo->prepare('INSERT INTO bot_camp (shop, cid, data, at) VALUES (?,?,?,?)
         ON CONFLICT(shop, cid) DO UPDATE SET data = excluded.data, at = excluded.at');
-    $n = 0;
+    $n = 0; $giu = [];
     foreach (array_slice(is_array($in['camps'] ?? null) ? $in['camps'] : [], 0, 100) as $c) {
       $shop = botTxt($c['shop'] ?? '', 120); $cid = botTxt($c['cid'] ?? '', 40);
       if ($shop === '' || $cid === '') continue;
@@ -2060,7 +2069,15 @@ function botSave(array $in): array {
                          'orders' => botNum($c['std30']['orders'] ?? null), 'roas' => botNum($c['std30']['roas'] ?? null),
                          'days' => botNum($c['std30']['days'] ?? null), 'skip' => botNum($c['std30']['skip'] ?? null)] : null];
       $ins->execute([$shop, $cid, json_encode($d, JSON_UNESCAPED_UNICODE), $now]);
+      $giu[$shop][] = $cid;
       $n++;
+    }
+    /* Bot gửi đủ danh sách của các shop vừa chạy (shops) → chiến dịch bot thôi quản thì bỏ khỏi bảng */
+    foreach (array_slice(is_array($in['shops'] ?? null) ? $in['shops'] : [], 0, 20) as $sh) {
+      $sh = botTxt($sh, 120); $ids = $giu[$sh] ?? [];
+      if ($sh === '') continue;
+      $q = $pdo->prepare('DELETE FROM bot_camp WHERE shop = ?' . ($ids ? ' AND cid NOT IN (' . implode(',', array_fill(0, count($ids), '?')) . ')' : ''));
+      $q->execute(array_merge([$sh], $ids));
     }
     $r['camps'] = $n;
   } elseif ($do === 'log') {
@@ -2098,6 +2115,25 @@ function botSave(array $in): array {
     $giu = (new DateTime('now', new DateTimeZone(KH_TZ)))->modify('-' . BOT_HOUR_KEEP . ' days')->format('Y-m-d');
     $pdo->prepare('DELETE FROM bot_hour WHERE date < ?')->execute([$giu]);
     $r['rows'] = $n;
+  } elseif ($do === 'ads') {
+    /* Mọi quảng cáo của một shop (đang chạy / tạm dừng / có chi 30 ngày) — thay cả bộ của shop đó */
+    $shop = botTxt($in['shop'] ?? '', 120);
+    if ($shop === '') return ['error' => 'Thiếu tên gian hàng.'];
+    $pdo->beginTransaction();
+    $pdo->prepare('DELETE FROM bot_ad WHERE shop = ?')->execute([$shop]);
+    $ins = $pdo->prepare('INSERT OR REPLACE INTO bot_ad (shop, cid, data, at) VALUES (?,?,?,?)');
+    $n = 0;
+    foreach (array_slice(is_array($in['rows'] ?? null) ? $in['rows'] : [], 0, 1500) as $x) {
+      $cid = botTxt($x['cid'] ?? '', 40);
+      if ($cid === '' || !is_array($x)) continue;
+      $d = ['title' => botTxt($x['title'] ?? '', 255), 'st' => botTxt($x['st'] ?? '', 12), 'ty' => botTxt($x['ty'] ?? '', 24),
+            'ok' => !empty($x['ok']), 'quan' => !empty($x['quan']), 'dn' => !empty($x['dn']), 'img' => botTxt($x['img'] ?? '', 80)];
+      foreach (['cur', 'bud', 'c', 'g', 'o', 'c30', 'g30', 'o30', 'r30', 'd30', 'c7', 'g7'] as $k) $d[$k] = botNum($x[$k] ?? null);
+      $ins->execute([$shop, $cid, json_encode($d, JSON_UNESCAPED_UNICODE), $now]);
+      $n++;
+    }
+    $pdo->commit();
+    $r['ads'] = $n;
   } elseif ($do === 'ostat') {
     $shop = botTxt($in['shop'] ?? '', 120);
     if ($shop === '' || !is_array($in['rec'] ?? null)) return ['error' => 'Thiếu gian hàng hoặc bản ghi.'];
@@ -2131,7 +2167,12 @@ function botView(): array {
   $hours = [];
   foreach ($st->fetchAll() as $x)
     $hours[] = [$x['shop'], $x['date'], (int)$x['hour'], (int)$x['cost'], (int)$x['gmv'], (int)$x['orders'], (int)$x['clicks']];
-  return ['cfg' => botCfgOut(), 'seen' => kvGet('bot_seen', null), 'camps' => $camps, 'logs' => $logs, 'hours' => $hours,
+  $ads = [];
+  foreach ($pdo->query('SELECT shop, cid, data, at FROM bot_ad ORDER BY shop, cid')->fetchAll() as $x) {
+    $d = json_decode((string)$x['data'], true);
+    if (is_array($d)) $ads[] = ['shop' => $x['shop'], 'cid' => $x['cid'], 'at' => $x['at']] + $d;
+  }
+  return ['cfg' => botCfgOut(), 'seen' => kvGet('bot_seen', null), 'camps' => $camps, 'logs' => $logs, 'hours' => $hours, 'ads' => $ads,
           'now' => gmdate('Y-m-d\TH:i:s\Z')];
 }
 /* Thẻ thiết bị ở Cài đặt đọc lastAt/last — trước đây chỉ ingest.php ghi, nên bot
@@ -2172,6 +2213,13 @@ function botSetup(array $items): array {
     else return ['error' => 'ROAS biên phải là số từ 1 đến 50 (để trống = dùng mặc định).'];
     if (array_key_exists('live', $it)) $c['live'][$key] = !empty($it['live']);
   }
+  kvSet('bot_cfg', $c);
+  return botCfgOut($c);
+}
+/* Chủ chọn trên Hub: bot quản (on) / thôi quản (!on) một chiến dịch "shop|cid" */
+function botPick(string $key, bool $on, string $title, string $by): array {
+  $c = botCfg();
+  $c['pick'][$key] = ['on' => $on, 'by' => $by, 'at' => gmdate('Y-m-d\TH:i:s\Z'), 'title' => mb_substr(trim($title), 0, 255, 'UTF-8')];
   kvSet('bot_cfg', $c);
   return botCfgOut($c);
 }

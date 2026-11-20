@@ -3,14 +3,15 @@
    bot.php — cổng nhận số từ bot ROAS theo giờ (chạy trên VPS riêng)
 
      POST {token, label, ver, do:"cfg"}                    → chỉ hỏi cờ dừng
-     POST {token, do:"state", camps:[…]}                   → trạng thái từng chiến dịch
+     POST {token, do:"state", camps:[…], shops:[…]}        → trạng thái từng chiến dịch bot quản (đủ bộ của các shop trong shops)
+     POST {token, do:"ads", shop, rows:[…]}                → mọi quảng cáo của shop (Bot giờ → Tất cả quảng cáo)
      POST {token, do:"log",   entries:[…]}                 → nhật ký các lần chỉnh
      POST {token, do:"hours", shop, rows:[{date,hour,cost,gmv,orders,clicks}]}
      POST {token, do:"ostat", shop, rec}                   → đơn hàng 1 tháng → mục Khung giờ
 
    Token ghép nối giống api/ingest.php: lần đầu Hub để nó CHỜ, chủ vào
    Cài đặt → Nhận số liệu quảng cáo tự động → Cho phép. Mọi câu trả lời
-   kèm `cfg` (paused, off) để bot biết chủ vừa bấm dừng trên Hub.
+   kèm `cfg` (paused, off, san, live, pick) để bot biết chủ vừa bấm dừng / chọn chiến dịch trên Hub.
    Luật nằm ở botSave() trong api/lib.php; bản Node trong serve.js.
    ============================================================ */
 declare(strict_types=1);
