@@ -1508,3 +1508,17 @@ tr.rv-dang{background:var(--bg3)}
   .ba-c-bot{justify-items:start}
   .ba-c-bot{grid-template-columns:auto 1fr;align-items:center;gap:8px}
 }
+/* 1.10: ngưỡng ROAS tốt, tóm tắt xu hướng, đường 8 tuần, nút Đẩy Nhanh */
+.ba-ng{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12.5px}
+.ba-ng input{width:64px}
+.ba-xu{font-size:12.5px}
+.ba-c-ten[data-act]{cursor:pointer}
+.ba-c-ten[data-act]:hover .bt-ten{color:var(--acc)}
+.ba-spark{display:block;margin:3px 0 0 auto;overflow:visible}
+.ba-spark polyline{fill:none;stroke-width:1.6;stroke-linejoin:round;stroke-linecap:round}
+.ba-spark.len polyline{stroke:var(--ok)} .ba-spark.xuong polyline{stroke:var(--bad)}
+.ba-dn{margin-top:4px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);background:none;color:var(--tx3);font:inherit;font-size:11px;cursor:pointer;white-space:nowrap}
+.ba-dn b{font-weight:650}
+.ba-dn.on{border-color:color-mix(in srgb,var(--warn) 60%,var(--line));color:var(--warn)}
+.ba-dn:hover{border-color:var(--acc)}
+@container (max-width:1000px){ .ba-spark{margin-left:0} }

@@ -240,6 +240,7 @@ const Server = (() => {
   const botSan   = (key, san) => call('bot_san', {key, san});
   const botSetup = items      => call('bot_setup', {items});
   const botPick  = (key, on, title) => call('bot_pick', {key, on: !!on, title: title || ''});
+  const botDn    = (key, on)   => call('bot_dn', {key, on: !!on});
   /* Theo dõi đối thủ — dữ liệu ở máy chủ, chỉ chủ gọi được */
   const rivalState   = ()      => call('rival_state');
   const rivalScans   = kwId    => call('rival_scans', {kw_id: kwId});
@@ -265,7 +266,7 @@ const Server = (() => {
 
   return {probe, login, logout, logoutAll, pull, push, pushBeacon, stats,
           tgGet, tgSave, tgTest, tgReport, tgHook, remind, ingestList, ingestSet,
-          rivalState, rivalScans, rivalKwSave, rivalKwDel, rivalScanDel, rivalMine, rivalShops, rivalLatest, rivalDesc, rivalShopDel, rivalShopSave, bimgUp, bimgDel, imgUrl, adTgUp, adTgMute, botView, botPause, botSan, botSetup, botPick, adRadar, adMoc,
+          rivalState, rivalScans, rivalKwSave, rivalKwDel, rivalScanDel, rivalMine, rivalShops, rivalLatest, rivalDesc, rivalShopDel, rivalShopSave, bimgUp, bimgDel, imgUrl, adTgUp, adTgMute, botView, botPause, botSan, botSetup, botPick, botDn, adRadar, adMoc,
           users, userNames, userSave, userDel, takeWhoChanged, notePerms,
           available, authed, state, role, isOwner, name, perms, may, call};
 })();
@@ -367,4 +368,4 @@ const Gate = (() => {
 })();
 window.Gate = Gate;
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/api.js", "ea75349a"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/api.js", "c0c3e856"]);

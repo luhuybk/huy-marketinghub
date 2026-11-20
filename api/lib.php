@@ -1985,8 +1985,12 @@ function botCfg(): array {
   foreach ((is_array($c['pick'] ?? null) ? $c['pick'] : []) as $k => $v)
     if (is_array($v)) $pick[(string)$k] = ['on' => !empty($v['on']), 'by' => (string)($v['by'] ?? ''),
                                            'at' => (string)($v['at'] ?? ''), 'title' => (string)($v['title'] ?? '')];
+  /* dn["shop|cid"] = {on, by, at}: lệnh bật/tắt Đẩy Nhanh, bot làm một lần cho mỗi `at` */
+  $dn = [];
+  foreach ((is_array($c['dn'] ?? null) ? $c['dn'] : []) as $k => $v)
+    if (is_array($v)) $dn[(string)$k] = ['on' => !empty($v['on']), 'by' => (string)($v['by'] ?? ''), 'at' => (string)($v['at'] ?? '')];
   return ['paused' => !empty($c['paused']), 'off' => is_array($off) ? $off : [], 'san' => $san, 'live' => $live,
-          'pick' => $pick, 'by' => (string)($c['by'] ?? ''), 'at' => (string)($c['at'] ?? '')];
+          'pick' => $pick, 'dn' => $dn, 'by' => (string)($c['by'] ?? ''), 'at' => (string)($c['at'] ?? '')];
 }
 /* Bản trả ra ngoài: off rỗng vẫn phải là {} (json_encode mảng rỗng ra []) */
 function botCfgOut(?array $c = null): array {
@@ -1995,6 +1999,7 @@ function botCfgOut(?array $c = null): array {
   $c['san'] = (object)($c['san'] ?? []);
   $c['live'] = (object)($c['live'] ?? []);
   $c['pick'] = (object)($c['pick'] ?? []);
+  $c['dn'] = (object)($c['dn'] ?? []);
   return $c;
 }
 function botTxt($v, int $n = 200): string { return mb_substr(trim((string)$v), 0, $n, 'UTF-8'); }
@@ -2129,6 +2134,12 @@ function botSave(array $in): array {
       $d = ['title' => botTxt($x['title'] ?? '', 255), 'st' => botTxt($x['st'] ?? '', 12), 'ty' => botTxt($x['ty'] ?? '', 24),
             'ok' => !empty($x['ok']), 'quan' => !empty($x['quan']), 'dn' => !empty($x['dn']), 'img' => botTxt($x['img'] ?? '', 80)];
       foreach (['cur', 'bud', 'c', 'g', 'o', 'c30', 'g30', 'o30', 'r30', 'd30', 'c7', 'g7'] as $k) $d[$k] = botNum($x[$k] ?? null);
+      /* 1.10 xu hướng: tuan = 8 điểm [ROAS 30N, GMV/ngày, chi/ngày] cũ → mới; xu = nhận định 7 ngày vs 30 ngày trước */
+      $d['tuan'] = array_map(fn($w) => is_array($w) ? array_map('botNum', array_slice(array_values($w), 0, 3)) : null,
+                             array_slice(is_array($x['tuan'] ?? null) ? array_values($x['tuan']) : [], 0, 12));
+      $xu = is_array($x['xu'] ?? null) ? $x['xu'] : null;
+      $d['xu'] = $xu ? ['k' => botTxt($xu['k'] ?? '', 6), 'r7' => botNum($xu['r7'] ?? null), 'g7' => botNum($xu['g7'] ?? null),
+                        'rP' => botNum($xu['rP'] ?? null), 'gP' => botNum($xu['gP'] ?? null), 'dR' => botNum($xu['dR'] ?? null), 'dG' => botNum($xu['dG'] ?? null)] : null;
       $ins->execute([$shop, $cid, json_encode($d, JSON_UNESCAPED_UNICODE), $now]);
       $n++;
     }
@@ -2220,6 +2231,13 @@ function botSetup(array $items): array {
 function botPick(string $key, bool $on, string $title, string $by): array {
   $c = botCfg();
   $c['pick'][$key] = ['on' => $on, 'by' => $by, 'at' => gmdate('Y-m-d\TH:i:s\Z'), 'title' => mb_substr(trim($title), 0, 255, 'UTF-8')];
+  kvSet('bot_cfg', $c);
+  return botCfgOut($c);
+}
+/* Chủ bấm bật/tắt Đẩy Nhanh một chiến dịch — bot làm ở lượt tới */
+function botDn(string $key, bool $on, string $by): array {
+  $c = botCfg();
+  $c['dn'][$key] = ['on' => $on, 'by' => $by, 'at' => gmdate('Y-m-d\TH:i:s\Z')];
   kvSet('bot_cfg', $c);
   return botCfgOut($c);
 }
