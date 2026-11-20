@@ -643,6 +643,13 @@ switch ($action) {
     if ($p === false || !preg_match('/^\d{3,20}$/', substr($key, $p + 1))) fail('Thiếu chiến dịch.');
     out(['ok' => true, 'cfg' => botPick($key, !empty($in['on']), (string)($in['title'] ?? ''), (string)(currentUser()['name'] ?? 'chủ'))]);
   }
+  case 'bot_dn': {
+    requireOwner();
+    $key = mb_substr(trim((string)($in['key'] ?? '')), 0, 170, 'UTF-8');
+    $p = strrpos($key, '|');
+    if ($p === false || !preg_match('/^\d{3,20}$/', substr($key, $p + 1))) fail('Thiếu chiến dịch.');
+    out(['ok' => true, 'cfg' => botDn($key, !empty($in['on']), (string)(currentUser()['name'] ?? 'chủ'))]);
+  }
   case 'bot_setup': {
     requireOwner();
     $r = botSetup(is_array($in['items'] ?? null) ? $in['items'] : []);

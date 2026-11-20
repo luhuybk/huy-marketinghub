@@ -722,6 +722,12 @@ function api(req, res, body){
       if (!/\|\d{3,20}$/.test(key)) return fail('Thiếu chiến dịch.');
       return send({ok:true, cfg:botPick(key, !!inp.on, inp.title, (me && me.name) || 'chủ')});
     }
+    case 'bot_dn': {
+      if (!owner()) return;
+      const key = String(inp.key || '').trim().slice(0, 170);
+      if (!/\|\d{3,20}$/.test(key)) return fail('Thiếu chiến dịch.');
+      return send({ok:true, cfg:botDn(key, !!inp.on, (me && me.name) || 'chủ')});
+    }
     case 'bot_setup': {
       if (!owner()) return;
       const r = botSetup(inp.items);
@@ -1497,7 +1503,10 @@ function botCfg(){
   const pick = {};
   Object.entries(c.pick && typeof c.pick === 'object' ? c.pick : {}).forEach(([k, v]) => {
     if (v && typeof v === 'object') pick[k] = {on:!!v.on, by:String(v.by || ''), at:String(v.at || ''), title:String(v.title || '')}; });
-  return {paused: !!c.paused, off: c.off && typeof c.off === 'object' && !Array.isArray(c.off) ? c.off : {}, san, live, pick,
+  const dn = {};
+  Object.entries(c.dn && typeof c.dn === 'object' ? c.dn : {}).forEach(([k, v]) => {
+    if (v && typeof v === 'object') dn[k] = {on:!!v.on, by:String(v.by || ''), at:String(v.at || '')}; });
+  return {paused: !!c.paused, off: c.off && typeof c.off === 'object' && !Array.isArray(c.off) ? c.off : {}, san, live, pick, dn,
           by: String(c.by || ''), at: String(c.at || '')};
 }
 const botTxt = (v, n = 200) => String(v == null ? '' : v).trim().slice(0, n);
@@ -1597,6 +1606,9 @@ function botSave(inp){
       if (!cid) continue;
       const d = {title:botTxt(x.title, 255), st:botTxt(x.st, 12), ty:botTxt(x.ty, 24), ok:!!x.ok, quan:!!x.quan, dn:!!x.dn, img:botTxt(x.img, 80)};
       ['cur', 'bud', 'c', 'g', 'o', 'c30', 'g30', 'o30', 'r30', 'd30', 'c7', 'g7'].forEach(k => { d[k] = botNum(x[k]); });
+      d.tuan = (Array.isArray(x.tuan) ? x.tuan : []).slice(0, 12).map(w => Array.isArray(w) ? w.slice(0, 3).map(botNum) : null);
+      const xu = x.xu && typeof x.xu === 'object' ? x.xu : null;
+      d.xu = xu ? {k:botTxt(xu.k, 6), r7:botNum(xu.r7), g7:botNum(xu.g7), rP:botNum(xu.rP), gP:botNum(xu.gP), dR:botNum(xu.dR), dG:botNum(xu.dG)} : null;
       ins.run(shop, cid, JSON.stringify(d), now); n++;
     }
     r.ads = n;
@@ -1647,6 +1659,12 @@ function botSetup(items){
 function botPick(key, on, title, by){
   const c = botCfg();
   c.pick[key] = {on:!!on, by, at:botIso(), title:String(title || '').trim().slice(0, 255)};
+  kvSet('bot_cfg', c);
+  return c;
+}
+function botDn(key, on, by){
+  const c = botCfg();
+  c.dn[key] = {on:!!on, by, at:botIso()};
   kvSet('bot_cfg', c);
   return c;
 }

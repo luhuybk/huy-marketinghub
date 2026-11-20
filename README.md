@@ -1556,6 +1556,12 @@ bot (VPS) ── POST api/bot.php ──▶ bot_camp  : trạng thái từng chi
   `do:"state"` giờ kèm `shops:[…]` = đủ bộ của các shop đó → Hub xoá dòng `bot_camp` bot thôi quản.
   Viền vấn đề tính ở Hub (`botAdVanDe` trong js/views.js): đỏ = cắn tiền hôm nay / ROAS 30N < 4;
   cam = ROAS 30N < 7, hôm nay tụt, Đẩy Nhanh khi ROAS thấp; xanh = sắp hết ngân sách mà ROAS tốt.
+- **Bot 1.10 (20/11/2026).** `cfg.dn["shop|cid"] = {on, by, at}` (Hub `bot_dn`): bot bật/tắt Đẩy Nhanh một lần cho
+  mỗi `at` (`rapid_boost_toggle_on|off`, kiểm bằng `product/get` → `campaign.rapid_boost`), nhật ký `kind:'dn'`.
+  Dòng `bot_ad` thêm `tuan` (8 điểm cũ → mới `[ROAS 30N, GMV/ngày, chi/ngày]`, lùi từng 7 ngày, bỏ ngày sale) và `xu`
+  (`k` = tot | on | xau | gmv | doi | it, `r7, g7` 7 ngày gần nhất, `rP, gP` 30 ngày trước đó, `dR, dG` %). Bot giữ số
+  từng ngày 90 ngày (`state.std30[shop].tat`, ngày 31–90 kéo bù ≤ 8 ngày/lượt). Thứ Hai: `kind:'tuan'` cho SP bot quản,
+  `mode` = k, kèm gợi ý hệ số Giữ — CHƯA tự áp dụng. Bộ lọc "ROAS tốt, chưa giao bot" tính ở Hub (ngưỡng `ui.botAdNg`).
 - **Ghép nối** giống `ingest.php`: lần đầu bot gửi, Hub để thiết bị "Bot ROAS theo
   giờ (VPS)" ở trạng thái chờ → Cài đặt → Nhận số liệu quảng cáo tự động → Cho phép.
 - **Luật nằm ở bot.** Hub hiện đúng lịch, sàn, bước % bot gửi lên (`plan` 24 ô

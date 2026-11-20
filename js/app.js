@@ -5509,6 +5509,23 @@ const ACTIONS = {
   botadf:      id => { ui.botAdF = id; ui.botAdN = 0; render(); },
   botadsort:   (id, el) => { ui.botAdSort = el.value; render(); },
   botadmore:   () => { ui.botAdN = Math.max(40, +ui.botAdN || 40) + 60; render(); },
+  botad:       id => { if (!botv.data) return;
+    const m = openModal('Xu hướng quảng cáo', botAdHtml(id), '', true); m.querySelector('.mbox').classList.add('at-mbox'); },
+  /* 1.10 bật/tắt Đẩy Nhanh — bot làm ở lượt tới */
+  botdn:       async (id, el) => {
+    const d = botv.data; if (!d) return;
+    const on = el && el.dataset.on === '1';
+    const a = (d.ads || []).find(x => x.shop + '|' + x.cid === id) || {};
+    const ten = a.title || 'chiến dịch ' + id.split('|').pop();
+    const msg = on
+      ? `BẬT Đẩy Nhanh cho:\n«${ten}»\n\nShopee sẽ tự thử mục tiêu thấp hơn ~30% để tìm thêm đơn — chi thường tăng, ROAS có thể giảm trong thời gian thử.` +
+        (a.quan ? `\nBot đang quản con này: bot tự chia mức Giữ cho 0,7 khi Đẩy Nhanh bật.` : '') + `\n\nBot làm trong lượt tới (≤ 5 phút). Đồng ý?`
+      : `TẮT Đẩy Nhanh cho:\n«${ten}»\n\nShopee thôi tự hạ mục tiêu.` + (a.quan ? ` Bot sẽ tính lại mức Giữ = chuẩn × 1,1 (không chia 0,7).` : '') + `\n\nBot làm trong lượt tới (≤ 5 phút). Đồng ý?`;
+    if (!confirm(msg)) return;
+    try { const r = await Server.botDn(id, on); d.cfg = r.cfg;
+          toast((on ? 'Đã gửi lệnh bật' : 'Đã gửi lệnh tắt') + ' Đẩy Nhanh — bot làm trong 5 phút'); render(); }
+    catch(e){ toast(e.message || 'Không lưu được'); }
+  },
   botpick:     async (id, el) => {
     const d = botv.data; if (!d) return;
     const on = el && el.dataset.on === '1';

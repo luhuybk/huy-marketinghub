@@ -6599,6 +6599,8 @@ function botLogLine(l){
   const loi = l.kind === 'error' || l.ok === false, canh = l.kind === 'canhbao', ns = l.kind === 'ngansach';
   const chip = l.kind === 'roas' || l.kind === 'dry' ? botModeChip(l.mode) + (l.kind === 'dry' ? '<span class="chip warn">chỉ báo</span>' : '')
     : canh ? '<span class="chip bad">⚠️ Cắn tiền</span>' : ns ? `<span class="chip ${loi ? 'bad' : 'ok'}">Ngân sách</span>`
+    : l.kind === 'tuan' ? `<span class="chip ${['doi', 'gmv', 'xau'].includes(l.mode) ? 'warn' : 'ok'}">Tổng kết tuần</span>`
+    : l.kind === 'dn' ? `<span class="chip ${loi ? 'bad' : 'acc'}">⚡ Đẩy Nhanh</span>`
     : `<span class="chip ${loi ? 'bad' : ''}">${l.kind === 'error' ? 'Lỗi' : l.kind === 'info' ? 'Ghi chú' : esc(l.kind)}</span>`;
   const so = ns && l.old != null ? `${moneyShort(l.old)} → <b class="${l.new < l.old ? 'warn' : 'ok'}">${moneyShort(l.new)}</b>`
     : l.old != null || l.new != null ? `${botR(l.old)} → <b class="${l.new < l.old ? 'ok' : 'warn'}">${botR(l.new)}</b>` : '';
@@ -6716,6 +6718,12 @@ function botAdVanDe(a, canh){
     else if (!r30 && a.c >= 300000 && roas < 3) out.push({lv:'do', t:'Chi lớn, ROAS thấp', tip:'30 ngày qua gần như không chi mà hôm nay đã chi ' + moneyShort(a.c) + ', ROAS ' + botR(roas)});
   }
   if (a.dn && r30 != null && r30 < 7) out.push({lv:'cam', t:'Đẩy Nhanh khi ROAS thấp', tip:'Đẩy Nhanh cho Shopee tự hạ mục tiêu ~30% — với ROAS ' + botR(r30) + ' dễ lỗ thêm'});
+  const xu = a.xu || {}, pc = x => (x > 0 ? '+' : '') + x + '%';
+  const xuTip = xu.r7 != null ? '7 ngày gần nhất: ROAS ' + botR(xu.r7) + ', GMV/ngày ' + moneyShort(xu.g7) + ' — so với 30 ngày trước đó: ROAS ' + botR(xu.rP) + ', GMV/ngày ' + moneyShort(xu.gP) : '';
+  if (xu.k === 'doi') out.push({lv:'cam', t:'ROAS↑ GMV↓ ' + pc(xu.dG), tip:'ROAS tăng ' + pc(xu.dR) + ' nhưng GMV/ngày tụt ' + pc(xu.dG) + ' — không đáng. ' + xuTip});
+  else if (xu.k === 'gmv') out.push({lv:'cam', t:'GMV tụt ' + pc(xu.dG), tip:xuTip});
+  else if (xu.k === 'xau') out.push({lv:'cam', t:'ROAS giảm ' + pc(xu.dR), tip:xuTip});
+  else if (xu.k === 'tot') out.push({lv:'info', t:'📈 Tốt lên', tip:'ROAS ' + pc(xu.dR) + ', GMV/ngày ' + pc(xu.dG) + '. ' + xuTip});
   if (a.st === 'ongoing' && a.bud && a.c >= a.bud * 0.9 && r30 && roas >= r30 && a.o >= 3) out.push({lv:'xanh', t:'Sắp hết ngân sách, ROAS tốt', tip:'Đã chi ' + Math.round(a.c / a.bud * 100) + '% ngân sách ngày, ROAS hôm nay ' + botR(roas) + ' ≥ chuẩn ' + botR(r30) + (a.quan ? ' — bot sẽ tự nới' : ' — giao bot thì bot tự nới, hoặc tự nâng ngân sách')});
   return out;
 }
@@ -6730,18 +6738,21 @@ function botTatCa(d, shop, cfg, chu, nhieuShop){
     const muon = p ? !!p.on : a.quan;              // chủ muốn bot quản?
     const vd = botAdVanDe(a, canh.has(key));
     const lv = vd.some(x => x.lv === 'do') ? 'do' : vd.some(x => x.lv === 'cam') ? 'cam' : vd.some(x => x.lv === 'xanh') ? 'xanh' : '';
-    return {a, key, muon, cho: muon !== a.quan, vd, lv, nf: norm(a.title + ' ' + a.cid)};
+    return {a, key, muon, cho: muon !== a.quan, vd, lv, nf: norm(a.title + ' ' + a.cid), cfg};
   });
-  const F = ['van', 'quan', 'chay', 'all'].includes(ui.botAdF) ? ui.botAdF : 'chay';
-  const dem = {van: rows.filter(r => r.lv === 'do' || r.lv === 'cam').length, quan: rows.filter(r => r.muon).length,
-               chay: rows.filter(r => r.a.st === 'ongoing').length, all: rows.length};
+  const F = ['van', 'tot', 'xu', 'quan', 'chay', 'all'].includes(ui.botAdF) ? ui.botAdF : 'chay';
+  const ng = +String(ui.botAdNg || '8').replace(',', '.') || 8;
+  /* ứng viên giao bot: bot sửa được, chưa quản, ROAS 30N đạt ngưỡng, có chi đáng kể (≥ 300k / 30 ngày) */
+  const tot = r => r.a.ok && !r.muon && r.a.st !== 'closed' && r.a.r30 != null && r.a.r30 >= ng && r.a.c30 >= 300000;
+  const xau = r => ['doi', 'gmv', 'xau'].includes((r.a.xu || {}).k);
+  const loc = {van: r => r.lv === 'do' || r.lv === 'cam', tot, xu: xau, quan: r => r.muon, chay: r => r.a.st === 'ongoing', all: () => true};
+  const dem = {}; Object.keys(loc).forEach(k => { dem[k] = rows.filter(loc[k]).length; });
   const q = norm(ui.botAdQ || '').split(/\s+/).filter(Boolean);
-  let L = rows.filter(r => (F === 'van' ? r.lv === 'do' || r.lv === 'cam' : F === 'quan' ? r.muon : F === 'chay' ? r.a.st === 'ongoing' : true)
-                        && q.every(w => r.nf.includes(w)));
+  let L = rows.filter(r => loc[F](r) && q.every(w => r.nf.includes(w)));
   const SORT = ['van', 'chi30', 'chi', 'r30'].includes(ui.botAdSort) ? ui.botAdSort : 'van';
   const hang = {do:0, cam:1, xanh:2, '':3};
   L.sort((x, y) => SORT === 'chi' ? y.a.c - x.a.c : SORT === 'r30' ? (x.a.r30 ?? 99) - (y.a.r30 ?? 99)
-    : SORT === 'chi30' ? y.a.c30 - x.a.c30 : hang[x.lv] - hang[y.lv] || y.a.c30 - x.a.c30);
+    : SORT === 'chi30' || F === 'tot' ? y.a.c30 - x.a.c30 : (hang[x.lv] ?? 3) - (hang[y.lv] ?? 3) || y.a.c30 - x.a.c30);
   const N = Math.max(40, +ui.botAdN || 40), du = L.length > N;
   const moi = ads.reduce((m, a) => a.at > m ? a.at : m, '');
   let h = sectionTitle('Tất cả quảng cáo', `<span class="dim">${ads.length} quảng cáo · số lúc ${esc(botHm(moi))}${
@@ -6749,11 +6760,14 @@ function botTatCa(d, shop, cfg, chu, nhieuShop){
   h += `<div class="card ba-card">
     <div class="ba-tool">
       <input class="inp ba-q" type="search" data-inp="botAdQ" value="${esc(ui.botAdQ || '')}" placeholder="🔍 Tìm tên sản phẩm hoặc ID chiến dịch…">
-      <div class="chips">${[['van', '⚠️ Có vấn đề'], ['quan', '🤖 Bot quản'], ['chay', 'Đang chạy'], ['all', 'Tất cả']].map(([k, t]) =>
+      <div class="chips">${[['van', '⚠️ Có vấn đề'], ['tot', '✅ ROAS tốt, chưa giao bot'], ['xu', '📉 Xu hướng xấu'], ['quan', '🤖 Bot quản'], ['chay', 'Đang chạy'], ['all', 'Tất cả']].map(([k, t]) =>
         `<button class="btn sm ${F === k ? 'pri' : ''}" data-act="botadf" data-id="${k}">${t} <span class="ba-n">${dem[k]}</span></button>`).join('')}</div>
       <select class="inp sm" data-chact="botadsort" title="Sắp xếp">${[['van', 'Vấn đề trước'], ['chi30', 'Chi 30 ngày nhiều nhất'], ['chi', 'Chi hôm nay nhiều nhất'], ['r30', 'ROAS 30N thấp nhất']].map(([k, t]) =>
         `<option value="${k}" ${SORT === k ? 'selected' : ''}>${t}</option>`).join('')}</select>
     </div>
+    ${F === 'tot' ? `<div class="ba-ng">ROAS 30N từ <input class="inp sm" inputmode="decimal" data-inp="botAdNg" value="${esc(String(ui.botAdNg || '8'))}"> trở lên, chi 30 ngày ≥ 300k, bot sửa được, chưa giao bot.
+      <span class="dim">Nên chọn con có ROAS 30N cao hơn hẳn ROAS biên — bot sẽ giữ quanh chuẩn × 1,1.</span></div>` : ''}
+    ${botXuTom(rows)}
     <div class="ba-leg dim"><span><i class="do"></i>Cần xử lý</span><span><i class="cam"></i>Nên xem</span><span><i class="xanh"></i>Cơ hội</span><span>ROAS 30N bỏ ngày sale, như ROAS chuẩn của bot</span></div>`;
   if (!L.length) h += `<div class="dim" style="padding:14px 4px">Không có quảng cáo nào khớp.</div>`;
   else h += `<div class="ba-list">
@@ -6762,26 +6776,78 @@ function botTatCa(d, shop, cfg, chu, nhieuShop){
     (du ? `<div style="text-align:center;margin-top:10px"><button class="btn sm" data-act="botadmore">Xem thêm (${L.length - N} quảng cáo nữa)</button></div>` : '');
   return h + `</div>`;
 }
+/* đường ROAS 30N 8 tuần (cũ → mới), xanh nếu điểm cuối ≥ điểm đầu */
+function botSpark(tuan){
+  const P = (tuan || []).map((w, i) => w && w[0] != null ? [i, w[0]] : null).filter(Boolean);
+  if (P.length < 2) return '';
+  const ys = P.map(p => p[1]), lo = Math.min(...ys), hi = Math.max(...ys), W = 64, H = 18;
+  const pt = P.map(([i, y]) => `${(i / 7 * W).toFixed(1)},${(hi === lo ? H / 2 : H - 2 - (y - lo) / (hi - lo) * (H - 4)).toFixed(1)}`).join(' ');
+  const len = P[P.length - 1][1] >= P[0][1];
+  return `<svg class="ba-spark ${len ? 'len' : 'xuong'}" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-label="ROAS 30N 8 tuần"><polyline points="${pt}"/></svg>`;
+}
+/* một dòng tóm tắt xu hướng tuần của các quảng cáo đang lọc */
+function botXuTom(rows){
+  const n = k => rows.filter(r => (r.a.xu || {}).k === k).length;
+  const t = n('tot'), d = n('doi'), g = n('gmv'), x = n('xau');
+  if (!t && !d && !g && !x) return '';
+  return `<div class="ba-xu">Xu hướng 7 ngày so với 30 ngày trước: ${t ? `<b class="ok">📈 ${t} tốt lên</b>` : ''}${
+    d ? ` · <b class="warn" title="ROAS tăng nhưng GMV/ngày tụt ≥ 15%">⚠️ ${d} ROAS↑ GMV↓</b>` : ''}${g ? ` · <b class="warn">📉 ${g} GMV tụt</b>` : ''}${x ? ` · <b class="warn">📉 ${x} ROAS giảm</b>` : ''}
+    ${d + g + x ? ` <a href="#" data-act="botadf" data-id="xu">xem các con xấu đi</a>` : ''}</div>`;
+}
+/* Hộp chi tiết một quảng cáo: ROAS 30N lùi từng tuần + GMV/ngày, nhận định tuần, gợi ý */
+function botAdHtml(key){
+  const d = botv.data; if (!d) return '';
+  const a = (d.ads || []).find(x => x.shop + '|' + x.cid === key);
+  if (!a) return '<div class="dim">Không còn quảng cáo này trong danh sách.</div>';
+  const c = d.camps.find(x => x.shop + '|' + x.cid === key), xu = a.xu || {}, pc = x => x == null ? '—' : (x > 0 ? '+' : '') + x + '%';
+  const homNay = botVnNow().date;
+  const nhan = w => { const t = new Date(homNay + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() - 1 - 7 * (7 - w)); return String(t.getUTCDate()).padStart(2, '0') + '/' + String(t.getUTCMonth() + 1).padStart(2, '0'); };
+  const T = (a.tuan || []).map((w, i) => ({label: nhan(i), gmv: w ? w[1] : null, chi: w ? w[2] : null, roas: w ? w[0] : null}));
+  let h = `<div class="bt-dhd"><b style="font-size:15px">${esc(a.title || 'Chiến dịch ' + a.cid)}</b>
+    <div class="dim" style="font-size:12px">${esc(a.shop)} · ID ${esc(a.cid)} · đang đặt <b>${botR(a.cur)}</b>${a.dn ? ' · ⚡ Đẩy Nhanh bật' : ''}${a.quan ? ' · 🤖 bot đang quản' : ''}</div></div>`;
+  h += `<h4 style="margin:6px 0">ROAS 30 ngày, lùi từng tuần</h4><div class="dim" style="font-size:12px;margin-bottom:6px">Mỗi điểm là ROAS 30 ngày tính tới ngày đó (bỏ ngày sale, như ROAS chuẩn của bot). Cột là GMV trung bình mỗi ngày của 30 ngày đó.</div>`;
+  h += T.some(x => x.roas != null) ? `<div class="card pad0">` + Chart.combo({rows:T, height:210,
+      bars:[{key:'gmv', label:'GMV/ngày (30N)', color:'var(--acc)'}], lines:[{key:'roas', label:'ROAS 30N', color:'var(--ok)'}],
+      fmtBar: moneyShort, fmtLine: v => v == null ? '' : botR(v)}) + `</div>`
+    : `<div class="card dim">Bot đang kéo bù số 90 ngày (vài ngày mỗi lượt) — biểu đồ đủ 8 tuần sau khoảng 1 giờ.</div>`;
+  const ten = {doi:'⚠️ ROAS tăng nhưng GMV tụt — không đáng', gmv:'📉 GMV tụt mạnh', xau:'📉 ROAS giảm', tot:'📈 Tốt lên', on:'Ổn định', it:'Ít số, chưa đủ để nhận định'};
+  if (xu.k){
+    const goi = a.quan ? (xu.k === 'tot' ? 'Có thể nâng hệ số Giữ thêm 5% (1,10 → 1,15) để kéo ROAS lên tiếp.'
+        : xu.k === 'doi' || xu.k === 'gmv' ? 'Nên hạ hệ số Giữ 5% (1,10 → 1,05) để lấy lại GMV — ROAS cao mà mất doanh số thì không đáng.'
+        : xu.k === 'xau' ? 'ROAS giảm mà không do bot nâng/hạ — xem lại giá, tồn kho, đối thủ, đánh giá.' : 'Giữ nguyên.')
+      : (xu.k === 'tot' || xu.k === 'on') && a.ok && a.r30 >= 8 ? 'ROAS ổn — ứng viên tốt để giao cho bot.' : '';
+    h += `<div class="at-note" style="margin-top:12px"><b>${ten[xu.k] || esc(xu.k)}</b><div style="margin-top:4px">7 ngày gần nhất: ROAS <b>${botR(xu.r7)}</b>, GMV/ngày <b>${moneyShort(xu.g7 || 0)}</b>
+      · 30 ngày trước đó: ROAS ${botR(xu.rP)}, GMV/ngày ${moneyShort(xu.gP || 0)} · đổi: ROAS ${pc(xu.dR)}, GMV ${pc(xu.dG)}</div>${goi ? `<div style="margin-top:4px">👉 ${goi}</div>` : ''}</div>`;
+  }
+  h += `<div class="dim" style="font-size:12px;margin-top:10px">Luật nhận định: ROAS tăng ≥ 5% mà GMV/ngày tụt ≥ 15% = không đáng · GMV tụt ≥ 25% · ROAS giảm ≥ 10% · ROAS tăng ≥ 5% mà GMV giữ được (tụt &lt; 5%) = tốt lên. Cần chi ≥ 100k trong 7 ngày (hoặc ≥ 300k trong 30 ngày trước).</div>`;
+  if (c) h += `<div style="margin-top:10px"><button class="btn sm" data-act="botcamp" data-id="${esc(key)}">Mở chi tiết bot của sản phẩm này ›</button></div>`;
+  return h;
+}
 function botAdRow(r, chu, nhieuShop){
   const a = r.a, roas = a.c ? a.g / a.c : null;
   const ty = BOT_TY[a.ty] != null ? BOT_TY[a.ty] : a.ty;
   const tag = [a.st !== 'ongoing' ? `<span class="chip">${a.st === 'paused' ? 'Tạm dừng' : esc(a.st)}</span>` : '', ty ? `<span class="chip">${esc(ty)}</span>` : '',
-    a.dn ? '<span class="chip acc">Đẩy Nhanh</span>' : ''].concat(r.vd.map(x => `<span class="chip ${x.lv === 'do' ? 'bad' : x.lv === 'cam' ? 'warn' : 'ok'}" title="${esc(x.tip)}">${esc(x.t)}</span>`)).join('');
+    a.dn && !(chu && a.ok) ? '<span class="chip acc">Đẩy Nhanh</span>' : ''].concat(r.vd.map(x => `<span class="chip ${x.lv === 'do' ? 'bad' : x.lv === 'cam' ? 'warn' : 'ok'}" title="${esc(x.tip)}">${esc(x.t)}</span>`)).join('');
+  /* ⚡ Đẩy Nhanh: lệnh vừa bấm (≤ 20 phút) mà Shopee chưa đổi → đang chờ bot */
+  const ld = (r.cfg.dn || {})[r.key], choDn = ld && ld.on !== a.dn && Date.now() - Date.parse(ld.at) < 20 * 6e4;
+  const dnOn = choDn ? ld.on : a.dn;
+  const dnBtn = chu && a.ok ? `<button class="ba-dn ${dnOn ? 'on' : ''}" data-act="botdn" data-id="${esc(r.key)}" data-on="${dnOn ? 0 : 1}" title="${dnOn ? 'Bấm để tắt Đẩy Nhanh' : 'Bấm để bật Đẩy Nhanh'}">⚡ Đẩy Nhanh: <b>${dnOn ? 'Bật' : 'Tắt'}</b></button>${choDn ? '<div class="ba-cho">⏳ chờ bot đổi</div>' : ''}` : '';
   let bot;
   if (!a.ok && !a.quan) bot = `<span class="ba-no" title="Bot chỉ sửa được quảng cáo sản phẩm có ROAS mục tiêu">Bot chưa hỗ trợ</span>`;
   else if (!chu) bot = r.muon ? `<span class="chip acc">🤖 Bot quản</span>` : `<span class="dim">—</span>`;
   else bot = `<button class="ba-sw ${r.muon ? 'on' : ''}" data-act="botpick" data-id="${esc(r.key)}" data-on="${r.muon ? 0 : 1}"
       title="${r.muon ? 'Bấm để bỏ khỏi bot' : 'Bấm để giao cho bot chỉnh ROAS theo giờ'}"><i></i><span>${r.muon ? 'Bot quản' : 'Giao bot'}</span></button>${
       r.cho ? `<div class="ba-cho">⏳ chờ bot nhận (≤ 5 phút)</div>` : ''}`;
+  bot += dnBtn;
   const img = /^[\w-]{10,80}$/.test(a.img || '') ? `<img src="https://down-vn.img.susercontent.com/file/${esc(a.img)}_tn" loading="lazy" referrerpolicy="no-referrer" alt="">` : '';
   return `<div class="ba-row ${r.lv ? 'vd-' + r.lv : ''} ${r.muon ? 'quan' : ''}">
     <div class="ba-img">${img}</div>
-    <div class="ba-c-ten"><div class="bt-ten" title="${esc(a.title)}">${esc(a.title || 'Chiến dịch ' + a.cid)}</div>
+    <div class="ba-c-ten" data-act="botad" data-id="${esc(r.key)}" title="Bấm để xem ROAS 30N 8 tuần + GMV"><div class="bt-ten">${esc(a.title || 'Chiến dịch ' + a.cid)}</div>
       <div class="bt-sub">${tag}<span>${nhieuShop ? esc(a.shop) + ' · ' : ''}ID ${esc(a.cid)}</span></div></div>
     <div class="ba-c-dat r"><span class="bt-lb">Đang đặt</span><b class="bt-big">${botR(a.cur)}</b></div>
     <div class="ba-c-roas r"><span class="bt-lb">ROAS hôm nay</span><b class="bt-big ${roas != null && a.r30 && roas < a.r30 * 0.6 ? 'bad' : ''}">${botR(roas)}</b>${
       roas != null && a.r30 ? `<span class="chip ${roas >= a.r30 ? 'ok' : 'bad'}">${roas >= a.r30 ? '▲' : '▼'}${Math.abs((roas / a.r30 - 1) * 100).toFixed(0)}%</span>` : ''}</div>
-    <div class="ba-c-std r"><span class="bt-lb">ROAS 30N</span><b class="bt-big bt-mid ${a.r30 != null && a.c30 >= 100000 && a.r30 < 4 ? 'bad' : ''}">${botR(a.r30)}</b></div>
+    <div class="ba-c-std r"><span class="bt-lb">ROAS 30N</span><b class="bt-big bt-mid ${a.r30 != null && a.c30 >= 100000 && a.r30 < 4 ? 'bad' : ''}">${botR(a.r30)}</b>${botSpark(a.tuan)}</div>
     <div class="ba-c-tien"><span class="bt-lb">Chi hôm nay · 30N</span>
       <div class="bt-tien"><span><i>Hôm nay</i><b>${moneyShort(a.c || 0)}</b></span><span><i>30N</i><b>${moneyShort(a.c30 || 0)}</b></span><span><i>NS</i><b>${a.bud ? moneyShort(a.bud) : '∞'}</b></span></div>
       ${a.bud ? `<div class="bt-bar2 ${a.c >= a.bud * 0.8 ? 'gan' : ''}" title="Đã chi ${Math.round(a.c / a.bud * 100)}% ngân sách ngày"><i style="width:${Math.min(100, a.c / a.bud * 100).toFixed(1)}%"></i></div>` : ''}</div>
@@ -6907,7 +6973,12 @@ function botGuideHtml(d, key){
     quảng cáo đó như các sản phẩm khác (Giữ = chuẩn × 1,1, Đẩy −15%, Siết +15%, sàn = chuẩn × 0,7). Tắt thì bot trả mục tiêu về mức Giữ,
     ngân sách về gốc rồi thôi chỉnh. Bot chỉ sửa được quảng cáo sản phẩm có ROAS mục tiêu — quảng cáo nhóm / shop thì hiện "Bot chưa hỗ trợ".
     Viền đỏ = cần xử lý (cắn tiền hôm nay, ROAS 30 ngày dưới 4), viền cam = nên xem (ROAS 30 ngày dưới 7, hôm nay tụt, Đẩy Nhanh khi ROAS thấp),
-    viền xanh = cơ hội (sắp hết ngân sách mà ROAS tốt).</p>`;
+    viền xanh = cơ hội (sắp hết ngân sách mà ROAS tốt).</p>
+  <p><b>✅ ROAS tốt, chưa giao bot</b>: lọc các con ROAS 30 ngày từ ngưỡng bạn gõ (mặc định 8) trở lên, chi 30 ngày ≥ 300k — ứng viên để giao bot.
+    <b>⚡ Đẩy Nhanh</b>: bấm Bật/Tắt ngay trên từng dòng, bot làm ở lượt tới (mỗi lần bấm làm một lần; bạn đổi tay trên Shopee sau đó thì bot không đè).</p>
+  <p><b>📈 Xu hướng tuần</b>: đường nhỏ dưới ROAS 30N là ROAS 30 ngày lùi từng tuần (8 tuần); bấm tên quảng cáo để xem biểu đồ kèm GMV/ngày.
+    Nhận định so 7 ngày gần nhất với 30 ngày trước đó: ROAS tăng mà GMV/ngày tụt ≥ 15% = <b>không đáng</b>; GMV tụt ≥ 25%; ROAS giảm ≥ 10%;
+    ROAS tăng ≥ 5% mà GMV giữ được = tốt lên. Thứ Hai bot ghi "Tổng kết tuần" cho từng SP bot quản kèm gợi ý hệ số Giữ (chưa tự áp dụng).</p>`;
 
   if (c){
     const dn = c.kDN && c.kDN < 1, s = c.std30;
