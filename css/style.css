@@ -1522,3 +1522,5 @@ tr.rv-dang{background:var(--bg3)}
 .ba-dn.on{border-color:color-mix(in srgb,var(--warn) 60%,var(--line));color:var(--warn)}
 .ba-dn:hover{border-color:var(--acc)}
 @container (max-width:1000px){ .ba-spark{margin-left:0} }
+.hoi-txt{line-height:1.55;font-size:13.5px;white-space:normal}
+.mft:has([data-k]){display:flex;justify-content:flex-end;gap:8px}

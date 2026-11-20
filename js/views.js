@@ -7352,4 +7352,4 @@ function atDetailHtml(key){
   return h + form + `</div>`;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "c0c3e856"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "0a132b99"]);

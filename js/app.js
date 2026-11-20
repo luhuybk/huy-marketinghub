@@ -362,6 +362,22 @@ function closeModal(){
   el.classList.remove('on');
   setTimeout(() => el.remove(), 160);
 }
+/* Hộp hỏi Đồng ý / Huỷ của Hub, trả Promise<boolean>. Dùng thay confirm() cho thao tác hay bấm liên tiếp:
+   Chrome cho người dùng tick "Ngăn trang này tạo thêm hộp thoại" (hoặc tự chặn) — từ đó confirm() trả false
+   ngay mà không hiện gì, nút bấm trông như chết. */
+function hoiOk(title, text, ok = 'Đồng ý', nguy = false){
+  return new Promise(res => {
+    const body = `<div class="hoi-txt">${esc(String(text)).replace(/\n/g, '<br>')}</div>`;
+    const m = openModal(title, body, `<button class="btn" data-k="0">Huỷ</button><button class="btn ${nguy ? 'dngr' : 'pri'}" data-k="1">${esc(ok)}</button>`);
+    let xong = false;
+    const tra = v => { if (xong) return; xong = true; res(v); };
+    m.querySelectorAll('[data-k]').forEach(b => b.addEventListener('click', () => { tra(b.dataset.k === '1'); closeModal(); }));
+    m.querySelector('[data-act="closem"]').addEventListener('click', () => tra(false));
+    m.addEventListener('mousedown', e => { if (e.target === m) tra(false); });
+    new MutationObserver((_, o) => { if (!m.isConnected){ tra(false); o.disconnect(); } }).observe($('#modals'), {childList:true});
+    setTimeout(() => { const b = m.querySelector('[data-k="1"]'); if (b) b.focus(); }, 60);
+  });
+}
 function closeAllModals(){ $$('#modals .modal').forEach(m => m.remove()); }
 
 /* ---------------- biểu mẫu ----------------
@@ -5521,7 +5537,7 @@ const ACTIONS = {
       ? `BẬT Đẩy Nhanh cho:\n«${ten}»\n\nShopee sẽ tự thử mục tiêu thấp hơn ~30% để tìm thêm đơn — chi thường tăng, ROAS có thể giảm trong thời gian thử.` +
         (a.quan ? `\nBot đang quản con này: bot tự chia mức Giữ cho 0,7 khi Đẩy Nhanh bật.` : '') + `\n\nBot làm trong lượt tới (≤ 5 phút). Đồng ý?`
       : `TẮT Đẩy Nhanh cho:\n«${ten}»\n\nShopee thôi tự hạ mục tiêu.` + (a.quan ? ` Bot sẽ tính lại mức Giữ = chuẩn × 1,1 (không chia 0,7).` : '') + `\n\nBot làm trong lượt tới (≤ 5 phút). Đồng ý?`;
-    if (!confirm(msg)) return;
+    if (!await hoiOk(on ? 'Bật Đẩy Nhanh' : 'Tắt Đẩy Nhanh', msg.replace(/\n\nĐồng ý\?$/, ''), on ? 'Bật Đẩy Nhanh' : 'Tắt Đẩy Nhanh')) return;
     try { const r = await Server.botDn(id, on); d.cfg = r.cfg;
           toast((on ? 'Đã gửi lệnh bật' : 'Đã gửi lệnh tắt') + ' Đẩy Nhanh — bot làm trong 5 phút'); render(); }
     catch(e){ toast(e.message || 'Không lưu được'); }
@@ -5542,10 +5558,11 @@ const ACTIONS = {
           : std && a.cur && std * 1.1 / kDN < a.cur * 0.75 ? `\n⚠️ Mức Giữ ≈ ${botR(std * 1.1 / kDN)} thấp hơn nhiều so với mục tiêu đang đặt ${botR(a.cur)} — Shopee sẽ chi mạnh hơn hẳn. Nên điền ROAS biên trước (⚙ Cài đặt từng sản phẩm).\n` : '') +
         (a.dn ? `\nℹ️ Quảng cáo đang bật Đẩy Nhanh — nên tắt trên Shopee như các SP bot đang quản.\n` : '') + `\nĐồng ý?`
       : `Bỏ khỏi bot:\n«${ten}»\n\nLượt tới bot trả ROAS mục tiêu về mức Giữ${c && c.base ? ' (' + botR(c.base) + ')' : ''}, ngân sách về gốc nếu hôm nay đã nới, rồi thôi chỉnh.\n\nĐồng ý?`;
-    if (!confirm(msg)) return;
+    if (!await hoiOk(on ? 'Giao cho bot' : 'Bỏ khỏi bot', msg.replace(/\n\nĐồng ý\?$/, ''), on ? 'Giao bot' : 'Bỏ khỏi bot', !on)) return;
+    if (el && el.disabled !== undefined) el.disabled = true;
     try { const r = await Server.botPick(id, on, ten); d.cfg = r.cfg;
           toast(on ? 'Đã giao cho bot — bot nhận trong vòng 5 phút' : 'Đã bỏ khỏi bot — lượt tới bot trả về mức Giữ'); render(); }
-    catch(e){ toast(e.message || 'Không lưu được'); }
+    catch(e){ toast(e.message || 'Không lưu được'); if (el) el.disabled = false; }
   },
   botlogopen:  id => { ui.botLogOpen = Object.assign({}, ui.botLogOpen); ui.botLogOpen[id] = !ui.botLogOpen[id]; render(); },
   botguide:    id => botGuideOpen(id),
@@ -5568,8 +5585,8 @@ const ACTIONS = {
   },
   botpause:    async (id, el) => {
     const on = el && el.dataset.on === '1';
-    if (on && !confirm(id ? 'Tạm dừng bot ở chiến dịch này? Bot sẽ không chỉnh ROAS của nó nữa cho tới khi bạn chạy lại.'
-                          : 'Tạm dừng TOÀN BỘ bot? Bot sẽ giữ nguyên ROAS mục tiêu đang đặt, không chỉnh gì thêm.')) return;
+    if (on && !await hoiOk('Tạm dừng bot', id ? 'Tạm dừng bot ở chiến dịch này? Bot sẽ không chỉnh ROAS của nó nữa cho tới khi bạn chạy lại.'
+                          : 'Tạm dừng TOÀN BỘ bot? Bot sẽ giữ nguyên ROAS mục tiêu đang đặt, không chỉnh gì thêm.', 'Tạm dừng', true)) return;
     try { const r = await Server.botPause(on, id); if (botv.data) botv.data.cfg = r.cfg;
           toast(on ? 'Đã tạm dừng — bot nhận lệnh trong vòng 5 phút' : 'Đã cho chạy lại'); render(); botVeLaiCamp(); }
     catch(e){ toast(e.message || 'Không lưu được'); }
@@ -6777,4 +6794,4 @@ document.addEventListener('paste', e => {
   bUpload(z.dataset.bid, fs);
 });
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "c0c3e856"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "0a132b99"]);
