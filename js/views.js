@@ -6957,11 +6957,27 @@ function botGuideHtml(d, key){
       (tức chuẩn trừ 30%). Chưa điền biên thì sàn = chuẩn × 0,7.</td></tr>
   </tbody></table>
 
-  <h4>3 · Ba chế độ trong ngày</h4>
+  <h4>3 · Bốn chế độ trong ngày</h4>
+  <div class="bg-box" style="margin:6px 0 10px">
+    <b>Bảng hệ số — tóm tắt</b> (mục tiêu ROAS càng <b>cao</b> thì Shopee chi càng <b>ít</b>; ước lượng thô: đổi mục tiêu 1% ≈ đổi chi 3%)
+    <div class="tblwrap" style="margin-top:6px"><table class="tbl sm"><thead><tr><th>Chế độ</th><th>Công thức</th><th>waxshopvn</th><th>Men Zone</th><th>Ví dụ chuẩn 10</th></tr></thead><tbody>
+      <tr><td><span class="chip">Giữ</span></td><td>ROAS chuẩn 30 ngày × 1,1</td><td>× 1,00</td><td>× 1,00</td><td><b>11,0</b></td></tr>
+      <tr><td><span class="chip ok">Đẩy</span></td><td>Giữ × (1 − 10%)</td><td>× 0,90</td><td>× 0,90</td><td>9,9</td></tr>
+      <tr><td><span class="chip warn">Siết nhẹ</span></td><td>Giữ × (1 + nửa bước Siết)</td><td>× 1,075</td><td>× 1,05</td><td>11,8 · 11,6</td></tr>
+      <tr><td><span class="chip warn">Siết</span></td><td>Giữ × (1 + bước Siết)</td><td>× 1,15</td><td>× 1,10</td><td>12,7 · 12,1</td></tr>
+    </tbody></table></div>
+    <div style="margin-top:6px"><b>Lịch ngày thường</b> (mỗi lần đổi làm sớm 15 phút):<br>
+      · waxshopvn: 0h Siết nhẹ → 1h Giữ → <b>6–10h Đẩy</b> → 10h Giữ → <b>16–24h Siết</b><br>
+      · Men Zone: 0h Siết nhẹ → 1h Giữ → <b>6–11h Đẩy</b> → 11h Giữ → <b>21–24h Siết</b></div>
+    <div style="margin-top:6px"><b>Ngày sale</b>: 0–2h Giữ · tối trước sale lớn (ngày đôi) 21–24h Đẩy · tối trước sale nhỏ (15, 25) Siết như thường.</div>
+    <div style="margin-top:6px"><b>Hệ số theo thứ</b> (chỉ waxshopvn, nhân vào Giữ nên mọi chế độ dịch theo): T2 0,99 · T3 0,98 · T4 0,98 · T5 1 · T6 1,01 · T7 1,01 · <b>CN 1,04</b>.
+      Ví dụ Chủ nhật chuẩn 10: Giữ 11,4 · Đẩy 10,3 · Siết 13,2.</div>
+    <div style="margin-top:6px"><b>Chặn dưới</b>: không mức nào thấp hơn sàn = lớn hơn giữa ROAS biên bạn điền và chuẩn × 0,7. Bật Đẩy Nhanh thì mọi mức chia thêm 0,7.</div>
+  </div>
   <div class="bg-3">
     <div class="bg-box"><span class="chip">Giữ</span><br>Mức bình thường = <b>ROAS chuẩn × 1,1</b> — muốn tốt hơn tháng trước 10%.</div>
     <div class="bg-box"><span class="chip ok">Đẩy</span><br>Giờ đông khách: <b>hạ</b> mục tiêu 10% so với Giữ cho quảng cáo chạy mạnh (trước 21/11 là 15% — số 15 phút cho thấy hạ 15% làm giá mỗi click tăng 74% mà tỉ lệ ra đơn không đổi).</div>
-    <div class="bg-box"><span class="chip warn">Siết</span><br>Giờ ít mua: <b>nâng</b> mục tiêu 10–15% so với Giữ cho đỡ tốn tiền.</div>
+    <div class="bg-box"><span class="chip warn">Siết</span><br>Giờ ít mua: <b>nâng</b> mục tiêu 15% (Men Zone 10%) so với Giữ cho đỡ tốn tiền. <b>Siết nhẹ</b> = nửa mức đó, dùng lúc 0h.</div>
   </div>
   <p>Mỗi ngày bot chỉ vặn vài lần — đúng lúc đổi chế độ — chứ không vặn liên tục. Khi đang <b>Giữ</b> mà sắp tới giờ Đẩy thì bot
     <b>đẩy sớm 30 phút</b> (lịch Đẩy từ 6h thì 5h30 đã hạ) — đơn buổi sáng nhích từ 5h45. Còn đang <b>Siết</b> thì vào Đẩy đúng giờ.</p>
