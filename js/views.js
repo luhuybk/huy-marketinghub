@@ -6496,7 +6496,9 @@ function viewAdBot(){
   /* ---- 1.8: cảnh báo cắn tiền + ngân sách bot nới hôm nay ---- */
   const homNay = botVnNow().date;
   const canhNay = d.logs.filter(l => l.kind === 'canhbao' && botVnDate(l.at) === homNay);
-  const nsNay = d.logs.filter(l => l.kind === 'ngansach' && l.ok !== false && botVnDate(l.at) === homNay && l.new > l.old);
+  const nsLog = d.logs.filter(l => l.kind === 'ngansach' && l.ok !== false && botVnDate(l.at) === homNay);
+  const nsNay = nsLog.filter(l => /^(Nâng|Nới) ngân sách/.test(l.reason || '') && l.new > l.old);   // 1.11: chỉ lần nâng ở giờ cao điểm
+  const nsDau = nsLog.filter(l => /^Ngân sách ngày/.test(l.reason || ''));
   if (canhNay.length){
     const moi = new Map(); canhNay.forEach(l => { const k = l.shop + '|' + l.cid; if (!moi.has(k)) moi.set(k, l); });   // logs mới nhất trước
     h += `<div class="al al-bad bt-canh"><b>⚠️ ${moi.size} chiến dịch cắn tiền hôm nay</b>
@@ -6504,8 +6506,13 @@ function viewAdBot(){
       <ul>${[...moi.values()].map(l => `<li><span class="dim">${esc(botGio(l.at))}</span> <b>${esc(l.title || 'Chiến dịch ' + l.cid)}</b>
         <span class="dim">· ${esc(l.shop)} · ID ${esc(l.cid)}</span><div>${esc(String(l.reason || '').replace(/^⚠️ Cắn tiền: /, ''))}</div></li>`).join('')}</ul></div>`;
   }
-  if (nsNay.length) h += `<div class="al al-ok" style="margin-top:10px">💰 Hôm nay bot nới ngân sách ${nsNay.length} lần: ${
-    nsNay.map(l => `<b>${esc(l.title || l.cid)}</b> ${moneyShort(l.old)} → ${moneyShort(l.new)}`).join(' · ')} <span class="dim">(sang ngày mới tự trả về gốc)</span></div>`;
+  if (nsNay.length) h += `<div class="al al-ok" style="margin-top:10px"><div>💰 Hôm nay bot nâng ngân sách ${nsNay.length} lần (đốt nhanh mà ROAS ổn): ${
+    nsNay.map(l => `<b>${esc(l.title || l.cid)}</b> ${moneyShort(l.old)} → ${moneyShort(l.new)}`).join(' · ')} <span class="dim">(sang ngày mới đặt lại theo chi 7 ngày)</span></div></div>`;
+  if (nsDau.length){
+    const tu = nsDau.reduce((a, l) => a + (+l.old || 0), 0), den = nsDau.reduce((a, l) => a + (+l.new || 0), 0), kgh = nsDau.filter(l => !+l.old).length;
+    h += `<div class="al" style="margin-top:10px"><div>💰 Hôm nay bot đặt ngân sách ${nsDau.length} sản phẩm theo chi TB 7 ngày × 1,3: tổng ${moneyShort(den)}/ngày${
+      kgh ? ` <span class="dim">(${kgh} con trước đó không giới hạn${nsDau.length > kgh ? `, các con còn lại trước đó tổng ${moneyShort(tu)}` : ''})</span>` : ` <span class="dim">(trước đó ${moneyShort(tu)})</span>`}</div></div>`;
+  }
   if (chu && choBien.length) h += `<div class="al al-warn" style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <div class="grow"><b>${choBien.length} sản phẩm đang chỉ báo</b> — điền ROAS biên rồi tick Chạy thật để bot bắt đầu chỉnh.</div>
       <button class="btn pri sm" data-act="botsetup">⚙ Cài đặt</button></div>`;
@@ -6964,9 +6971,11 @@ function botGuideHtml(d, key){
   <p><b>⚠️ Cảnh báo cắn tiền</b> (mọi chiến dịch của 2 shop, cả con bot không quản): chi hôm nay từ 100k, gấp đôi mức thường tới giờ đó
     (chi trung bình 7 ngày thường × phần chi thường đã qua tới giờ này), mà ROAS tụt dưới 60% mức thường (hoặc dưới 3) → hiện khung đỏ đầu trang.
     Bot chỉ báo, không tự sửa. Mỗi chiến dịch báo 1 lần/ngày, chi tăng thêm 50% thì báo lại.</p>
-  <p><b>💰 Nới ngân sách</b> (chỉ sản phẩm bot quản có đặt ngân sách ngày): khi đã chi 80% ngân sách, ROAS hôm nay ≥ ROAS chuẩn và có từ 3 đơn,
-    trước 22h → bot nới +25%, tối đa 2 lần/ngày và không quá 2 lần ngân sách gốc. Sang ngày mới tự trả về ngân sách gốc.
-    Bạn tự đổi ngân sách thì bot lấy số mới làm gốc.</p>
+  <p><b>💰 Ngân sách tự động</b> (bản 1.11, mọi sản phẩm bot quản, cả con đang để không giới hạn): đầu mỗi ngày bot đặt ngân sách =
+    chi trung bình 7 ngày thường × 1,3 (tròn lên 10k, tối thiểu 100k; ngày sale lớn ×3, sale nhỏ 15/25 ×1,6).
+    Trong ngày chỉ kiểm ở giờ ra đơn cao — <b>10h, 14h, 20h</b> (ngày sale thêm 1h): đang đốt nhanh (đã chi 80% hoặc dự kiến hết ngân sách)
+    mà ROAS hôm nay ≥ 90% ROAS chuẩn và có từ 3 đơn → nâng (ít nhất +25%, đủ cho mức chi dự kiến), không quá 2,5× ngân sách gốc.
+    ROAS chưa đạt thì không nâng — ghi lý do vào nhật ký. Bạn (hoặc "Tự động Tăng Ngân sách" của Shopee) đổi ngân sách tay → bot để yên tới hết ngày.</p>
   <p><b>🧪 Thử xen kẽ</b> (Gôm Butterfly C2 và Akuma Fluffy, từ 20/11): một ngày chạy lịch Đẩy/Giữ/Siết, một ngày <b>đối chứng</b> Giữ cả ngày.
     Hai sản phẩm lệch nhau một ngày. Quanh ngày sale chạy bình thường. Sau 2–3 tuần so hai loại ngày để biết lịch giờ có làm lời hơn không.</p>
   <p><b>📋 Tất cả quảng cáo</b> (cuối trang): mọi quảng cáo của 2 shop, tìm theo tên hoặc ID. Bật <b>Giao bot</b> thì trong 5 phút bot quản
@@ -7352,4 +7361,4 @@ function atDetailHtml(key){
   return h + form + `</div>`;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "0a132b99"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "166c19c0"]);
