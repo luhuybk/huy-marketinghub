@@ -612,21 +612,23 @@ switch ($action) {
   /* Radar nằm trong Báo cáo Ads — quyền adreport, hoặc ads như trước khi tách */
   case 'ad_radar': {
     requireAuth();
-    if (!khMay(currentUser(), 'adreport') && !khMay(currentUser(), 'ads')) fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
+    /* Radar (Báo cáo Ads) và 📈 Tổng quan QC dùng chung số này */
+    if (!khMay(currentUser(), 'adreport') && !khMay(currentUser(), 'ads') && !khMay(currentUser(), 'adtong')) fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
     out(['ok' => true, 'moc' => (object)adMocs()] + adRadarData());
   }
   /* Mốc cải tiến sản phẩm (📈 Tổng quan QC) — thêm {key, date, note} hoặc xoá {key, del:id} */
   case 'ad_moc': {
     requireAuth();
-    if (!khMay(currentUser(), 'adreport') && !khMay(currentUser(), 'ads')) fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
+    /* Radar (Báo cáo Ads) và 📈 Tổng quan QC dùng chung số này */
+    if (!khMay(currentUser(), 'adreport') && !khMay(currentUser(), 'ads') && !khMay(currentUser(), 'adtong')) fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
     $r = adMocSet($in, (string)(currentUser()['name'] ?? ''));
     if (isset($r['error'])) fail($r['error']);
     out(['ok' => true] + $r);
   }
-  /* Bot ROAS theo giờ (Báo cáo Ads → Bot giờ): ai xem được Báo cáo Ads là xem được */
+  /* Bot ROAS theo giờ: quyền botgio riêng (từ 21/11/2026 — trước đó đi theo
+     Báo cáo Ads, nên nhân viên chưa được mở bot vẫn tự vào xem được) */
   case 'bot_view': {
-    requireAuth();
-    if (!khMay(currentUser(), 'adreport') && !khMay(currentUser(), 'ads')) fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
+    requirePerm('botgio');
     out(['ok' => true] + botView());
   }
   /* Dừng / chạy lại bot — chỉ chủ. key rỗng = cả bot, "shop|cid" = một chiến dịch */

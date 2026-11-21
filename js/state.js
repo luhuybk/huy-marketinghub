@@ -1001,6 +1001,10 @@ const PERMS = [
   {id:'posttt',    label:'Bài TikTok',   hint:'chỉ luồng TikTok → Shopee'},
   {id:'ads',       label:'Shopee Ads',   hint:'chi phí và doanh thu quảng cáo, chiến dịch, sản phẩm'},
   {id:'adreport',  label:'Báo cáo Ads',  hint:'Radar, số hôm nay / hôm qua / theo tháng / khung giờ'},
+  /* Hai tab dưới đây có ô riêng từ 21/11/2026. Trước đó chúng đi theo
+     adreport, nên ai xem được Báo cáo Ads là tự thấy luôn bot. */
+  {id:'adtong',    label:'Tổng quan QC', hint:'biểu đồ chi phí, GMV, ROAS theo ngày của cả gian hàng và từng sản phẩm'},
+  {id:'botgio',    label:'Bot ROAS giờ', hint:'xem bot chỉnh ROAS theo giờ và nhật ký — giao bot, dừng, cài đặt vẫn chỉ chủ'},
   {id:'keywords',  label:'Đánh từ khoá', hint:'dự án đẩy từ khoá và thứ hạng'},
   {id:'improve',   label:'Cải thiện SP', hint:'phễu và số liệu tuần trên Shopee'},
   {id:'newprod',   label:'Sản phẩm mới', hint:'ý tưởng sản phẩm đang dựng'},
@@ -6035,4 +6039,4 @@ function rvShopChanges(row){
   return out;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "5b16e74f"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "bbef4492"]);

@@ -19,8 +19,8 @@ const NAV = [
   {id:'posttt',   icon:'🎬',label:'Bài TikTok',   perm:'posttt'},
   {id:'ads',      icon:'◎', label:'Shopee Ads',   perm:'ads'},
   {id:'adreport', icon:'📊',label:'Báo cáo Ads',  perm:'adreport'},
-  {id:'adtong',   icon:'📈',label:'Tổng quan QC', perm:'adreport'},
-  {id:'botgio',   icon:'🤖',label:'Bot ROAS giờ', perm:'adreport'},
+  {id:'adtong',   icon:'📈',label:'Tổng quan QC', perm:'adtong'},
+  {id:'botgio',   icon:'🤖',label:'Bot ROAS giờ', perm:'botgio'},
   {id:'keywords', icon:'🔎',label:'Đánh từ khoá',  perm:'keywords'},
   {id:'rival',    icon:'🎯',label:'Theo dõi đối thủ', perm:'rival'},
   {id:'cost',     icon:'🧮',label:'Tính chi phí',  perm:'cost'},
@@ -1479,7 +1479,7 @@ function botSetupOpen(){
  /* Bot giờ mở được ở hai chỗ: trang riêng trên menu bên, và tab con trong Báo cáo Ads */
 const botDangMo = () => route.page === 'botgio' || (route.page === 'adreport' && adReportTab() === 'bot');
 function ensureBot(lamMoi){
-  if (!botDangMo() || !window.Server || !Server.authed() || !(may('adreport') || may('ads'))) return;
+  if (!botDangMo() || !window.Server || !Server.authed() || !may('botgio')) return;
   if (botv.busy || (!lamMoi && botv.luc && Date.now() - botv.luc < BOT_CU_PHUT * 6e4)) return;
   botv.busy = true; botv.luc = Date.now();
   Server.botView().then(r => { botv.data = r; botv.err = ''; botVeLaiCamp(); })
@@ -1490,7 +1490,7 @@ setInterval(() => { if (botDangMo() && !document.hidden) ensureBot(); }, 60e3);
 /* 📈 Tổng quan QC: số ngày chỉ đổi mỗi sáng một lần — 15 phút hỏi lại là thừa đủ */
 const AT_CU_PHUT = 15;
 function ensureAdTong(lamMoi){
-  if (route.page !== 'adtong' || !window.Server || !Server.authed() || !(may('adreport') || may('ads'))) return;
+  if (route.page !== 'adtong' || !window.Server || !Server.authed() || !may('adtong')) return;
   if (atv.busy || (!lamMoi && atv.luc && Date.now() - atv.luc < AT_CU_PHUT * 6e4)) return;
   atv.busy = true; atv.luc = Date.now();
   Server.adRadar().then(r => { atv.data = r; atv.err = ''; })
@@ -6837,4 +6837,4 @@ document.addEventListener('paste', e => {
   bUpload(z.dataset.bid, fs);
 });
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "5b16e74f"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "bbef4492"]);

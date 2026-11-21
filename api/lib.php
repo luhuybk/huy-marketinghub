@@ -203,7 +203,8 @@ function khTachAds(PDO $pdo): void {
    Danh sách này phải khớp PERMS trong js/state.js. */
 const KH_PERMS = ['dash','pipeline','kols','clips','postfb','posttt','ads',
                   'improve','newprod','compare','resources','cost','launch',
-                  'adreport','keywords','rival','build','giasi'];
+                  'adreport','keywords','rival','build','giasi',
+                  'adtong','botgio'];
 
 /* Bộ dữ liệu nào cần quyền nào. Có MỘT trong số quyền liệt kê là đọc được.
 
