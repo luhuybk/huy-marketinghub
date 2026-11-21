@@ -1620,7 +1620,8 @@ function botSave(inp){
     if (o.error) return o;
     Object.assign(r, o);
   } else if (dd !== 'cfg') return {error:'Không hiểu yêu cầu.'};
-  kvSet('bot_seen', {at:now, ver:botTxt(inp.ver, 30), do:dd});
+  const cuSeen = kvGet('bot_seen', null);   // okAt = lần cuối gửi được số Shopee (state/ads) — như lib.php
+  kvSet('bot_seen', {at:now, ver:botTxt(inp.ver, 30), do:dd, okAt: ['state', 'ads'].includes(dd) ? now : (cuSeen && cuSeen.okAt) || null});
   return Object.assign(r, {cfg:botCfg()});
 }
 function botView(){

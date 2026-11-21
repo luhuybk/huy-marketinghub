@@ -6477,13 +6477,19 @@ function viewAdBot(){
 
   /* ---- trạng thái ---- */
   const imPhut = seen ? (Date.now() - Date.parse(seen.at)) / 6e4 : Infinity;
-  const song = imPhut <= 15;
+  /* bản cũ chưa gửi okAt thì theo giờ liên lạc như trước */
+  const okPhut = seen && seen.okAt ? (Date.now() - Date.parse(seen.okAt)) / 6e4 : seen && !('okAt' in seen) ? imPhut : Infinity;
+  const song = okPhut <= 15;
+  const ketShopee = !song && imPhut <= 15;   // vẫn liên lạc mà không lấy được số Shopee
   const choBien = d.camps.filter(c => c.managed && c.live === false);
   let h = `<div class="card bt-top">
     <div class="bt-dot ${cfg.paused ? 'pause' : song ? 'on' : 'off'}"></div>
     <div class="grow">
-      <b>${cfg.paused ? 'Bot đang TẠM DỪNG toàn bộ' : song ? 'Bot đang chạy' : 'Bot im lặng — có thể đã dừng hoặc mất đăng nhập'}</b>
-      <div class="dim" style="margin-top:2px;font-size:12.5px">${seen ? 'Liên lạc lần cuối ' + esc(botTruoc(seen.at)) + ' (' + esc(botHm(seen.at)) + ')' +
+      <b>${cfg.paused ? 'Bot đang TẠM DỪNG toàn bộ' : song ? 'Bot đang chạy' : ketShopee
+        ? 'Bot KHÔNG lấy được số Shopee — mục tiêu đang đứng yên' : 'Bot im lặng — có thể đã dừng hoặc mất đăng nhập'}</b>
+      <div class="dim" style="margin-top:2px;font-size:12.5px">${seen ? (seen.okAt && !song
+        ? 'Gửi số Shopee lần cuối ' + esc(botTruoc(seen.okAt)) + ' (' + esc(botHm(seen.okAt)) + ') · ' : '') +
+        'Liên lạc lần cuối ' + esc(botTruoc(seen.at)) + ' (' + esc(botHm(seen.at)) + ')' +
         (seen.ver ? ' · bản ' + esc(seen.ver) : '') : 'Chưa liên lạc lần nào'}${cfg.paused && cfg.by ? ' · dừng bởi ' + esc(cfg.by) + ' lúc ' + esc(botHm(cfg.at)) : ''}</div>
     </div>
     <div class="btns">

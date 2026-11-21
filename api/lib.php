@@ -2156,7 +2156,11 @@ function botSave(array $in): array {
     return ['error' => 'Không hiểu yêu cầu.'];
   }
 
-  kvSet('bot_seen', ['at' => $now, 'ver' => botTxt($in['ver'] ?? '', 30), 'do' => $do]);
+  /* okAt = lần cuối bot gửi được SỐ Shopee (state/ads). Lượt hỏng vẫn hỏi cờ (cfg) đầu lượt — nếu chỉ
+     xem 'at' thì bot chết cả buổi Hub vẫn báo "đang chạy" (21/11: 11h30–17h15). */
+  $cu = kvGet('bot_seen', null);
+  $okAt = in_array($do, ['state', 'ads'], true) ? $now : (is_array($cu) ? ($cu['okAt'] ?? null) : null);
+  kvSet('bot_seen', ['at' => $now, 'ver' => botTxt($in['ver'] ?? '', 30), 'do' => $do, 'okAt' => $okAt]);
   return $r + ['cfg' => botCfgOut()];
 }
 
