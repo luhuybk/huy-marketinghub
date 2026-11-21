@@ -5490,6 +5490,18 @@ const ACTIONS = {
   atreload: () => { ensureAdTong(true); toast('Đang tải lại…'); },
   atshop:   id => { ui.atShop = id || ''; ui.atOpen = ''; render(); },
   atky:     id => { ui.atKy = +id || 30; render(); },
+  /* ---- 📈 Biểu đồ chỉ số (Tổng quan QC) ---- */
+  mctog: id => { const c = mcCfg(); if (!MC.some(m => m.k === id)) return;
+    c.sel = c.sel.includes(id) ? c.sel.filter(k => k !== id) : MC.filter(m => c.sel.includes(m.k) || m.k === id).map(m => m.k);
+    mcGhi(); render(); },
+  mcset: id => { const [k, v] = String(id).split(':'), c = mcCfg();
+    if (k === 'gran') c.gran = v === 'tuan' ? 'tuan' : 'ngay';
+    else if (k === 'ky') c.ky = MC_KY.includes(+v) ? +v : 30;
+    else if (k === 'cach') c.cach = v === 'gop' ? 'gop' : 'tach';
+    else if (k === 'bang') c.bang = v === '1';
+    else if (k === 'sel') c.sel = v === 'bo' ? [] : MC_MAC_DINH.sel.slice();
+    mcGhi(); render(); },
+  mccamp: (id, el) => { mcCfg().camp = el.value || ''; mcGhi(); render(); },
   atloc:    id => { ui.atLoc = id || ''; render(); },
   atskip:   () => { ui.atSkip = !(ui.atSkip !== false); render(); },
   atall:    () => { ui.atAll = !ui.atAll; render(); },
@@ -5864,6 +5876,37 @@ document.addEventListener('focusout', e => {
   const n = el.dataset.sep === 'count' ? parseCount(el.value) : parseMoney(el.value);
   el.value = n ? n.toLocaleString('vi-VN') : '';
 });
+
+/* ---- 📈 Biểu đồ chỉ số: rê chuột / chạm → đường dọc + ô số chạy qua mọi khung cùng lúc ----
+   Bắt ở document vì render() thay cả DOM. Chữ trong ô số gán bằng textContent. */
+function mcAn(){ document.querySelectorAll('.mc-tip').forEach(t => { t.hidden = true; });
+  document.querySelectorAll('.mc-x.on').forEach(l => l.classList.remove('on')); }
+document.addEventListener('pointermove', e => {
+  const sv = e.target.closest && e.target.closest('.mc-svg');
+  if (!sv){ if (document.querySelector('.mc-x.on')) mcAn(); return; }
+  const D = mcVt.data, root = sv.closest('.mc-plot');
+  if (!D || !root) return;
+  const r = sv.getBoundingClientRect(), W = +sv.dataset.w, pl = +sv.dataset.pl, pw = +sv.dataset.pw, n = +sv.dataset.n;
+  const xv = (e.clientX - r.left) / r.width * W;
+  const k = Math.max(0, Math.min(n - 1, Math.floor((xv - pl) / pw * n)));
+  const x = (pl + pw * (k + 0.5) / n).toFixed(1);
+  root.querySelectorAll('.mc-x').forEach(l => { l.setAttribute('x1', x); l.setAttribute('x2', x); l.classList.add('on'); });
+  const tip = root.querySelector('.mc-tip');
+  tip.textContent = '';
+  const t = document.createElement('div'); t.className = 'mc-tt'; t.textContent = D.o[k] ? D.o[k].ten : ''; tip.appendChild(t);
+  D.s.forEach(s => {
+    const row = document.createElement('div'); row.className = 'mc-tr';
+    const key = document.createElement('i'); key.className = 'mc-k mc-c' + s.c + (s.d ? ' d' : '');
+    const v = document.createElement('b'); v.textContent = s.v[k];
+    const l = document.createElement('span'); l.textContent = s.l;
+    row.append(key, v, l); tip.appendChild(row);
+  });
+  tip.hidden = false;
+  const rr = root.getBoundingClientRect(), tw = tip.offsetWidth, px = e.clientX - rr.left;
+  tip.style.left = Math.max(4, px + 16 + tw > rr.width ? px - tw - 16 : px + 16) + 'px';
+  tip.style.top = Math.max(0, Math.min(e.clientY - rr.top - 20, rr.height - tip.offsetHeight)) + 'px';
+});
+document.addEventListener('pointerleave', mcAn);
 
 /* ---- ô lọc trên các trang ---- */
 document.addEventListener('input', e => {
@@ -6794,4 +6837,4 @@ document.addEventListener('paste', e => {
   bUpload(z.dataset.bid, fs);
 });
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "ce4ae65d"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "5b16e74f"]);
