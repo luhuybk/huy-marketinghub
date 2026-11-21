@@ -6914,8 +6914,7 @@ function botDoan(c){
   const plan = Array.isArray(c.plan) ? c.plan : Array(24).fill('giu');
   const som = +c.som || 0, mins = [];
   for (let m = 0; m < 1440; m += 5){
-    const raw = plan[Math.floor(m / 60)], sau = plan[Math.floor(((m + som) % 1440) / 60)];
-    mins.push(som && raw === 'giu' && sau === 'day' ? 'day' : raw);   // bot 1.6: chỉ đẩy sớm khi đang Giữ
+    mins.push(plan[Math.floor(((m + som) % 1440) / 60)]);   // bot 1.16: mọi lần đổi chế độ sớm som phút
   }
   const doan = [];
   mins.forEach((md, i) => { const t = i * 5; if (!doan.length || doan[doan.length - 1].m !== md) doan.push({m:md, tu:t}); });
@@ -6924,7 +6923,7 @@ function botDoan(c){
 }
 const botHhmm = t => String(Math.floor(t / 60) % 24).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0');
 function botMuc(c, m){
-  const base = c.base || 0, w = m === 'day' ? base * (1 - (c.stepDown || 0) / 100) : m === 'siet' ? base * (1 + (c.stepUp || 0) / 100)
+  const base = (c.base || 0) * (c.thu || 1), w = m === 'day' ? base * (1 - (c.stepDown || 0) / 100) : m === 'siet' ? base * (1 + (c.stepUp || 0) / 100)
     : m === 'nhe' ? base * (1 + (c.stepUp || 0) / 200) : base;   // Siết nhẹ = nửa bước Siết (bot 1.15)
   const san = c.floorT != null ? c.floorT : c.floor || 0;
   return Math.round(Math.max(w, san) * 10) / 10;
@@ -6969,12 +6968,17 @@ function botGuideHtml(d, key){
   <p><b>0h ngày thường — Siết nhẹ</b> (từ 21/11, bot 1.15): mục tiêu = Giữ + nửa bước Siết, 1h về Giữ. Đơn lúc 0h phần lớn là khách đã tìm và
     để giỏ từ trước, giờ mới chốt — trả thêm tiền không kéo thêm được bao nhiêu: thời bot còn Đẩy 0h, chi 0–2h tăng từ 163k lên 549k/ngày
     mà phần tiền thêm chỉ ra ROAS ~2,4. Ngày sale vẫn Đẩy 0–1h như dưới.</p>
-  <p><b>Shopee đổi giá rất nhanh</b>: số 15 phút cho thấy giá thầu đổi ngay trong 15 phút sau khi bot sửa — không có độ trễ nửa tiếng.</p>
-  <p><b>Sale lớn — ngày đôi</b> (9/9, 10/10, 11/11…, đơn gấp 3–5 lần ngày thường): tối hôm trước 21–23h bot <b>Giữ</b> (không Siết):
-    khách thêm giỏ rồi để đó chờ voucher 0h — bỏ giỏ tối đó tới 38–60%, nhưng 0–1h ngày sale số đơn vượt hẳn số giỏ, tức là giỏ quay lại chốt.
-    Từ 23h30 bot Đẩy tới hết 1h sáng ngày sale.</p>
-  <p><b>Sale nhỏ — ngày 15 và 25</b> (đơn tăng 20–80%): 0–2h rất mạnh nên bot Đẩy tới hết 1h59, nhưng tối hôm trước là khung tệ nhất tháng
-    (ROAS chỉ 5,8–7,2) nên tối đó vẫn <b>Siết</b> như ngày thường. Ngày 10, 20 gần như ngày thường. <b>Ngày sau sale</b> đơn ít hơn
+  <p><b>Đổi sớm 15 phút</b> (bot 1.16): số 15 phút cho thấy giá thầu đổi ngay sau khi bot sửa, nhưng lượng click cần khoảng 15 phút mới
+    lên/xuống hết — nên mọi lần đổi chế độ bot làm sớm 15 phút (Đẩy 5h45, về Giữ 9h45…), tới đúng giờ là đã chạy theo chế độ mới.</p>
+  <p><b>Hệ số theo thứ</b> (waxshopvn): cùng mức chi nhưng ROAS thứ 2–4 cao hơn trung bình 2,5–5%, Chủ nhật thấp hơn 7,5% (90 ngày).
+    Bot nhân mức Giữ của ngày với hệ số lấy nửa độ lệch: T2 0,99 · T3 0,98 · T4 0,98 · T5 1 · T6 1,01 · T7 1,01 · CN 1,04
+    (nhỏ hơn 1 = hạ mục tiêu, chạy mạnh hơn). Ngày quanh sale không nhân. Men Zone chênh nhau trong sai số nên không áp.</p>
+  <p><b>Sale lớn — ngày đôi</b> (9/9, 10/10, 11/11…, đơn gấp 3–5 lần ngày thường), từ bot 1.16: tối hôm trước <b>21–23h Đẩy</b>,
+    <b>0–1h ngày sale Giữ</b>. Tối trước là lúc khách tìm và thêm giỏ chờ voucher (10/11: tỉ lệ thêm giỏ/click 10,8% — cao nhất, giá click
+    1.114đ — rẻ nhất); 0h họ chỉ chốt giỏ đã chọn (11/11 0–1h: đơn gấp 5 lần số giỏ, giá click đắt nhất ngày) nên trả thêm lúc đó
+    không kéo thêm đơn.</p>
+  <p><b>Sale nhỏ — ngày 15 và 25</b> (đơn tăng 20–80%): 0–1h <b>Giữ</b> (15/11 0–1h ROAS chỉ 6,8, tỉ lệ thêm giỏ 4,3% — khách chỉ chốt đơn),
+    tối hôm trước vẫn <b>Siết</b> như ngày thường. Ngày 10, 20 gần như ngày thường. <b>Ngày sau sale</b> đơn ít hơn
     nhưng ROAS không kém (Shopee tự chi ít đi), nên bot không Siết thêm.</p>
   <p><b>Đẩy Nhanh</b>: sản phẩm bật chế độ này thì Shopee tự thử mục tiêu thấp hơn khoảng 30%. Vì vậy bot đặt mục tiêu
     <b>chia thêm 0,7</b> (đặt cao hơn) để khi Shopee tự hạ thì vẫn rơi đúng chỗ mong muốn. Từ 19/11 các sản phẩm bot quản đã tắt Đẩy Nhanh.</p>
@@ -7012,7 +7016,8 @@ function botGuideHtml(d, key){
       <div class="bg-ex-hd"><b>${esc(c.title || c.cid)}</b> <span class="dim">· ${esc(c.shop)}${dn ? ' · đang bật Đẩy Nhanh' : ''}</span></div>
       <ol class="bg-steps">
         <li><b>ROAS chuẩn</b>${s ? ` = doanh thu ${moneyShort(s.gmv)} ÷ chi ${moneyShort(s.cost)} (${s.days} ngày${s.skip ? ', đã bỏ ' + s.skip + ' ngày sale' : ''})` : ''} = ${v(c.std)}</li>
-        <li><b>Mức Giữ</b> = ${botR(c.std)} × 1,1${dn ? ' ÷ 0,7 (Đẩy Nhanh)' : ''} = ${v(c.base)}</li>
+        <li><b>Mức Giữ</b> = ${botR(c.std)} × 1,1${dn ? ' ÷ 0,7 (Đẩy Nhanh)' : ''} = ${v(c.base)}${c.thu && c.thu !== 1
+          ? ` · hôm nay nhân hệ số thứ ${String(c.thu).replace('.', ',')} → <b>${botR(c.base * c.thu)}</b>` : ''}</li>
         <li><b>Mức Đẩy</b> = ${botR(c.base)} × (1 − ${Math.round(c.stepDown || 0)}%) = ${v(day)} &nbsp;·&nbsp; <b>Mức Siết</b> = ${botR(c.base)} × (1 + ${Math.round(c.stepUp || 0)}%) = ${v(siet)}${
           (c.plan || []).includes('nhe') ? ` &nbsp;·&nbsp; <b>Siết nhẹ</b> (0h ngày thường) = ${botR(c.base)} × (1 + ${Math.round((c.stepUp || 0) / 2 * 10) / 10}%) = ${v(botMuc(c, 'nhe'))}` : ''}</li>
         <li><b>Sàn</b> = lớn hơn giữa biên ${c.bienSP ? botR(c.bienSP) : '(chưa điền)'} và ${botR(c.std)} × 0,7 = ${botR((c.std || 0) * 0.7)} → ${v(sanThuc)}${
