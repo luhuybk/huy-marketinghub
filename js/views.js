@@ -6705,7 +6705,8 @@ function botBang(list, cfg){
       const key = c.shop + '|' + c.cid, tat = !!(cfg.off || {})[key];
       const tag = [c.boost ? '<span class="chip acc">Đẩy Nhanh</span>' : '', tat ? '<span class="chip bad">Đã dừng</span>' : '',
         c.xk === 'doichung' ? '<span class="chip warn" title="Thử xen kẽ: hôm nay Giữ cả ngày để so với ngày chạy lịch">Đối chứng hôm nay</span>'
-          : c.xk === 'chay' ? '<span class="chip" title="Thử xen kẽ: hôm nay chạy lịch Đẩy/Giữ/Siết">Xen kẽ · chạy lịch</span>' : '',
+          : c.xk === 'chay' ? '<span class="chip" title="Thử xen kẽ: hôm nay chạy lịch Đẩy/Giữ/Siết">Xen kẽ · chạy lịch</span>'
+          : c.xk === 'nghi' ? '<span class="chip warn" title="Ngày nghỉ Đẩy luân phiên (bot 1.18): khung Đẩy hôm nay để Giữ, so với ngày có Đẩy để đo Đẩy có đáng với SP này không">Nghỉ Đẩy hôm nay</span>' : '',
         c.nsLan > 0 ? `<span class="chip ok">NS nới ${c.nsLan} lần</span>` : '',
         !tat && c.live === false ? '<span class="chip warn">Chỉ báo</span>' : '', !c.managed ? '<span class="chip">Chỉ theo dõi</span>' : ''].join('');
       const lech = c.roas != null && c.std ? c.roas / c.std - 1 : null;
@@ -7003,6 +7004,9 @@ function botGuideHtml(d, key){
   <p><b>📈 Cảnh báo giá click tăng vọt</b> (bot 1.17, chỉ báo): mọi quảng cáo đang chạy, bot so giá mỗi click 30 phút gần nhất với 2 tiếng trước đó
     (cùng chế độ — giá tăng vì chính bot vừa Đẩy thì không tính). Cao gấp rưỡi, đủ click và tiền → báo, kèm thứ hạng có lên không:
     trả đắt hơn mà không lên hạng là đang bị đua giá. Số này lưu vào kho để sau kiểm xem có nên cho bot tự Siết lúc giá vọt.</p>
+  <p><b>Ngày nghỉ Đẩy luân phiên</b> (bot 1.18, từ 22/11): 7 sản phẩm ≥ 10 đơn/ngày, mỗi con cứ 4 ngày có 1 ngày khung Đẩy để Giữ (các con lệch ngày nhau,
+    quanh ngày sale không nghỉ). So cùng khung giờ ngày có Đẩy và ngày nghỉ sẽ ra Đẩy có đáng với từng sản phẩm không — giá click tăng bao nhiêu,
+    thêm bao nhiêu click, khách mở rộng có mua không — để sau đó đặt mức Đẩy riêng cho từng con. Butterfly C2 và Akuma đã có thử xen kẽ nên không nằm trong nhóm này.</p>
   <p><b>Sale lớn — ngày đôi</b> (9/9, 10/10, 11/11…, đơn gấp 3–5 lần ngày thường), từ bot 1.16: tối hôm trước <b>21–23h Đẩy</b>,
     <b>0–1h ngày sale Giữ</b>. Tối trước là lúc khách tìm và thêm giỏ chờ voucher (10/11: tỉ lệ thêm giỏ/click 10,8% — cao nhất, giá click
     1.114đ — rẻ nhất); 0h họ chỉ chốt giỏ đã chọn (11/11 0–1h: đơn gấp 5 lần số giỏ, giá click đắt nhất ngày) nên trả thêm lúc đó
