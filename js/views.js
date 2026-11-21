@@ -966,7 +966,7 @@ function viewAdReport(){
       <button class="tab ${tab === 'day' ? 'on' : ''}" data-act="adtab" data-id="day">Hôm qua</button>
       <button class="tab ${tab === 'month' ? 'on' : ''}" data-act="adtab" data-id="month">Theo tháng</button>
       <button class="tab ${tab === 'gio' ? 'on' : ''}" data-act="adtab" data-id="gio">Khung giờ</button>
-      <button class="tab ${tab === 'bot' ? 'on' : ''}" data-act="adtab" data-id="bot">🤖 Bot giờ</button>
+      ${may('botgio') ? `<button class="tab ${tab === 'bot' ? 'on' : ''}" data-act="adtab" data-id="bot">🤖 Bot giờ</button>` : ''}
     </div>
     <div class="grow"></div>
     ${tab === 'radar' ? '<a class="btn" href="radar.html" target="_blank" rel="noopener">Mở toàn màn hình ↗</a>'
@@ -996,7 +996,8 @@ function viewBotPage(){
 
 /* Tab đang mở của Báo cáo Ads. Radar là mặc định — đó là cách đọc số người
    dùng đã quen từ trang cũ của tác vụ mỗi sáng. */
-const adReportTab = () => ['radar','month','gio','now','day','bot'].includes(ui.adTab) ? ui.adTab : 'radar';
+/* Bot giờ cần quyền botgio riêng — không có thì rơi về Radar */
+const adReportTab = () => ['radar','month','gio','now','day'].includes(ui.adTab) || (ui.adTab === 'bot' && may('botgio')) ? ui.adTab : 'radar';
 
 /* Dòng nhỏ đầu trang: số đang về tự động từ tác vụ, lần cuối lúc nào. Hôm nào
    tác vụ hỏng thì dòng này đứng ở ngày cũ — nhìn là biết, không phải đoán vì

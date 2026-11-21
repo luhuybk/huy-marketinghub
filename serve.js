@@ -100,7 +100,8 @@ function khTachAds(store){
    nói "được" còn máy chủ thật nói "không" — hoặc tệ hơn, ngược lại. */
 const KH_PERMS = ['dash','pipeline','kols','clips','postfb','posttt','ads',
                   'improve','newprod','compare','resources','cost','launch',
-                  'adreport','keywords','rival','build','giasi'];
+                  'adreport','keywords','rival','build','giasi',
+                  'adtong','botgio'];
 const KH_KIND_PERM = {
   kols:['kols','pipeline'], statuses:['kols','pipeline'], templates:['kols','pipeline'],
   bookings:['pipeline','kols','clips'], clips:['clips','pipeline','kols'],
@@ -697,19 +698,19 @@ function api(req, res, body){
     /* Số liệu cho Báo cáo Ads → Radar — quyền adreport, hoặc ads như trước khi tách */
     case 'ad_radar': {
       if (!need()) return;
-      if (!khMay(me, 'adreport') && !khMay(me, 'ads')) return fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
+      if (!khMay(me, 'adreport') && !khMay(me, 'ads') && !khMay(me, 'adtong')) return fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
       return send(Object.assign({ok:true, moc:adMocs()}, adRadarData()));
     }
     case 'ad_moc': {
       if (!need()) return;
-      if (!khMay(me, 'adreport') && !khMay(me, 'ads')) return fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
+      if (!khMay(me, 'adreport') && !khMay(me, 'ads') && !khMay(me, 'adtong')) return fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
       const r = adMocSet(inp, (me && me.name) || '');
       return r.error ? fail(r.error) : send(Object.assign({ok:true}, r));
     }
     /* Bot ROAS theo giờ — xem botView()/botPause() */
     case 'bot_view': {
       if (!need()) return;
-      if (!khMay(me, 'adreport') && !khMay(me, 'ads')) return fail('Tài khoản này chưa được xem Báo cáo Ads.', 403);
+      if (!khMay(me, 'botgio')) return fail('Tài khoản này chưa được mở Bot ROAS giờ.', 403);
       return send(Object.assign({ok:true}, botView()));
     }
     case 'bot_pause': {

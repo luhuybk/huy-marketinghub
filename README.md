@@ -1238,6 +1238,13 @@ Nên luật thật nằm trong `pull` và `push`:
 | Xoá | chỉ tài khoản chủ (luật cũ, giữ nguyên) |
 | Cài đặt, Telegram, tài khoản | `requireOwner()` |
 
+**Mỗi tab phải có ô tick riêng.** Tab mới đừng mượn quyền của tab khác. Ngày
+21/11/2026 mới tách: 📈 **Tổng quan QC** (`adtong`) và 🤖 **Bot ROAS giờ**
+(`botgio`). Trước đó cả hai đi theo `adreport`, nên nhân viên chưa được mở bot
+vẫn thấy tab bot (cả tab con 🤖 trong Báo cáo Ads). `bot_view` giờ chỉ cho quyền
+`botgio`. `ad_radar`/`ad_moc` cho `adreport`, `ads` hoặc `adtong`. Lúc tách,
+không ai được tự cấp hai quyền mới; chủ tick lại cho người cần.
+
 Ba lỗ rò đã bịt, mỗi lỗ đều tự nó đủ làm cả cơ chế thành vô nghĩa:
 
 1. **Đổi `flow` để chiếm dòng của người khác.** `push` đọc bản *đang có trên
