@@ -6513,11 +6513,20 @@ function viewAdBot(){
       <ul>${[...moi.values()].map(l => `<li><span class="dim">${esc(botGio(l.at))}</span> <b>${esc(l.title || 'Chiến dịch ' + l.cid)}</b>
         <span class="dim">· ${esc(l.shop)} · ID ${esc(l.cid)}</span><div>${esc(String(l.reason || '').replace(/^⚠️ Cắn tiền: /, ''))}</div></li>`).join('')}</ul></div>`;
   }
+  /* 1.17: giá click tăng vọt (chỉ báo) — dấu hiệu đang bị đua giá, trả đắt mà không đáng */
+  const cpcNay = d.logs.filter(l => l.kind === 'cpc' && botVnDate(l.at) === homNay);
+  if (cpcNay.length){
+    const moi = new Map(); cpcNay.forEach(l => { const k = l.shop + '|' + l.cid; if (!moi.has(k)) moi.set(k, l); });
+    h += `<div class="al al-warn" style="margin-top:10px"><b>📈 ${moi.size} quảng cáo bị giá click tăng vọt hôm nay</b>
+      <div class="dim" style="font-size:12px">Giá mỗi click 30 phút gần nhất cao gấp rưỡi 2 tiếng trước đó — thường là đang bị đua giá. Bot chỉ báo, chưa tự Siết.</div>
+      <ul>${[...moi.values()].slice(0, 8).map(l => `<li><span class="dim">${esc(botGio(l.at))}</span> <b>${esc(l.title || 'Chiến dịch ' + l.cid)}</b>
+        <span class="dim">· ${esc(l.shop)}</span><div>${esc(String(l.reason || '').replace(/^Giá click tăng vọt: /, ''))}</div></li>`).join('')}</ul></div>`;
+  }
   if (nsNay.length) h += `<div class="al al-ok" style="margin-top:10px"><div>💰 Hôm nay bot nâng ngân sách ${nsNay.length} lần (đốt nhanh mà ROAS ổn): ${
-    nsNay.map(l => `<b>${esc(l.title || l.cid)}</b> ${moneyShort(l.old)} → ${moneyShort(l.new)}`).join(' · ')} <span class="dim">(sang ngày mới đặt lại theo chi 7 ngày)</span></div></div>`;
+    nsNay.map(l => `<b>${esc(l.title || l.cid)}</b> ${moneyShort(l.old)} → ${moneyShort(l.new)}`).join(' · ')} <span class="dim">(sang ngày mới đặt lại theo mức chi 7 ngày)</span></div></div>`;
   if (nsDau.length){
     const tu = nsDau.reduce((a, l) => a + (+l.old || 0), 0), den = nsDau.reduce((a, l) => a + (+l.new || 0), 0), kgh = nsDau.filter(l => !+l.old).length;
-    h += `<div class="al" style="margin-top:10px"><div>💰 Hôm nay bot đặt ngân sách ${nsDau.length} sản phẩm theo chi TB 7 ngày × 1,3: tổng ${moneyShort(den)}/ngày${
+    h += `<div class="al" style="margin-top:10px"><div>💰 Hôm nay bot đặt ngân sách ${nsDau.length} sản phẩm theo ngày chi cao nhất 7 ngày × 1,5: tổng ${moneyShort(den)}/ngày${
       kgh ? ` <span class="dim">(${kgh} con trước đó không giới hạn${nsDau.length > kgh ? `, các con còn lại trước đó tổng ${moneyShort(tu)}` : ''})</span>` : ` <span class="dim">(trước đó ${moneyShort(tu)})</span>`}</div></div>`;
   }
   if (chu && choBien.length) h += `<div class="al al-warn" style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
@@ -6615,8 +6624,10 @@ function botLogLine(l){
     : canh ? '<span class="chip bad">⚠️ Cắn tiền</span>' : ns ? `<span class="chip ${loi ? 'bad' : 'ok'}">Ngân sách</span>`
     : l.kind === 'tuan' ? `<span class="chip ${['doi', 'gmv', 'xau'].includes(l.mode) ? 'warn' : 'ok'}">Tổng kết tuần</span>`
     : l.kind === 'dn' ? `<span class="chip ${loi ? 'bad' : 'acc'}">⚡ Đẩy Nhanh</span>`
+    : l.kind === 'cpc' ? '<span class="chip warn">📈 Giá click vọt</span>'
     : `<span class="chip ${loi ? 'bad' : ''}">${l.kind === 'error' ? 'Lỗi' : l.kind === 'info' ? 'Ghi chú' : esc(l.kind)}</span>`;
-  const so = ns && l.old != null ? `${moneyShort(l.old)} → <b class="${l.new < l.old ? 'warn' : 'ok'}">${moneyShort(l.new)}</b>`
+  const so = l.kind === 'cpc' && l.old != null ? `${Math.round(l.old).toLocaleString('vi-VN')}đ → <b class="warn">${Math.round(l.new).toLocaleString('vi-VN')}đ</b>`
+    : ns && l.old != null ? `${moneyShort(l.old)} → <b class="${l.new < l.old ? 'warn' : 'ok'}">${moneyShort(l.new)}</b>`
     : l.old != null || l.new != null ? `${botR(l.old)} → <b class="${l.new < l.old ? 'ok' : 'warn'}">${botR(l.new)}</b>` : '';
   return `<div class="bl-li ${loi || canh ? 'loi' : l.kind === 'info' ? 'info' : ''}">
     <span class="bl-t">${esc(botGio(l.at))}</span><span class="bl-c">${chip}</span><span class="bl-so">${so}</span>
@@ -6989,6 +7000,9 @@ function botGuideHtml(d, key){
   <p><b>Hệ số theo thứ</b> (waxshopvn): cùng mức chi nhưng ROAS thứ 2–4 cao hơn trung bình 2,5–5%, Chủ nhật thấp hơn 7,5% (90 ngày).
     Bot nhân mức Giữ của ngày với hệ số lấy nửa độ lệch: T2 0,99 · T3 0,98 · T4 0,98 · T5 1 · T6 1,01 · T7 1,01 · CN 1,04
     (nhỏ hơn 1 = hạ mục tiêu, chạy mạnh hơn). Ngày quanh sale không nhân. Men Zone chênh nhau trong sai số nên không áp.</p>
+  <p><b>📈 Cảnh báo giá click tăng vọt</b> (bot 1.17, chỉ báo): mọi quảng cáo đang chạy, bot so giá mỗi click 30 phút gần nhất với 2 tiếng trước đó
+    (cùng chế độ — giá tăng vì chính bot vừa Đẩy thì không tính). Cao gấp rưỡi, đủ click và tiền → báo, kèm thứ hạng có lên không:
+    trả đắt hơn mà không lên hạng là đang bị đua giá. Số này lưu vào kho để sau kiểm xem có nên cho bot tự Siết lúc giá vọt.</p>
   <p><b>Sale lớn — ngày đôi</b> (9/9, 10/10, 11/11…, đơn gấp 3–5 lần ngày thường), từ bot 1.16: tối hôm trước <b>21–23h Đẩy</b>,
     <b>0–1h ngày sale Giữ</b>. Tối trước là lúc khách tìm và thêm giỏ chờ voucher (10/11: tỉ lệ thêm giỏ/click 10,8% — cao nhất, giá click
     1.114đ — rẻ nhất); 0h họ chỉ chốt giỏ đã chọn (11/11 0–1h: đơn gấp 5 lần số giỏ, giá click đắt nhất ngày) nên trả thêm lúc đó
@@ -7589,4 +7603,4 @@ function atDetailHtml(key){
   return h + form + `</div>`;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "11a991b8"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "aa646465"]);
