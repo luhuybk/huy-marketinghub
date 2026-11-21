@@ -2061,7 +2061,7 @@ function botSave(array $in): array {
       $shop = botTxt($c['shop'] ?? '', 120); $cid = botTxt($c['cid'] ?? '', 40);
       if ($shop === '' || $cid === '') continue;
       $plan = is_array($c['plan'] ?? null) && count($c['plan']) === 24
-        ? array_map(fn($m) => in_array($m, ['day', 'giu', 'siet'], true) ? $m : 'giu', array_values($c['plan'])) : null;
+        ? array_map(fn($m) => in_array($m, ['day', 'giu', 'siet', 'nhe'], true) ? $m : 'giu', array_values($c['plan'])) : null;
       $d = ['title' => botTxt($c['title'] ?? '', 255), 'managed' => !empty($c['managed']),
             'base' => botNum($c['base'] ?? null), 'floor' => botNum($c['floor'] ?? null), 'cur' => botNum($c['cur'] ?? null),
             'std' => botNum($c['std'] ?? null), 'stepUp' => botNum($c['stepUp'] ?? null), 'stepDown' => botNum($c['stepDown'] ?? null),

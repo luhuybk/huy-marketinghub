@@ -1549,7 +1549,7 @@ function botSave(inp){
     for (const c of (Array.isArray(inp.camps) ? inp.camps : []).slice(0, 100)){
       const shop = botTxt(c.shop, 120), cid = botTxt(c.cid, 40);
       if (!shop || !cid) continue;
-      const plan = Array.isArray(c.plan) && c.plan.length === 24 ? c.plan.map(m => ['day','giu','siet'].includes(m) ? m : 'giu') : null;
+      const plan = Array.isArray(c.plan) && c.plan.length === 24 ? c.plan.map(m => ['day','giu','siet','nhe'].includes(m) ? m : 'giu') : null;
       const d = {title:botTxt(c.title, 255), managed:!!c.managed, base:botNum(c.base), floor:botNum(c.floor), cur:botNum(c.cur),
         std:botNum(c.std), stepUp:botNum(c.stepUp), stepDown:botNum(c.stepDown), mode:botTxt(c.mode, 10), roas:botNum(c.roas),
         cost:botNum(c.cost), gmv:botNum(c.gmv), budget:botNum(c.budget), boost:!!c.boost, next:botTxt(c.next, 60),

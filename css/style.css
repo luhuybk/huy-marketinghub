@@ -1361,6 +1361,7 @@ tr.rv-dang{background:var(--bg3)}
 .bg-seg{min-width:0;display:flex;flex-direction:column;justify-content:center;padding:0 5px;background:var(--bg4);overflow:hidden}
 .bg-seg.day{background:color-mix(in srgb,var(--ok) 30%,var(--bg3))}
 .bg-seg.siet{background:color-mix(in srgb,var(--warn) 30%,var(--bg3))}
+.bg-seg.nhe{background:color-mix(in srgb,var(--warn) 14%,var(--bg3))}
 .bg-seg span{font-size:10px;color:var(--tx2);white-space:nowrap}
 .bg-seg b{font-size:13px;white-space:nowrap}
 .bg-ul{padding-left:18px;margin:4px 0}
@@ -1377,11 +1378,12 @@ tr.rv-dang{background:var(--bg3)}
 .bt-lich{margin-bottom:14px}
 .bt-lich-hd{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12.5px;margin-bottom:6px}
 .bt-lich-hd>span:first-child{font-weight:650}
-.m-day{color:var(--ok)} .m-siet{color:var(--warn)} .m-giu{color:var(--tx)}
+.m-day{color:var(--ok)} .m-siet{color:var(--warn)} .m-giu{color:var(--tx)} .m-nhe{color:color-mix(in srgb,var(--warn) 70%,var(--tx))}
 .bt-bar{position:relative;display:flex;gap:2px;height:44px;border-radius:9px;overflow:hidden}
 .bt-seg{min-width:0;display:flex;flex-direction:column;justify-content:center;padding:0 6px;background:var(--bg4);overflow:hidden}
 .bt-seg.day{background:color-mix(in srgb,var(--ok) 28%,var(--bg3))}
 .bt-seg.siet{background:color-mix(in srgb,var(--warn) 28%,var(--bg3))}
+.bt-seg.nhe{background:color-mix(in srgb,var(--warn) 13%,var(--bg3))}
 .bt-seg span{font-size:10.5px;color:var(--tx2);white-space:nowrap;font-variant-numeric:tabular-nums}
 .bt-seg b{font-size:12.5px;white-space:nowrap}
 .bt-now{position:absolute;top:0;bottom:0;width:2px;background:var(--tx);box-shadow:0 0 0 1px var(--bg2)}
@@ -1406,6 +1408,7 @@ tr.rv-dang{background:var(--bg3)}
 .bt-m i{font-style:normal;font-size:10px;font-weight:500;color:var(--tx3)}
 .bt-m.on.day{background:color-mix(in srgb,var(--ok) 22%,var(--bg3));color:var(--ok)}
 .bt-m.on.siet{background:color-mix(in srgb,var(--warn) 22%,var(--bg3));color:var(--warn)}
+.bt-m.on.nhe{background:color-mix(in srgb,var(--warn) 12%,var(--bg3));color:var(--warn)}
 .bt-m.on.giu{background:var(--bg4);color:var(--tx);box-shadow:inset 0 0 0 1px var(--tx3)}
 .bt-c-roas b{font-size:15px}
 .bt-c-roas .chip{margin-left:5px}

@@ -5575,7 +5575,7 @@ const rv = {state:null, scans:{}, vols:{}, sp:{}, desc:{}, err:'', asked:false, 
 const botv = {data:null, err:'', busy:false, luc:0, shop:''};
 /* 📈 Tổng quan QC — số ad_radar + mốc cải tiến (xem viewAdTong) */
 const atv = {data:null, err:'', busy:false, luc:0};
-const BOT_MODE = {day:{t:'Đẩy', c:'ok'}, giu:{t:'Giữ', c:''}, siet:{t:'Siết', c:'warn'}};
+const BOT_MODE = {day:{t:'Đẩy', c:'ok'}, giu:{t:'Giữ', c:''}, siet:{t:'Siết', c:'warn'}, nhe:{t:'Siết nhẹ', c:'warn'}};
 /* Khối giờ để đọc ROAS — Shopee quy doanh số về giờ RA ĐƠN, nên đọc từng giờ
    lẻ dễ lệch (click 23h, 0h mới ra đơn); gộp khối liền nhau mới đúng. */
 const BOT_BLOCKS = [['00–01h',[0,1]],['02–05h',[2,3,4,5]],['06–10h',[6,7,8,9,10]],
