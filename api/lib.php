@@ -2069,7 +2069,7 @@ function botSave(array $in): array {
             'cost' => botNum($c['cost'] ?? null), 'gmv' => botNum($c['gmv'] ?? null), 'budget' => botNum($c['budget'] ?? null),
             'boost' => !empty($c['boost']), 'next' => botTxt($c['next'] ?? '', 60), 'note' => botTxt($c['note'] ?? '', 300),
             'plan' => $plan, 'bien' => botNum($c['bien'] ?? null), 'floorT' => botNum($c['floorT'] ?? null), 'bienSP' => botNum($c['bienSP'] ?? null), 'live' => array_key_exists('live', $c) ? !empty($c['live']) : null,
-            'sanSrc' => botTxt($c['sanSrc'] ?? '', 8), 'heSoGiu' => botNum($c['heSoGiu'] ?? null), 'kDN' => botNum($c['kDN'] ?? null), 'som' => botNum($c['som'] ?? null),
+            'sanSrc' => botTxt($c['sanSrc'] ?? '', 8), 'heSoGiu' => botNum($c['heSoGiu'] ?? null), 'kDN' => botNum($c['kDN'] ?? null), 'som' => botNum($c['som'] ?? null), 'thu' => botNum($c['thu'] ?? null),
             'xk' => botTxt($c['xk'] ?? '', 12), 'nsGoc' => botNum($c['nsGoc'] ?? null), 'nsLan' => botNum($c['nsLan'] ?? null),
             'std30' => is_array($c['std30'] ?? null) ? ['cost' => botNum($c['std30']['cost'] ?? null), 'gmv' => botNum($c['std30']['gmv'] ?? null),
                          'orders' => botNum($c['std30']['orders'] ?? null), 'roas' => botNum($c['std30']['roas'] ?? null),

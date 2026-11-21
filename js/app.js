@@ -6837,4 +6837,4 @@ document.addEventListener('paste', e => {
   bUpload(z.dataset.bid, fs);
 });
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "d8c78af7"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "bcb397fc"]);
