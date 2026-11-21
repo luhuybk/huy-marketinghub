@@ -6975,7 +6975,9 @@ function botGuideHtml(d, key){
     chi trung bình 7 ngày thường × 1,3 (tròn lên 10k, tối thiểu 100k; ngày sale lớn ×3, sale nhỏ 15/25 ×1,6).
     Trong ngày chỉ kiểm ở giờ ra đơn cao — <b>10h, 14h, 20h</b> (ngày sale thêm 1h): đang đốt nhanh (đã chi 80% hoặc dự kiến hết ngân sách)
     mà ROAS hôm nay ≥ 90% ROAS chuẩn và có từ 3 đơn → nâng (ít nhất +25%, đủ cho mức chi dự kiến), không quá 2,5× ngân sách gốc.
-    ROAS chưa đạt thì không nâng — ghi lý do vào nhật ký. Bạn (hoặc "Tự động Tăng Ngân sách" của Shopee) đổi ngân sách tay → bot để yên tới hết ngày.</p>
+    ROAS chưa đạt thì không nâng — ghi lý do vào nhật ký. Bạn (hoặc "Tự động Tăng Ngân sách" của Shopee) đổi ngân sách tay → bot để yên tới hết ngày.
+    <br><b>Bản 1.12:</b> quảng cáo bot <i>không</i> quản (sản phẩm, nhóm, tự động chọn SP) mà để ngân sách không giới hạn hoặc ≥ 3 lần mức chi (và ≥ 500k)
+    cũng được đặt ngân sách theo cùng luật — bot chỉ chỉnh ngân sách, không đụng mục tiêu. Quảng cáo mới chưa có số thì chưa đụng.</p>
   <p><b>🧪 Thử xen kẽ</b> (Gôm Butterfly C2 và Akuma Fluffy, từ 20/11): một ngày chạy lịch Đẩy/Giữ/Siết, một ngày <b>đối chứng</b> Giữ cả ngày.
     Hai sản phẩm lệch nhau một ngày. Quanh ngày sale chạy bình thường. Sau 2–3 tuần so hai loại ngày để biết lịch giờ có làm lời hơn không.</p>
   <p><b>📋 Tất cả quảng cáo</b> (cuối trang): mọi quảng cáo của 2 shop, tìm theo tên hoặc ID. Bật <b>Giao bot</b> thì trong 5 phút bot quản
