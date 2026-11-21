@@ -7174,6 +7174,9 @@ function viewAdTong(){
     ${tile('Tỉ lệ chuyển đổi', atPc(atCr(A)), dd(atCr, true) + ' CPC ' + (A.clk ? money(A.cost / A.clk) : '—'))}
   </div>`;
 
+  /* ---- 📈 biểu đồ chỉ số: tick chọn chỉ số để vẽ ---- */
+  h += viewMc(D, P, cs, !sh && shops.length > 1);
+
   /* ---- ROAS 30 ngày toàn phần đang chọn ---- */
   const now = atSum(cs, N - 30, N - 1, skip, P), prev = atSum(cs, N - 60, N - 31, skip, P), k14 = atSum(cs, N - 44, N - 15, skip, P);
   const v = atVerdict(now, prev);
@@ -7193,6 +7196,196 @@ function viewAdTong(){
   </div>`;
 
   return h + viewAdTongSp(D, P, cs, !sh);
+}
+
+/* ============================================================
+   📈 BIỂU ĐỒ CHỈ SỐ — tick chọn chỉ số nào thì vẽ chỉ số đó
+
+   Cùng nguồn số với phần trên (ad_radar, theo ngày, theo chiến dịch). Các
+   chỉ số khác đơn vị nhau cả nghìn lần (hiển thị tính bằng chục nghìn, CTR
+   tính bằng %), nên KHÔNG ép chung một trục, cũng không vẽ hai trục:
+   - "Tách" (mặc định): mỗi chỉ số một khung nhỏ, chung trục ngày, rê chuột
+     là một đường dọc + một ô số chạy đồng thời qua mọi khung;
+   - "Gộp": mọi chỉ số quy về chỉ số 100 = trung bình kỳ đang xem, vẽ
+     chung một khung để so HƯỚNG đi (cái nào lên, cái nào xuống cùng lúc).
+   Màu đi theo chỉ số, không theo thứ tự chọn — bỏ tick một cái thì những
+   cái còn lại giữ nguyên màu. 8 màu, chỉ số thứ 9–13 dùng lại màu với nét đứt.
+   ============================================================ */
+const MC_KEY = 'kolhub.mc';
+const MC_NHOM = [['tien', 'Tiền'], ['pheu', 'Phễu'], ['gia', 'Giá mỗi lượt']];
+const MC = [
+  {k:'cost', cd:1, sn:'Chi phí', l:'Chi phí QC',       n:'tien', c:1, f:'tien', tot:null,  v:s => s.cost},
+  {k:'gmv', cd:1, sn:'GMV',  l:'Doanh thu (GMV)',  n:'tien', c:3, f:'tien', tot:true,  v:s => s.gmv},
+  {k:'roas', sn:'ROAS', l:'ROAS',             n:'tien', c:2, f:'x',    tot:true,  v:s => s.cost > 0 ? s.gmv / s.cost : null},
+  {k:'acos', sn:'ACOS', l:'ACOS',             n:'tien', c:2, f:'pc',   tot:false, v:s => s.gmv > 0 ? s.cost / s.gmv : null, d:1},
+  {k:'imp', cd:1, sn:'Hiển thị',  l:'Hiển thị',         n:'pheu', c:1, f:'dem',  tot:true,  v:s => s.imp, d:1},
+  {k:'clk', cd:1, sn:'Click',  l:'Click',            n:'pheu', c:5, f:'dem',  tot:true,  v:s => s.clk, d:1},
+  {k:'ctr', sn:'CTR',  l:'CTR',              n:'pheu', c:5, f:'pc2',  tot:true,  v:s => s.imp > 0 ? s.clk / s.imp : null},
+  {k:'atc', cd:1, sn:'Thêm giỏ',  l:'Thêm giỏ',         n:'pheu', c:7, f:'dem',  tot:true,  v:s => s.atc, d:1},
+  {k:'cr', sn:'Chuyển đổi',   l:'Tỉ lệ chuyển đổi', n:'pheu', c:6, f:'pc',   tot:true,  v:s => s.clk > 0 ? s.conv / s.clk : null},
+  {k:'ord', cd:1, sn:'Đơn',  l:'Đơn',              n:'pheu', c:7, f:'dem',  tot:true,  v:s => s.ord},
+  {k:'cpc', sn:'CPC',  l:'CPC (chi / click)',n:'gia',  c:4, f:'tien', tot:false, v:s => s.clk > 0 ? s.cost / s.clk : null},
+  {k:'cpo', sn:'Chi/đơn',  l:'Chi phí / đơn',    n:'gia',  c:8, f:'tien', tot:false, v:s => s.ord > 0 ? s.cost / s.ord : null},
+  {k:'aov', sn:'Đơn TB',  l:'Giá trị đơn TB',   n:'gia',  c:3, f:'tien', tot:true,  v:s => s.ord > 0 ? s.gmv / s.ord : null, d:1}
+];
+const MC_MAC_DINH = {sel:['cost', 'gmv', 'roas'], gran:'ngay', ky:30, cach:'tach', camp:'', bang:false};
+const MC_KY = [14, 30, 60, 90, 180];
+const MC_GOP_TOI_DA = 6;
+function mcCfg(){
+  if (!ui.mc){
+    let o = {};
+    try { o = JSON.parse(localStorage.getItem(MC_KEY) || '{}') || {}; } catch(e){}
+    ui.mc = Object.assign({}, MC_MAC_DINH, o);
+    ui.mc.sel = (Array.isArray(ui.mc.sel) ? ui.mc.sel : MC_MAC_DINH.sel).filter(k => MC.some(m => m.k === k));
+  }
+  return ui.mc;
+}
+function mcGhi(){ try { localStorage.setItem(MC_KEY, JSON.stringify(ui.mc)); } catch(e){} }
+const mcFmt = (f, v) => v == null || !isFinite(v) ? '—'
+  : f === 'tien' ? moneyShort(v) : f === 'x' ? atF1(v) : f === 'pc' ? atPc(v) : f === 'pc2' ? atPc(v, 2) : v < 100 && v % 1 ? atF1(v) : num(v);
+/* Cộng số thô của nhóm chiến dịch trong [a, b] — thêm Thêm giỏ (atc) mà atSum không có */
+function mcSum(cs, a, b){
+  const o = {cost:0, gmv:0, ord:0, conv:0, imp:0, clk:0, atc:0};
+  for (let i = Math.max(0, a); i <= b; i++)
+    for (const c of cs){ const x = c.d[i]; if (!x) continue;
+      o.cost += x[0]; o.gmv += x[1]; o.ord += x[2]; o.conv += x[3]; o.imp += x[5]; o.clk += x[6]; o.atc += x[7] || 0; }
+  return o;
+}
+/* Chia kỳ thành các ô: từng ngày, hoặc từng tuần (thứ Hai → Chủ nhật; tuần đầu có thể thiếu ngày) */
+function mcO(D, P, cfg){
+  const N = P.N, a = Math.max(0, N - cfg.ky), out = [];
+  if (cfg.gran === 'tuan'){
+    for (let i = a; i < N; i++){
+      const t = new Date(D.dates[i] + 'T00:00:00'), thu = (t.getDay() + 6) % 7;
+      if (!out.length || thu === 0) out.push({a:i, b:i, ten:'Tuần ' + D.dates[i].slice(8, 10) + '/' + D.dates[i].slice(5, 7), sale:false});
+      const o = out[out.length - 1]; o.b = i; if (P.sale[i]) o.sale = true;
+    }
+    out.forEach(o => { o.ngay = o.b - o.a + 1; o.tip = fmtDate(D.dates[o.a]) + ' – ' + fmtDate(D.dates[o.b]) + (o.ngay < 7 ? ' (' + o.ngay + ' ngày)' : ''); });
+  } else for (let i = a; i < N; i++)
+    out.push({a:i, b:i, ten:D.dates[i].slice(8, 10) + '/' + D.dates[i].slice(5, 7), sale:P.sale[i], ngay:1,
+              tip:fmtDate(D.dates[i]) + (P.sale[i] ? ' · ngày sale' : '')});
+  return out;
+}
+const mcNice = v => { if (!(v > 0)) return 1; const st = Math.pow(10, Math.floor(Math.log10(v / 4))), k = v / 4 / st;
+  return (k <= 1 ? 1 : k <= 2 ? 2 : k <= 2.5 ? 2.5 : k <= 5 ? 5 : 10) * st * 4; };
+const mcVt = {data:null};       // số của lần vẽ gần nhất — ô rê chuột đọc từ đây
+
+function viewMc(D, P, cs, nhieuShop){
+  const cfg = mcCfg(), N = P.N;
+  /* chọn một sản phẩm (chiến dịch) hoặc cả gian hàng đang chọn ở trên */
+  const camps = cs.map(c => ({c, key: D.shops[c.s] + '|' + c.id, chi: mcSum([c], N - 180, N - 1).cost}))
+    .filter(x => x.chi > 0).sort((a, b) => b.chi - a.chi);
+  const cp = camps.find(x => x.key === cfg.camp);
+  const nhom = cp ? [cp.c] : cs;
+  const o = mcO(D, P, cfg);
+  const sel = MC.filter(m => cfg.sel.includes(m.k));
+  const S = o.map(b => mcSum(nhom, b.a, b.b));
+  /* Tuần: chỉ số cộng dồn vẽ TRUNG BÌNH MỖI NGÀY của tuần — tuần đầu/cuối thiếu ngày
+     mà vẽ tổng thì tụt xuống, nhìn như chỉ số đang giảm */
+  const tbNgay = cfg.gran === 'tuan';
+  const series = sel.map(m => ({m, vals: S.map((s, k) => { const v = m.v(s); return tbNgay && m.cd && v != null ? v / o[k].ngay : v; })}));
+  /* tổng cả kỳ + kỳ liền trước cùng độ dài, để ghi cạnh tên chỉ số */
+  const a0 = o.length ? o[0].a : N - 1, dai = N - a0;
+  const T = mcSum(nhom, a0, N - 1), Tb = a0 - dai >= 0 ? mcSum(nhom, a0 - dai, a0 - 1) : null;
+
+  let h = `<div class="card mc" style="margin-top:12px">
+    <div class="mc-head"><div class="t-l">BIỂU ĐỒ CHỈ SỐ · ${esc(cp ? cp.c.t : 'cả ' + (nhieuShop ? 'mọi gian hàng' : 'gian hàng'))}</div>
+      <div class="grow"></div>
+      <select class="inp sm mc-sel" data-chact="mccamp" aria-label="Chọn sản phẩm"><option value="">Cả gian hàng</option>${
+        camps.map(x => `<option value="${esc(x.key)}" ${cp && cp.key === x.key ? 'selected' : ''}>${esc(x.c.t.slice(0, 60))}${nhieuShop ? ' · ' + esc(shopTenNgan({name: D.shops[x.c.s]})) : ''}</option>`).join('')}</select></div>
+    <div class="chips mc-ctl">
+      <span class="seg">${[['ngay', 'Ngày'], ['tuan', 'Tuần']].map(([k, l]) => `<button class="btn sm ${cfg.gran === k ? 'pri' : ''}" data-act="mcset" data-id="gran:${k}">${l}</button>`).join('')}</span>
+      <span class="seg">${MC_KY.map(k => `<button class="btn sm ${cfg.ky === k ? 'pri' : ''}" data-act="mcset" data-id="ky:${k}">${k} ngày</button>`).join('')}</span>
+      <span class="seg">${[['tach', 'Tách từng chỉ số'], ['gop', 'Gộp một khung']].map(([k, l]) => `<button class="btn sm ${cfg.cach === k ? 'pri' : ''}" data-act="mcset" data-id="cach:${k}">${l}</button>`).join('')}</span>
+      <button class="btn sm ${cfg.bang ? 'pri' : ''}" data-act="mcset" data-id="bang:${cfg.bang ? 0 : 1}">${cfg.bang ? '✓ ' : ''}Bảng số</button>
+    </div>
+    <div class="mc-pick">${MC_NHOM.map(([nk, nl]) => `<div class="mc-pg"><span class="mc-pl">${nl}</span>${
+      MC.filter(m => m.n === nk).map(m => { const on = cfg.sel.includes(m.k);
+        return `<button class="mc-chip ${on ? 'on' : ''}" data-act="mctog" data-id="${m.k}" aria-pressed="${on}">
+          <i class="mc-k mc-c${m.c}${m.d ? ' d' : ''}"></i>${on ? '✓ ' : ''}${esc(m.l)}</button>`; }).join('')}</div>`).join('')}
+      <div class="mc-pg"><button class="btn sm" data-act="mcset" data-id="sel:macdinh">Mặc định</button>${cfg.sel.length ? '<button class="btn sm" data-act="mcset" data-id="sel:bo">Bỏ chọn hết</button>' : ''}</div>
+    </div>`;
+
+  if (!sel.length){ mcVt.data = null; return h + `<div class="chart-empty">Tick ít nhất một chỉ số ở trên để vẽ.</div></div>`; }
+  if (o.length < 2){ mcVt.data = null; return h + `<div class="chart-empty">Chưa đủ ngày để vẽ.</div></div>`; }
+
+  mcVt.data = {o: o.map(b => ({ten: b.tip})), s: series.map(x => ({l: x.m.l + (tbNgay && x.m.cd ? ' /ngày' : ''), c: x.m.c, d: !!x.m.d, v: x.vals.map(v => mcFmt(x.m.f, v))}))};
+  /* điện thoại: vẽ trên khung hẹp hơn để chữ và nét không bị thu nhỏ còn một nửa */
+  const hep = typeof matchMedia === 'function' && matchMedia('(max-width: 600px)').matches;
+  const n = o.length, W = hep ? 400 : 760, pl = hep ? 44 : 52, pr = cfg.cach === 'gop' ? (hep ? 74 : 96) : 10;
+  const pw = W - pl - pr, X = k => pl + pw * (k + 0.5) / n;
+  const nhanX = (H, pb) => { let s = ''; const buoc = Math.max(1, Math.ceil(n / (hep ? 4 : 8)));
+    for (let k = n - 1; k >= 0; k -= buoc) s += `<text x="${X(k).toFixed(1)}" y="${H - pb + 14}" class="c-ax" text-anchor="middle">${o[k].ten.replace('Tuần ', '')}</text>`;
+    return s; };
+  const nen = (pt, ph) => o.map((b, k) => b.sale && cfg.gran === 'ngay'
+    ? `<rect x="${(X(k) - pw / n / 2).toFixed(1)}" y="${pt}" width="${(pw / n).toFixed(1)}" height="${ph}" class="mc-sale"/>` : '').join('');
+  const duong = (vals, y) => { let d = '', pen = false;
+    vals.forEach((v, k) => { if (v == null || !isFinite(v)){ pen = false; return; } d += (pen ? 'L' : 'M') + X(k).toFixed(1) + ' ' + y(v).toFixed(1) + ' '; pen = true; });
+    return d; };
+  const svg = (H, inner, cuoi) => `<svg class="chart mc-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img"
+    data-n="${n}" data-pl="${pl}" data-pw="${pw}" data-w="${W}">${inner}<line class="mc-x" x1="0" x2="0" y1="0" y2="${H - (cuoi ? 22 : 4)}"/></svg>`;
+  const doi = x => { if (!Tb) return ''; const a = x.m.v(T), b = x.m.v(Tb); return atChip(atDd(a, b), x.m.tot); };
+
+  h += `<div class="mc-plot">`;
+  if (cfg.cach === 'gop'){
+    /* quy về chỉ số 100 = trung bình kỳ; chỉ số nào cả kỳ bằng 0 / trống thì bỏ */
+    const ds = series.slice(0, MC_GOP_TOI_DA).map(x => {
+      const ok = x.vals.filter(v => v != null && isFinite(v)), tb = ok.length ? ok.reduce((t, v) => t + v, 0) / ok.length : 0;
+      return {x, idx: tb > 0 ? x.vals.map(v => v == null || !isFinite(v) ? null : v / tb * 100) : null};
+    }).filter(z => z.idx);
+    const H = 250, pt = 12, pb = 24, ph = H - pt - pb;
+    const all = ds.flatMap(z => z.idx).filter(v => v != null).sort((a, b) => a - b);
+    const top = mcNice(Math.max(150, all.length ? all[Math.floor(all.length * 0.98)] * 1.05 : 150));
+    const y = v => pt + ph - Math.min(v, top) / top * ph;
+    let s = nen(pt, ph);
+    for (let g = 0; g <= 4; g++){ const v = top * g / 4;
+      s += `<line x1="${pl}" x2="${W - pr}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" class="c-grid"/><text x="${pl - 6}" y="${(y(v) + 4).toFixed(1)}" class="c-ax c-ax-r">${Math.round(v)}</text>`; }
+    s += `<line x1="${pl}" x2="${W - pr}" y1="${y(100).toFixed(1)}" y2="${y(100).toFixed(1)}" class="mc-100"/>`;
+    /* nhãn cuối đường: xếp theo độ cao, đẩy nhau ra để không đè chữ */
+    const nhan = [];
+    ds.forEach(z => {
+      s += `<path d="${duong(z.idx, y)}" class="mc-ln mc-s${z.x.m.c}${z.x.m.d ? ' d' : ''}"/>`;
+      let k = n - 1; while (k >= 0 && z.idx[k] == null) k--;
+      if (k >= 0){ s += `<circle cx="${X(k).toFixed(1)}" cy="${y(z.idx[k]).toFixed(1)}" r="4" class="mc-pt mc-f${z.x.m.c}"/>`;
+        nhan.push({y: y(z.idx[k]), x: X(k), t: z.x.m.sn}); }
+    });
+    nhan.sort((a, b) => a.y - b.y).forEach((p, i, arr) => { if (i && p.y - arr[i - 1].y < 13) p.y = arr[i - 1].y + 13; });
+    nhan.forEach(p => { s += `<text x="${(W - pr + 8).toFixed(1)}" y="${(p.y + 4).toFixed(1)}" class="mc-lb">${esc(p.t)}</text>`; });
+    s += nhanX(H, pb);
+    h += svg(H, s, true) + `<div class="dim mc-note">Mỗi đường quy về <b>100 = trung bình của chính nó</b> trong kỳ — 130 là cao hơn trung bình 30%. Dùng để so hướng đi giữa các chỉ số; muốn đọc con số thật thì rê chuột hoặc chuyển sang "Tách từng chỉ số".${
+      series.length > MC_GOP_TOI_DA ? ` Gộp tối đa ${MC_GOP_TOI_DA} chỉ số — đang bỏ bớt: ${series.slice(MC_GOP_TOI_DA).map(x => esc(x.m.l)).join(', ')}.` : ''}</div>`;
+  } else {
+    series.forEach((x, i) => {
+      const cuoi = i === series.length - 1, H = cuoi ? 112 : 92, pt = 8, pb = cuoi ? 22 : 6, ph = H - pt - pb;
+      const ok = x.vals.filter(v => v != null && isFinite(v)), top = mcNice(Math.max(...ok, 0) * 1.04);
+      const y = v => pt + ph - Math.max(0, Math.min(v, top)) / top * ph;
+      let s = nen(pt, ph);
+      [0, 0.5, 1].forEach(g => { const v = top * g;
+        s += `<line x1="${pl}" x2="${W - pr}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" class="c-grid"/>` +
+             (g ? `<text x="${pl - 6}" y="${(y(v) + 4).toFixed(1)}" class="c-ax c-ax-r">${esc(mcFmt(x.m.f, v))}</text>` : ''); });
+      const d = duong(x.vals, y);
+      if (series.length === 1 && d){ /* một chỉ số thì tô nhạt phần dưới cho dễ thấy độ lớn */
+        let k0 = 0; while (k0 < n && x.vals[k0] == null) k0++; let k1 = n - 1; while (k1 >= 0 && x.vals[k1] == null) k1--;
+        if (!/M.*M/.test(d)) s += `<path d="${d}L${X(k1).toFixed(1)} ${pt + ph} L${X(k0).toFixed(1)} ${pt + ph} Z" class="mc-ar mc-f${x.m.c}"/>`; }
+      s += `<path d="${d}" class="mc-ln mc-s${x.m.c}${x.m.d ? ' d' : ''}"/>`;
+      let k = n - 1; while (k >= 0 && x.vals[k] == null) k--;
+      if (k >= 0) s += `<circle cx="${X(k).toFixed(1)}" cy="${y(x.vals[k]).toFixed(1)}" r="4" class="mc-pt mc-f${x.m.c}"/>`;
+      if (cuoi) s += nhanX(H, pb);
+      h += `<div class="mc-pn"><div class="mc-pt-h"><i class="mc-k mc-c${x.m.c}${x.m.d ? ' d' : ''}"></i><b>${esc(x.m.l)}</b>${tbNgay && x.m.cd ? '<span class="dim">· TB/ngày từng tuần</span>' : ''}
+          <span class="mc-tong">${esc(mcFmt(x.m.f, x.m.v(T)))}</span><span class="dim">cả kỳ</span> ${doi(x)}</div>${svg(H, s, cuoi)}</div>`;
+    });
+  }
+  h += `<div class="mc-tip" hidden></div></div>`;
+  h += `<div class="dim mc-note">${cfg.gran === 'ngay' ? 'Nền mờ = ngày sale (đôi, 15, 25). ' : 'Xem theo tuần: chi phí, GMV, đơn, click… là trung bình mỗi ngày của tuần đó (tuần đầu/cuối có thể chưa đủ 7 ngày). '}Số cạnh tên là cả kỳ ${cfg.ky} ngày${Tb ? `, mũi tên so với ${cfg.ky} ngày liền trước` : ''}. Tỉ lệ (ROAS, CTR, chuyển đổi…) tính từ tổng của ô, không lấy trung bình các ngày.</div>`;
+
+  if (cfg.bang){
+    h += `<div class="tblwrap" style="margin-top:10px;max-height:360px;overflow:auto"><table class="tbl sm stick mc-tbl"><thead><tr><th>${cfg.gran === 'tuan' ? 'Tuần' : 'Ngày'}</th>${
+      series.map(x => `<th class="r">${esc(x.m.l)}${tbNgay && x.m.cd ? ' /ngày' : ''}</th>`).join('')}</tr></thead><tbody>${
+      o.map((b, k) => ({b, k})).reverse().map(({b, k}) => `<tr><td class="nw">${esc(b.tip)}</td>${
+        series.map(x => `<td class="r">${esc(mcFmt(x.m.f, x.vals[k]))}</td>`).join('')}</tr>`).join('')}</tbody>
+      <tfoot><tr><th>Cả kỳ</th>${series.map(x => `<th class="r">${esc(mcFmt(x.m.f, tbNgay && x.m.cd ? x.m.v(T) / dai : x.m.v(T)))}</th>`).join('')}</tr></tfoot></table></div>`;
+  }
+  return h + `</div>`;
 }
 
 /* Số của một chiến dịch cho bảng và hộp chi tiết */

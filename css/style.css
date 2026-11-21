@@ -1524,3 +1524,58 @@ tr.rv-dang{background:var(--bg3)}
 @container (max-width:1000px){ .ba-spark{margin-left:0} }
 .hoi-txt{line-height:1.55;font-size:13.5px;white-space:normal}
 .mft:has([data-k]){display:flex;justify-content:flex-end;gap:8px}
+
+/* ============ 📈 Biểu đồ chỉ số (Tổng quan QC) ============
+   8 màu phân loại đã kiểm mù màu trên nền tối #161a21 và nền sáng #fff
+   (thứ tự cố định; chỉ số 9–13 dùng lại màu + nét đứt). */
+:root{--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#0ca30c;--s7:#9085e9;--s8:#e66767}
+[data-theme="light"]{--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;--s7:#6250d6;--s8:#e34948}
+.mc-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.mc-sel{width:auto;max-width:300px;padding:6px 10px;font-size:12.5px}
+.mc-ctl{margin-bottom:8px;gap:8px}
+.mc .seg{display:inline-flex;gap:3px;padding:2px;border-radius:10px;background:var(--bg3)}
+.mc .seg .btn{white-space:nowrap}
+.mc-pick{display:flex;flex-direction:column;gap:6px;margin-bottom:10px;padding:10px;border:1px solid var(--line);border-radius:12px}
+.mc-pg{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.mc-pl{font-size:10.5px;color:var(--tx3);font-weight:700;text-transform:uppercase;letter-spacing:.4px;width:84px;flex:none}
+.mc-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;border:1px solid var(--line);
+  background:transparent;color:var(--tx2);font-size:12.5px;cursor:pointer;min-height:30px}
+.mc-chip:hover{background:var(--bg3)}
+.mc-chip.on{background:var(--bg3);color:var(--tx);border-color:var(--tx3);font-weight:650}
+.mc-chip:not(.on) .mc-k{opacity:.45}
+.mc-k{display:inline-block;width:16px;height:0;border-top:2.5px solid currentColor;flex:none;border-radius:2px}
+.mc-k.d{border-top-style:dashed}
+.mc-c1{color:var(--s1)} .mc-c2{color:var(--s2)} .mc-c3{color:var(--s3)} .mc-c4{color:var(--s4)}
+.mc-c5{color:var(--s5)} .mc-c6{color:var(--s6)} .mc-c7{color:var(--s7)} .mc-c8{color:var(--s8)}
+.mc-plot{position:relative;touch-action:pan-y}
+.mc-pn{border-top:1px solid var(--line);padding-top:6px;margin-top:4px}
+.mc-pn:first-child{border-top:0;margin-top:0}
+.mc-pt-h{display:flex;align-items:center;gap:7px;font-size:12.5px;flex-wrap:wrap}
+.mc-tong{font-weight:750;font-size:13.5px;margin-left:4px}
+.mc-ln{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.mc-ln.d{stroke-dasharray:6 4}
+.mc-s1{stroke:var(--s1)} .mc-s2{stroke:var(--s2)} .mc-s3{stroke:var(--s3)} .mc-s4{stroke:var(--s4)}
+.mc-s5{stroke:var(--s5)} .mc-s6{stroke:var(--s6)} .mc-s7{stroke:var(--s7)} .mc-s8{stroke:var(--s8)}
+.mc-f1{fill:var(--s1)} .mc-f2{fill:var(--s2)} .mc-f3{fill:var(--s3)} .mc-f4{fill:var(--s4)}
+.mc-f5{fill:var(--s5)} .mc-f6{fill:var(--s6)} .mc-f7{fill:var(--s7)} .mc-f8{fill:var(--s8)}
+.mc-ar{opacity:.12;stroke:none}
+.mc-pt{stroke:var(--bg2);stroke-width:2}
+.mc-sale{fill:var(--tx3);opacity:.09}
+.mc-100{stroke:var(--tx3);stroke-width:1;stroke-dasharray:3 3}
+.mc-lb{fill:var(--tx2);font-size:10.5px}
+.mc-x{stroke:var(--tx2);stroke-width:1;opacity:0;pointer-events:none}
+.mc-x.on{opacity:.7}
+.mc-tip{position:absolute;z-index:5;pointer-events:none;background:var(--bg2);border:1px solid var(--line);border-radius:10px;
+  box-shadow:var(--shadow);padding:8px 10px;font-size:12px;min-width:160px}
+.mc-tt{color:var(--tx3);font-size:11px;margin-bottom:4px}
+.mc-tr{display:flex;align-items:center;gap:7px;line-height:1.7}
+.mc-tr b{color:var(--tx);min-width:56px}
+.mc-tr span{color:var(--tx2)}
+.mc-note{margin-top:6px;font-size:11.5px}
+@media(max-width:600px){
+  .mc-pl{width:100%}
+  .mc-sel{max-width:100%;width:100%}
+  .mc .seg{flex-wrap:wrap}
+  .mc .seg .btn{padding:5px 9px;font-size:12px}
+  .mc-chip{padding:4px 9px;font-size:12px;min-height:28px}
+}

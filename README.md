@@ -1349,6 +1349,16 @@ trong `js/views.js`, `ensureAdTong()` + thao tác `at…` trong `js/app.js`.
   thực bị ROAS mục tiêu kéo theo, còn hai số kia phản ánh chính sản phẩm.
 - Biểu đồ 90 ngày: đường ROAS 30N trượt, chấm ROAS ngày, cột chi (trục phải),
   dải ngày sale, vạch vàng = ROAS mục tiêu đổi (`tgc`), vạch xanh = mốc.
+- **Biểu đồ chỉ số** (thêm 21/11, `viewMc()` + thao tác `mctog`/`mcset`/`mccamp`):
+  tick chọn trong 13 chỉ số (chi, GMV, ROAS, ACOS · hiển thị, click, CTR, thêm
+  giỏ, chuyển đổi, đơn · CPC, chi/đơn, đơn TB), phạm vi = gian hàng ở trên hoặc
+  một sản phẩm (ô chọn), theo ngày/tuần, kỳ 14–180 ngày. Mặc định *Tách*: mỗi chỉ
+  số một khung nhỏ chung trục ngày; *Gộp*: quy về 100 = trung bình kỳ, tối đa 6
+  đường — KHÔNG dùng hai trục số. Rê chuột: đường dọc + ô số qua mọi khung
+  (`pointermove` bắt ở document, đọc `mcVt.data`, chữ gán bằng textContent).
+  Theo tuần thì chỉ số cộng dồn vẽ TB/ngày (tuần thiếu ngày khỏi tụt). Màu cố định
+  theo chỉ số (`--s1…--s8`, đã kiểm mù màu cả nền tối/sáng; chỉ số 9–13 nét đứt).
+  Lựa chọn nhớ ở localStorage `kolhub.mc`. Điện thoại vẽ trên khung 400 thay 760.
 - **📌 Mốc cải tiến**: kv `ad_moc` = `{"shop|cid": [{id,date,note,by,at}]}`, tối
   đa 20 mốc/chiến dịch, ai xem được Báo cáo Ads là ghi/xoá được (action `ad_moc`,
   `adMocSet()` — bản Node trong serve.js). Mỗi mốc so 30 ngày trước mốc với từ mốc
