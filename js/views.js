@@ -6792,7 +6792,7 @@ function botTatCa(d, shop, cfg, chu, nhieuShop){
         `<option value="${k}" ${SORT === k ? 'selected' : ''}>${t}</option>`).join('')}</select>
     </div>
     ${F === 'tot' ? `<div class="ba-ng">ROAS 30N từ <input class="inp sm" inputmode="decimal" data-inp="botAdNg" value="${esc(String(ui.botAdNg || '8'))}"> trở lên, chi 30 ngày ≥ 300k, bot sửa được, chưa giao bot.
-      <span class="dim">Nên chọn con có ROAS 30N cao hơn hẳn ROAS biên — bot sẽ giữ quanh chuẩn × 1,1.</span></div>` : ''}
+      <span class="dim">Nên chọn con có ROAS 30N cao hơn hẳn ROAS biên — bot sẽ giữ quanh chuẩn × 1,2.</span></div>` : ''}
     ${botXuTom(rows)}
     <div class="ba-leg dim"><span><i class="do"></i>Cần xử lý</span><span><i class="cam"></i>Nên xem</span><span><i class="xanh"></i>Cơ hội</span><span>ROAS 30N bỏ ngày sale, như ROAS chuẩn của bot</span></div>`;
   if (!L.length) h += `<div class="dim" style="padding:14px 4px">Không có quảng cáo nào khớp.</div>`;
@@ -6838,8 +6838,8 @@ function botAdHtml(key){
     : `<div class="card dim">Bot đang kéo bù số 90 ngày (vài ngày mỗi lượt) — biểu đồ đủ 8 tuần sau khoảng 1 giờ.</div>`;
   const ten = {doi:'⚠️ ROAS tăng nhưng GMV tụt — không đáng', gmv:'📉 GMV tụt mạnh', xau:'📉 ROAS giảm', tot:'📈 Tốt lên', on:'Ổn định', it:'Ít số, chưa đủ để nhận định'};
   if (xu.k){
-    const goi = a.quan ? (xu.k === 'tot' ? 'Có thể nâng hệ số Giữ thêm 5% (1,10 → 1,15) để kéo ROAS lên tiếp.'
-        : xu.k === 'doi' || xu.k === 'gmv' ? 'Nên hạ hệ số Giữ 5% (1,10 → 1,05) để lấy lại GMV — ROAS cao mà mất doanh số thì không đáng.'
+    const goi = a.quan ? (xu.k === 'tot' ? 'Có thể nâng hệ số Giữ thêm 5% (1,20 → 1,25) để kéo ROAS lên tiếp.'
+        : xu.k === 'doi' || xu.k === 'gmv' ? 'Nên hạ hệ số Giữ 5% (1,20 → 1,15) để lấy lại GMV — ROAS cao mà mất doanh số thì không đáng.'
         : xu.k === 'xau' ? 'ROAS giảm mà không do bot nâng/hạ — xem lại giá, tồn kho, đối thủ, đánh giá.' : 'Giữ nguyên.')
       : (xu.k === 'tot' || xu.k === 'on') && a.ok && a.r30 >= 8 ? 'ROAS ổn — ứng viên tốt để giao cho bot.' : '';
     h += `<div class="at-note" style="margin-top:12px"><b>${ten[xu.k] || esc(xu.k)}</b><div style="margin-top:4px">7 ngày gần nhất: ROAS <b>${botR(xu.r7)}</b>, GMV/ngày <b>${moneyShort(xu.g7 || 0)}</b>
@@ -6893,7 +6893,7 @@ function botCampHtml(key){
     <div class="at-dname">${esc(c.title || c.cid)}</div></div>
   <div class="at-kpi">
     <div class="at-kpib lon"><div class="at-lb">Đang đặt</div><div class="at-cmpv"><b>${botR(c.cur)}</b>${botModeChip(c.mode)}</div>
-      <div class="at-was">Giữ ${botR(c.base)} = chuẩn ${botR(c.std)} × ${botR(c.heSoGiu || 1.1)}${dn ? ' ÷ ' + botR(c.kDN) : ''}</div></div>
+      <div class="at-was">Giữ ${botR(c.base)} = chuẩn ${botR(c.std)} × ${botR(c.heSoGiu || 1.2)}${dn ? ' ÷ ' + botR(c.kDN) : ''}</div></div>
     <div class="at-kpib"><div class="at-lb">ROAS hôm nay</div><div class="at-cmpv"><b>${botR(c.roas)}</b></div><div class="at-was">${c.cost != null ? 'chi ' + moneyShort(c.cost) : ''}${c.at ? ' · ' + esc(botHm(c.at)) : ''}${
       c.budget ? '<br>ngân sách ' + moneyShort(c.budget) + (c.nsGoc && Math.abs(c.nsGoc - c.budget) > 1 ? ' (gốc ' + moneyShort(c.nsGoc) + ', bot đã nới)' : '') : '<br>không giới hạn ngân sách'}</div></div>
     <div class="at-kpib"><div class="at-lb">ROAS chuẩn 30N</div><div class="at-cmpv"><b>${botR(c.std)}</b></div><div class="at-was">${s ? 'chi ' + moneyShort(s.cost) + ' · ' + num(s.orders || 0) + ' đơn' : ''}</div></div>
@@ -6973,26 +6973,26 @@ function botGuideHtml(d, key){
   <div class="bg-box" style="margin:6px 0 10px">
     <b>Bảng hệ số — tóm tắt</b> (mục tiêu ROAS càng <b>cao</b> thì Shopee chi càng <b>ít</b>; ước lượng thô: đổi mục tiêu 1% ≈ đổi chi 3%)
     <div class="tblwrap" style="margin-top:6px"><table class="tbl sm"><thead><tr><th>Chế độ</th><th>Công thức</th><th>waxshopvn</th><th>Men Zone</th><th>Ví dụ chuẩn 10</th></tr></thead><tbody>
-      <tr><td><span class="chip">Giữ</span></td><td>ROAS chuẩn 30 ngày × 1,1</td><td>× 1,00</td><td>× 1,00</td><td><b>11,0</b></td></tr>
-      <tr><td><span class="chip ok">Đẩy</span></td><td>Giữ × (1 − 10%)</td><td>× 0,90</td><td>× 0,90</td><td>9,9</td></tr>
-      <tr><td><span class="chip warn">Siết nhẹ</span></td><td>Giữ × (1 + nửa bước Siết)</td><td>× 1,075</td><td>× 1,05</td><td>11,8 · 11,6</td></tr>
-      <tr><td><span class="chip warn">Siết</span></td><td>Giữ × (1 + bước Siết)</td><td>× 1,15</td><td>× 1,10</td><td>12,7 · 12,1</td></tr>
+      <tr><td><span class="chip">Giữ</span></td><td>ROAS chuẩn 30 ngày × 1,2</td><td>× 1,00</td><td>× 1,00</td><td><b>12,0</b></td></tr>
+      <tr><td><span class="chip ok">Đẩy</span></td><td>Giữ × (1 − 10%)</td><td>× 0,90</td><td>× 0,90</td><td>10,8</td></tr>
+      <tr><td><span class="chip warn">Siết nhẹ</span></td><td>Giữ × (1 + nửa bước Siết)</td><td>× 1,075</td><td>× 1,05</td><td>12,9 · 12,6</td></tr>
+      <tr><td><span class="chip warn">Siết</span></td><td>Giữ × (1 + bước Siết)</td><td>× 1,15</td><td>× 1,10</td><td>13,8 · 13,2</td></tr>
     </tbody></table></div>
     <div style="margin-top:6px"><b>Lịch ngày thường</b> (mỗi lần đổi làm sớm 15 phút):<br>
       · waxshopvn: 0h Siết nhẹ → 1h Giữ → <b>6–10h Đẩy</b> → 10h Giữ → <b>16–24h Siết</b><br>
       · Men Zone: 0h Siết nhẹ → 1h Giữ → <b>6–11h Đẩy</b> → 11h Giữ → <b>21–24h Siết</b></div>
     <div style="margin-top:6px"><b>Ngày sale</b>: 0–2h Giữ · tối trước sale lớn (ngày đôi) 21–24h Đẩy · tối trước sale nhỏ (15, 25) Siết như thường.</div>
     <div style="margin-top:6px"><b>Hệ số theo thứ</b> (chỉ waxshopvn, nhân vào Giữ nên mọi chế độ dịch theo): T2 0,99 · T3 0,98 · T4 0,98 · T5 1 · T6 1,01 · T7 1,01 · <b>CN 1,04</b>.
-      Ví dụ Chủ nhật chuẩn 10: Giữ 11,4 · Đẩy 10,3 · Siết 13,2.</div>
+      Ví dụ Chủ nhật chuẩn 10: Giữ 12,5 · Đẩy 11,2 · Siết 14,4.</div>
     <div style="margin-top:6px"><b>Chặn dưới</b>: không mức nào thấp hơn sàn = lớn hơn giữa ROAS biên bạn điền và chuẩn × 0,7. Bật Đẩy Nhanh thì mọi mức chia thêm 0,7.</div>
   </div>
   <div class="bg-3">
-    <div class="bg-box"><span class="chip">Giữ</span><br>Mức bình thường = <b>ROAS chuẩn × 1,1</b> — muốn tốt hơn tháng trước 10%.</div>
+    <div class="bg-box"><span class="chip">Giữ</span><br>Mức bình thường = <b>ROAS chuẩn × 1,2</b> — đặt cao hơn tháng trước 20% vì Shopee thường chạy ra thấp hơn mục tiêu 10–15%. Từ 23/11 (trước là × 1,1: ROAS thực chỉ ≈ 0,95 chuẩn nên chuẩn trượt dần mỗi tuần).</div>
     <div class="bg-box"><span class="chip ok">Đẩy</span><br>Giờ đông khách: <b>hạ</b> mục tiêu 10% so với Giữ cho quảng cáo chạy mạnh (trước 21/11 là 15% — số 15 phút cho thấy hạ 15% làm giá mỗi click tăng 74% mà tỉ lệ ra đơn không đổi).</div>
     <div class="bg-box"><span class="chip warn">Siết</span><br>Giờ ít mua: <b>nâng</b> mục tiêu 15% (Men Zone 10%) so với Giữ cho đỡ tốn tiền. <b>Siết nhẹ</b> = nửa mức đó, dùng lúc 0h.</div>
   </div>
-  <p>Mỗi ngày bot chỉ vặn vài lần — đúng lúc đổi chế độ — chứ không vặn liên tục. Khi đang <b>Giữ</b> mà sắp tới giờ Đẩy thì bot
-    <b>đẩy sớm 30 phút</b> (lịch Đẩy từ 6h thì 5h30 đã hạ) — đơn buổi sáng nhích từ 5h45. Còn đang <b>Siết</b> thì vào Đẩy đúng giờ.</p>
+  <p>Mỗi ngày bot chỉ vặn vài lần — đúng lúc đổi chế độ — chứ không vặn liên tục. Mọi lần đổi chế độ bot làm
+    <b>sớm 15 phút</b> (Đẩy từ 6h thì 5h45 đã hạ, về Giữ lúc 10h thì 9h45 đã nâng) vì Shopee cần khoảng 15 phút để đổi giá thầu.</p>
   <p><b>0h ngày thường — Siết nhẹ</b> (từ 21/11, bot 1.15): mục tiêu = Giữ + nửa bước Siết, 1h về Giữ. Đơn lúc 0h phần lớn là khách đã tìm và
     để giỏ từ trước, giờ mới chốt — trả thêm tiền không kéo thêm được bao nhiêu: thời bot còn Đẩy 0h, chi 0–2h tăng từ 163k lên 549k/ngày
     mà phần tiền thêm chỉ ra ROAS ~2,4. Ngày sale vẫn Đẩy 0–1h như dưới.</p>
@@ -7030,7 +7030,7 @@ function botGuideHtml(d, key){
   <p><b>🧪 Thử xen kẽ</b> (Gôm Butterfly C2 và Akuma Fluffy, từ 20/11): một ngày chạy lịch Đẩy/Giữ/Siết, một ngày <b>đối chứng</b> Giữ cả ngày.
     Hai sản phẩm lệch nhau một ngày. Quanh ngày sale chạy bình thường. Sau 2–3 tuần so hai loại ngày để biết lịch giờ có làm lời hơn không.</p>
   <p><b>📋 Tất cả quảng cáo</b> (cuối trang): mọi quảng cáo của 2 shop, tìm theo tên hoặc ID. Bật <b>Giao bot</b> thì trong 5 phút bot quản
-    quảng cáo đó như các sản phẩm khác (Giữ = chuẩn × 1,1, Đẩy −10%, Siết +15%, 0h Siết nhẹ, sàn = chuẩn × 0,7). Tắt thì bot trả mục tiêu về mức Giữ,
+    quảng cáo đó như các sản phẩm khác (Giữ = chuẩn × 1,2, Đẩy −10%, Siết +15%, 0h Siết nhẹ, sàn = chuẩn × 0,7). Tắt thì bot trả mục tiêu về mức Giữ,
     ngân sách về gốc rồi thôi chỉnh. Bot chỉ sửa được quảng cáo sản phẩm có ROAS mục tiêu — quảng cáo nhóm / shop thì hiện "Bot chưa hỗ trợ".
     Viền đỏ = cần xử lý (cắn tiền hôm nay, ROAS 30 ngày dưới 4), viền cam = nên xem (ROAS 30 ngày dưới 7, hôm nay tụt, Đẩy Nhanh khi ROAS thấp),
     viền xanh = cơ hội (sắp hết ngân sách mà ROAS tốt).</p>
@@ -7050,7 +7050,7 @@ function botGuideHtml(d, key){
       <div class="bg-ex-hd"><b>${esc(c.title || c.cid)}</b> <span class="dim">· ${esc(c.shop)}${dn ? ' · đang bật Đẩy Nhanh' : ''}</span></div>
       <ol class="bg-steps">
         <li><b>ROAS chuẩn</b>${s ? ` = doanh thu ${moneyShort(s.gmv)} ÷ chi ${moneyShort(s.cost)} (${s.days} ngày${s.skip ? ', đã bỏ ' + s.skip + ' ngày sale' : ''})` : ''} = ${v(c.std)}</li>
-        <li><b>Mức Giữ</b> = ${botR(c.std)} × 1,1${dn ? ' ÷ 0,7 (Đẩy Nhanh)' : ''} = ${v(c.base)}${c.thu && c.thu !== 1
+        <li><b>Mức Giữ</b> = ${botR(c.std)} × ${botR(c.heSoGiu || 1.2)}${dn ? ' ÷ 0,7 (Đẩy Nhanh)' : ''} = ${v(c.base)}${c.thu && c.thu !== 1
           ? ` · hôm nay nhân hệ số thứ ${String(c.thu).replace('.', ',')} → <b>${botR(c.base * c.thu)}</b>` : ''}</li>
         <li><b>Mức Đẩy</b> = ${botR(c.base)} × (1 − ${Math.round(c.stepDown || 0)}%) = ${v(day)} &nbsp;·&nbsp; <b>Mức Siết</b> = ${botR(c.base)} × (1 + ${Math.round(c.stepUp || 0)}%) = ${v(siet)}${
           (c.plan || []).includes('nhe') ? ` &nbsp;·&nbsp; <b>Siết nhẹ</b> (0h ngày thường) = ${botR(c.base)} × (1 + ${Math.round((c.stepUp || 0) / 2 * 10) / 10}%) = ${v(botMuc(c, 'nhe'))}` : ''}</li>
