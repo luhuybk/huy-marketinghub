@@ -5598,6 +5598,19 @@ const ACTIONS = {
           toast('Đã lưu — bot dùng cài đặt mới từ lượt tới (trong 5 phút)'); }
     catch(e){ toast(e.message || 'Không lưu được'); }
   },
+  /* Cài đặt riêng trong chi tiết SP: chuẩn tự đặt / hệ số Giữ / ROAS biên — cùng API với bảng cài đặt, giữ nguyên Chạy thật */
+  botcaisave:  async id => {
+    const box = [...document.querySelectorAll('#modals .bt-cai')].find(x => x.dataset.k === id);
+    if (!box) return;
+    const g = n => box.querySelector('input[name="' + n + '"]').value.trim(), so = x => +String(x).replace(',', '.');
+    const it = {key:id, ct:g('ct'), hs:g('hs'), san:g('san')};
+    if (it.ct && !(so(it.ct) >= 1 && so(it.ct) <= 100)){ toast('ROAS chuẩn tự đặt phải là số từ 1 đến 100'); return; }
+    if (it.hs && !(so(it.hs) >= 0.5 && so(it.hs) <= 5)){ toast('Hệ số Giữ phải là số từ 0,5 đến 5'); return; }
+    if (it.san && !(so(it.san) >= 1 && so(it.san) <= 50)){ toast('ROAS biên phải là số từ 1 đến 50'); return; }
+    try { const r = await Server.botSetup([it]); botv.data.cfg = r.cfg; botVeLaiCamp(); render();
+          toast('Đã lưu — bot dùng cài đặt mới từ lượt tới (trong 5 phút)'); }
+    catch(e){ toast(e.message || 'Không lưu được'); }
+  },
   botpause:    async (id, el) => {
     const on = el && el.dataset.on === '1';
     if (on && !await hoiOk('Tạm dừng bot', id ? 'Tạm dừng bot ở chiến dịch này? Bot sẽ không chỉnh ROAS của nó nữa cho tới khi bạn chạy lại.'
@@ -6840,4 +6853,4 @@ document.addEventListener('paste', e => {
   bUpload(z.dataset.bid, fs);
 });
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "3f77291e"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "eb3f3c82"]);
