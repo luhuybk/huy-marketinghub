@@ -6440,20 +6440,44 @@ function botSetupBody(d){
     const key = c.shop + '|' + c.cid;
     const bien = (cfg.san || {})[key] != null ? cfg.san[key] : c.sanSrc === 'cfg' && c.bienSP ? c.bienSP : '';
     const live = (cfg.live || {})[key] != null ? cfg.live[key] : c.live !== false;
+    const hs = (cfg.hs || {})[key], ct = (cfg.ct || {})[key];
+    const so = x => x == null || x === '' ? '' : String(x).replace('.', ',');
     return `<tr data-k="${esc(key)}" style="cursor:default">
       <td><b>${esc(c.title || c.cid)}</b><div class="dim" style="font-size:11px">${esc(c.shop)}${c.boost ? ' · <span class="chip acc">Đẩy Nhanh</span>' : ''}</div></td>
-      <td class="r">${botR(c.std)}<div class="dim" style="font-size:11px">× 0,7 = ${botR((c.std || 0) * 0.7)}</div></td>
-      <td><input name="san" inputmode="decimal" style="width:78px" value="${esc(bien === '' ? '' : String(bien).replace('.', ','))}" placeholder="trống"></td>
+      <td class="r">${botR(c.std)}<div class="dim" style="font-size:11px">${esc(BOT_NGUON[c.nguon] || '30 ngày')}</div></td>
+      <td><input name="ct" inputmode="decimal" style="width:70px" value="${esc(so(ct))}" placeholder="tự động"></td>
+      <td><input name="hs" inputmode="decimal" style="width:62px" value="${esc(so(hs))}" placeholder="1,2"></td>
+      <td><input name="san" inputmode="decimal" style="width:70px" value="${esc(so(bien))}" placeholder="trống"></td>
       <td style="text-align:center"><input type="checkbox" name="live" ${live ? 'checked' : ''}></td>
     </tr>`;
   }).join('');
   return `<div class="dim" style="margin-bottom:10px">
+      <b>Mức Giữ = ROAS chuẩn × hệ số Giữ.</b> ROAS chuẩn mặc định = <b>ROAS tháng trước</b> của sản phẩm (bỏ ngày sale; tháng trước chi dưới 1tr
+      hoặc dưới 20 đơn thì dùng ROAS 30 ngày; không thấp hơn chuẩn tháng trước nữa × 0,95 để khỏi trượt dần).
+      <b>Chuẩn tự đặt</b>: điền số thì bot dùng số này thay cho tự động (vd sản phẩm bị xói ROAS) — đặt cao hơn hẳn ROAS thật thì Shopee gần như ngừng chi.
+      <b>Hệ số Giữ</b>: để trống = 1,2 (mặc định cả shop).<br>
       <b>ROAS biên</b> = mức hoà vốn của sản phẩm. Bot không bao giờ hạ ROAS mục tiêu dưới
       <b>sàn = lớn hơn giữa ROAS biên và ROAS chuẩn × 0,7</b>; sản phẩm bật Đẩy Nhanh thì sàn quy ra target
       còn chia thêm 0,7. Để trống = sàn chỉ theo ROAS chuẩn × 0,7.<br>
       <b>Chạy thật</b> bỏ tick = bot chỉ tính và ghi nhật ký, không sửa trên Shopee.</div>
-    <div class="tblwrap"><table class="tbl sm"><thead><tr><th>Sản phẩm</th><th class="r">ROAS chuẩn</th><th>ROAS biên</th><th>Chạy thật</th></tr></thead>
+    <div class="tblwrap"><table class="tbl sm"><thead><tr><th>Sản phẩm</th><th class="r">Chuẩn đang dùng</th><th>Chuẩn tự đặt</th><th>Hệ số Giữ</th><th>ROAS biên</th><th>Chạy thật</th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
+}
+/* 1.19 nguồn ROAS chuẩn + bảng ROAS từng tháng của một SP */
+const BOT_NGUON = {thang:'tháng trước', san:'tháng trước (chặn tụt 5%)', tay:'tự đặt', '30n':'30 ngày'};
+function botThangHtml(c){
+  const T = (c.thang || []).filter(t => t.c > 0 || t.chuan != null).slice(-6).reverse();
+  if (!T.length) return '';
+  return `<h4 style="margin:14px 0 6px">ROAS từng tháng</h4><div class="tblwrap"><table class="tbl sm"><thead><tr><th>Tháng</th><th class="r">Chi</th><th class="r">GMV</th>
+    <th class="r">Đơn</th><th class="r">ROAS thực</th><th class="r">Chuẩn bot dùng</th><th class="r">Hệ số</th><th class="r">Giữ</th></tr></thead><tbody>${T.map(t => `<tr>
+      <td>T${+t.m.slice(5)}/${t.m.slice(2, 4)}<div class="dim" style="font-size:11px">${t.d || 0} ngày tính${t === T[0] ? ' · tới hôm qua' : ''}</div></td>
+      <td class="r">${moneyShort(t.c || 0)}</td><td class="r">${moneyShort(t.g || 0)}</td><td class="r">${num(t.o || 0)}</td>
+      <td class="r"><b>${botR(t.r)}</b>${t.r && t.chuan ? '<div style="font-size:11px">' + botSoChuan(t.r, t.chuan) + '</div>' : ''}</td>
+      <td class="r">${t.chuan != null ? botR(t.chuan) + `<div class="dim" style="font-size:11px">${esc(BOT_NGUON[t.nguon] || '')}</div>` : '<span class="dim">—</span>'}</td>
+      <td class="r">${t.hs != null ? botR(t.hs) : '<span class="dim">—</span>'}</td>
+      <td class="r">${t.chuan != null && t.hs != null ? botR(t.chuan * t.hs) : '<span class="dim">—</span>'}</td></tr>`).join('')}</tbody></table></div>
+    <div class="dim" style="font-size:11.5px;margin-top:4px">ROAS thực bỏ ngày sale (như chuẩn). Bot ghi chuẩn/hệ số từ 24/11; tháng trước đó chỉ có số thực.
+      ROAS thực thấp hơn chuẩn nhiều tháng liền = sản phẩm đang bị xói ROAS.</div>`;
 }
 /* ROAS thực so với chuẩn: ▲12% / ▼8% */
 function botSoChuan(thuc, chuan){
@@ -6896,11 +6920,13 @@ function botCampHtml(key){
       <div class="at-was">Giữ ${botR(c.base)} = chuẩn ${botR(c.std)} × ${botR(c.heSoGiu || 1.2)}${dn ? ' ÷ ' + botR(c.kDN) : ''}</div></div>
     <div class="at-kpib"><div class="at-lb">ROAS hôm nay</div><div class="at-cmpv"><b>${botR(c.roas)}</b></div><div class="at-was">${c.cost != null ? 'chi ' + moneyShort(c.cost) : ''}${c.at ? ' · ' + esc(botHm(c.at)) : ''}${
       c.budget ? '<br>ngân sách ' + moneyShort(c.budget) + (c.nsGoc && Math.abs(c.nsGoc - c.budget) > 1 ? ' (gốc ' + moneyShort(c.nsGoc) + ', bot đã nới)' : '') : '<br>không giới hạn ngân sách'}</div></div>
-    <div class="at-kpib"><div class="at-lb">ROAS chuẩn 30N</div><div class="at-cmpv"><b>${botR(c.std)}</b></div><div class="at-was">${s ? 'chi ' + moneyShort(s.cost) + ' · ' + num(s.orders || 0) + ' đơn' : ''}</div></div>
+    <div class="at-kpib"><div class="at-lb">ROAS chuẩn</div><div class="at-cmpv"><b>${botR(c.std)}</b></div><div class="at-was">${c.nguon ? esc(c.ghiChuan || BOT_NGUON[c.nguon] || '') : s ? '30 ngày · chi ' + moneyShort(s.cost) + ' · ' + num(s.orders || 0) + ' đơn' : ''}${
+      c.heSoRieng ? '<br>hệ số riêng ' + botR(c.heSoGiu) : ''}</div></div>
     <div class="at-kpib"><div class="at-lb">Sàn</div><div class="at-cmpv"><b>${botR(c.floorT != null ? c.floorT : c.floor)}</b></div>
       <div class="at-was">${c.bienSP ? 'biên ' + botR(c.bienSP) : 'chuẩn × 0,7'}${dn ? ' ÷ 0,7' : ''}</div></div>
   </div>
   ${botLichNgay(c, true)}
+  ${botThangHtml(c)}
   ${c.xk ? `<div class="at-note">🧪 <b>Thử xen kẽ</b>: ${c.xk === 'doichung' ? 'hôm nay là ngày <b>đối chứng</b> — Giữ cả ngày, không Đẩy/Siết.' : c.xk === 'sale' ? 'quanh ngày sale nên chạy lịch bình thường, không tính vào thử.' : 'hôm nay chạy lịch Đẩy/Giữ/Siết; ngày mai là ngày đối chứng.'}
     Sau 2–3 tuần so ROAS và lợi nhuận giữa ngày chạy lịch và ngày đối chứng để biết lịch giờ có giúp thật không.</div>` : ''}
   ${c.note ? `<div class="at-note">${esc(c.note)}</div>` : ''}
@@ -6962,8 +6988,10 @@ function botGuideHtml(d, key){
   <h4>2 · Các con số cần biết</h4>
   <table class="tbl sm bg-t"><tbody>
     <tr><td><b>ROAS thực</b></td><td>Số Shopee báo thật sự đạt được (doanh thu ÷ chi).</td></tr>
-    <tr><td><b>ROAS chuẩn</b></td><td>ROAS thực của <b>30 ngày gần nhất</b>, bỏ ngày sale đôi kèm 1 ngày trước/sau, và chính ngày 15, 25 (những ngày đó số lệch hẳn).
-      Đây là “sức học bình thường” của sản phẩm.</td></tr>
+    <tr><td><b>ROAS chuẩn</b></td><td>Từ 24/11: <b>ROAS của tháng trước</b> (tháng 11 dùng tháng 10, tháng 12 dùng tháng 11…), bỏ ngày sale đôi kèm 1 ngày trước/sau và chính ngày 15, 25.
+      Chuẩn tháng mới không thấp hơn chuẩn tháng trước × 0,95, để chuẩn không trượt dài. Tháng trước chi dưới 1tr hoặc dưới 20 đơn thì dùng ROAS 30 ngày gần nhất.
+      Bạn tự đặt chuẩn cho từng sản phẩm ở ⚙ Cài đặt thì bot dùng số đó. Đây là “sức học bình thường” của sản phẩm.</td></tr>
+    <tr><td><b>Hệ số Giữ</b></td><td>Mặc định <b>1,2</b>; đổi riêng từng sản phẩm ở ⚙ Cài đặt. Bảng ROAS từng tháng trong chi tiết sản phẩm ghi lại chuẩn và hệ số đã dùng mỗi tháng.</td></tr>
     <tr><td><b>ROAS biên</b></td><td>Mức hoà vốn: thấp hơn là lỗ. Bạn điền ở ⚙ Cài đặt từng sản phẩm (không bắt buộc).</td></tr>
     <tr><td><b>Sàn</b></td><td>Mức thấp nhất bot được phép hạ xuống = lớn hơn giữa <b>ROAS biên</b> và <b>ROAS chuẩn × 0,7</b>
       (tức chuẩn trừ 30%). Chưa điền biên thì sàn = chuẩn × 0,7.</td></tr>
@@ -6973,7 +7001,7 @@ function botGuideHtml(d, key){
   <div class="bg-box" style="margin:6px 0 10px">
     <b>Bảng hệ số — tóm tắt</b> (mục tiêu ROAS càng <b>cao</b> thì Shopee chi càng <b>ít</b>; ước lượng thô: đổi mục tiêu 1% ≈ đổi chi 3%)
     <div class="tblwrap" style="margin-top:6px"><table class="tbl sm"><thead><tr><th>Chế độ</th><th>Công thức</th><th>waxshopvn</th><th>Men Zone</th><th>Ví dụ chuẩn 10</th></tr></thead><tbody>
-      <tr><td><span class="chip">Giữ</span></td><td>ROAS chuẩn 30 ngày × 1,2</td><td>× 1,00</td><td>× 1,00</td><td><b>12,0</b></td></tr>
+      <tr><td><span class="chip">Giữ</span></td><td>ROAS chuẩn × hệ số Giữ (mặc định 1,2)</td><td>× 1,00</td><td>× 1,00</td><td><b>12,0</b></td></tr>
       <tr><td><span class="chip ok">Đẩy</span></td><td>Giữ × (1 − 10%)</td><td>× 0,90</td><td>× 0,90</td><td>10,8</td></tr>
       <tr><td><span class="chip warn">Siết nhẹ</span></td><td>Giữ × (1 + nửa bước Siết)</td><td>× 1,075</td><td>× 1,05</td><td>12,9 · 12,6</td></tr>
       <tr><td><span class="chip warn">Siết</span></td><td>Giữ × (1 + bước Siết)</td><td>× 1,15</td><td>× 1,10</td><td>13,8 · 13,2</td></tr>
@@ -7049,7 +7077,7 @@ function botGuideHtml(d, key){
     <div class="bg-ex">
       <div class="bg-ex-hd"><b>${esc(c.title || c.cid)}</b> <span class="dim">· ${esc(c.shop)}${dn ? ' · đang bật Đẩy Nhanh' : ''}</span></div>
       <ol class="bg-steps">
-        <li><b>ROAS chuẩn</b>${s ? ` = doanh thu ${moneyShort(s.gmv)} ÷ chi ${moneyShort(s.cost)} (${s.days} ngày${s.skip ? ', đã bỏ ' + s.skip + ' ngày sale' : ''})` : ''} = ${v(c.std)}</li>
+        <li><b>ROAS chuẩn</b>${c.nguon && c.nguon !== '30n' ? ` = ${esc(c.ghiChuan || '')}` : s ? ` = doanh thu ${moneyShort(s.gmv)} ÷ chi ${moneyShort(s.cost)} (${s.days} ngày${s.skip ? ', đã bỏ ' + s.skip + ' ngày sale' : ''})` : ''} = ${v(c.std)}</li>
         <li><b>Mức Giữ</b> = ${botR(c.std)} × ${botR(c.heSoGiu || 1.2)}${dn ? ' ÷ 0,7 (Đẩy Nhanh)' : ''} = ${v(c.base)}${c.thu && c.thu !== 1
           ? ` · hôm nay nhân hệ số thứ ${String(c.thu).replace('.', ',')} → <b>${botR(c.base * c.thu)}</b>` : ''}</li>
         <li><b>Mức Đẩy</b> = ${botR(c.base)} × (1 − ${Math.round(c.stepDown || 0)}%) = ${v(day)} &nbsp;·&nbsp; <b>Mức Siết</b> = ${botR(c.base)} × (1 + ${Math.round(c.stepUp || 0)}%) = ${v(siet)}${
@@ -7066,7 +7094,7 @@ function botGuideHtml(d, key){
   h += `<h4>5 · Những điều nên biết</h4>
   <ul class="bg-ul">
     <li>Bạn tự sửa mục tiêu trên Shopee → lần đổi chế độ kế tiếp bot vẫn đặt lại theo công thức. Muốn bot thôi đụng vào một sản phẩm: bấm <b>⏸ Dừng riêng chiến dịch này</b>.</li>
-    <li>ROAS chuẩn tự cập nhật mỗi sáng, nên mức Giữ/Đẩy/Siết đổi dần theo sức bán thật của sản phẩm.</li>
+    <li>ROAS chuẩn đứng yên cả tháng (lấy theo tháng trước), sang tháng mới mới đổi — trừ sản phẩm dùng ROAS 30 ngày (ít số) thì cập nhật mỗi sáng.</li>
     <li>Sản phẩm bỏ tick <b>Chạy thật</b> thì bot chỉ tính và ghi nhật ký “chỉ báo”, không sửa Shopee.</li>
     <li>Đổi ROAS từ 2 lần/tuần trở lên thì sản phẩm <b>không được Shopee hỗ trợ kinh phí</b> tuần đó — đã chấp nhận đánh đổi này.</li>
     <li>Muốn biết bot có giúp không: xem bảng <b>ROAS theo khối giờ</b> (7 ngày gần nhất so với 28 ngày trước) và trang <b>📈 Tổng quan QC</b>.</li>
@@ -7607,4 +7635,4 @@ function atDetailHtml(key){
   return h + form + `</div>`;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "ef8de335"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "3f77291e"]);

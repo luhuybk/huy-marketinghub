@@ -1980,6 +1980,10 @@ function botCfg(): array {
     if (is_numeric($v) && $v > 0) $san[(string)$k] = round((float)$v, 1);
   $live = [];
   foreach ((is_array($c['live'] ?? null) ? $c['live'] : []) as $k => $v) $live[(string)$k] = !empty($v);
+  /* 1.19: hs["shop|cid"] = hệ số Giữ riêng (mặc định 1,2 ở bot); ct["shop|cid"] = ROAS chuẩn chủ tự đặt */
+  $hs = []; $ct = [];
+  foreach ((is_array($c['hs'] ?? null) ? $c['hs'] : []) as $k => $v) if (is_numeric($v) && $v > 0) $hs[(string)$k] = round((float)$v, 2);
+  foreach ((is_array($c['ct'] ?? null) ? $c['ct'] : []) as $k => $v) if (is_numeric($v) && $v > 0) $ct[(string)$k] = round((float)$v, 1);
   /* pick["shop|cid"] = {on, by, at, title}: chủ chọn trên Hub chiến dịch nào bot quản (on) / thôi quản (!on).
      Không có trong pick = theo config.json trên VPS. */
   $pick = [];
@@ -1990,7 +1994,7 @@ function botCfg(): array {
   $dn = [];
   foreach ((is_array($c['dn'] ?? null) ? $c['dn'] : []) as $k => $v)
     if (is_array($v)) $dn[(string)$k] = ['on' => !empty($v['on']), 'by' => (string)($v['by'] ?? ''), 'at' => (string)($v['at'] ?? '')];
-  return ['paused' => !empty($c['paused']), 'off' => is_array($off) ? $off : [], 'san' => $san, 'live' => $live,
+  return ['paused' => !empty($c['paused']), 'off' => is_array($off) ? $off : [], 'san' => $san, 'live' => $live, 'hs' => $hs, 'ct' => $ct,
           'pick' => $pick, 'dn' => $dn, 'by' => (string)($c['by'] ?? ''), 'at' => (string)($c['at'] ?? '')];
 }
 /* Bản trả ra ngoài: off rỗng vẫn phải là {} (json_encode mảng rỗng ra []) */
@@ -1999,6 +2003,8 @@ function botCfgOut(?array $c = null): array {
   $c['off'] = (object)$c['off'];
   $c['san'] = (object)($c['san'] ?? []);
   $c['live'] = (object)($c['live'] ?? []);
+  $c['hs'] = (object)($c['hs'] ?? []);
+  $c['ct'] = (object)($c['ct'] ?? []);
   $c['pick'] = (object)($c['pick'] ?? []);
   $c['dn'] = (object)($c['dn'] ?? []);
   return $c;
@@ -2070,6 +2076,11 @@ function botSave(array $in): array {
             'boost' => !empty($c['boost']), 'next' => botTxt($c['next'] ?? '', 60), 'note' => botTxt($c['note'] ?? '', 300),
             'plan' => $plan, 'bien' => botNum($c['bien'] ?? null), 'floorT' => botNum($c['floorT'] ?? null), 'bienSP' => botNum($c['bienSP'] ?? null), 'live' => array_key_exists('live', $c) ? !empty($c['live']) : null,
             'sanSrc' => botTxt($c['sanSrc'] ?? '', 8), 'heSoGiu' => botNum($c['heSoGiu'] ?? null), 'kDN' => botNum($c['kDN'] ?? null), 'som' => botNum($c['som'] ?? null), 'thu' => botNum($c['thu'] ?? null),
+            'heSoRieng' => !empty($c['heSoRieng']), 'nguon' => botTxt($c['nguon'] ?? '', 8), 'ghiChuan' => botTxt($c['ghiChuan'] ?? '', 160),
+            'thang' => array_map(fn($t) => ['m' => botTxt($t['m'] ?? '', 7), 'c' => botNum($t['c'] ?? null), 'g' => botNum($t['g'] ?? null),
+                         'o' => botNum($t['o'] ?? null), 'd' => botNum($t['d'] ?? null), 'r' => botNum($t['r'] ?? null), 'chuan' => botNum($t['chuan'] ?? null),
+                         'nguon' => botTxt($t['nguon'] ?? '', 8), 'hs' => botNum($t['hs'] ?? null)],
+                       array_values(array_filter(array_slice(is_array($c['thang'] ?? null) ? $c['thang'] : [], -13), 'is_array'))),
             'xk' => botTxt($c['xk'] ?? '', 12), 'nsGoc' => botNum($c['nsGoc'] ?? null), 'nsLan' => botNum($c['nsLan'] ?? null),
             'std30' => is_array($c['std30'] ?? null) ? ['cost' => botNum($c['std30']['cost'] ?? null), 'gmv' => botNum($c['std30']['gmv'] ?? null),
                          'orders' => botNum($c['std30']['orders'] ?? null), 'roas' => botNum($c['std30']['roas'] ?? null),
@@ -2227,6 +2238,18 @@ function botSetup(array $items): array {
     if ($raw === '') unset($c['san'][$key]);
     elseif (is_numeric($raw) && (float)$raw >= 1 && (float)$raw <= 50) $c['san'][$key] = round((float)$raw, 1);
     else return ['error' => 'ROAS biên phải là số từ 1 đến 50 (để trống = dùng mặc định).'];
+    if (array_key_exists('hs', $it)) {
+      $raw = trim(str_replace(',', '.', (string)$it['hs']));
+      if ($raw === '') unset($c['hs'][$key]);
+      elseif (is_numeric($raw) && (float)$raw >= 0.5 && (float)$raw <= 5) $c['hs'][$key] = round((float)$raw, 2);
+      else return ['error' => 'Hệ số Giữ phải là số từ 0,5 đến 5 (để trống = mặc định 1,2).'];
+    }
+    if (array_key_exists('ct', $it)) {
+      $raw = trim(str_replace(',', '.', (string)$it['ct']));
+      if ($raw === '') unset($c['ct'][$key]);
+      elseif (is_numeric($raw) && (float)$raw >= 1 && (float)$raw <= 100) $c['ct'][$key] = round((float)$raw, 1);
+      else return ['error' => 'ROAS chuẩn tự đặt phải là số từ 1 đến 100 (để trống = tự động theo tháng trước).'];
+    }
     if (array_key_exists('live', $it)) $c['live'][$key] = !empty($it['live']);
   }
   kvSet('bot_cfg', $c);

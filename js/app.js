@@ -5588,9 +5588,12 @@ const ACTIONS = {
     const box = $$('#modals .modal').pop();
     if (!box) return;
     const items = [...box.querySelectorAll('tr[data-k]')].map(tr => ({key: tr.dataset.k,
-      san: tr.querySelector('input[name="san"]').value.trim(), live: tr.querySelector('input[name="live"]').checked}));
-    const bad = items.find(it => it.san && !(+it.san.replace(',', '.') >= 1 && +it.san.replace(',', '.') <= 50));
-    if (bad){ toast('ROAS biên phải là số từ 1 đến 50'); return; }
+      san: tr.querySelector('input[name="san"]').value.trim(), live: tr.querySelector('input[name="live"]').checked,
+      hs: tr.querySelector('input[name="hs"]').value.trim(), ct: tr.querySelector('input[name="ct"]').value.trim()}));
+    const so = x => +String(x).replace(',', '.');
+    if (items.find(it => it.san && !(so(it.san) >= 1 && so(it.san) <= 50))){ toast('ROAS biên phải là số từ 1 đến 50'); return; }
+    if (items.find(it => it.hs && !(so(it.hs) >= 0.5 && so(it.hs) <= 5))){ toast('Hệ số Giữ phải là số từ 0,5 đến 5'); return; }
+    if (items.find(it => it.ct && !(so(it.ct) >= 1 && so(it.ct) <= 100))){ toast('ROAS chuẩn tự đặt phải là số từ 1 đến 100'); return; }
     try { const r = await Server.botSetup(items); botv.data.cfg = r.cfg; closeModal(); render();
           toast('Đã lưu — bot dùng cài đặt mới từ lượt tới (trong 5 phút)'); }
     catch(e){ toast(e.message || 'Không lưu được'); }
@@ -6837,4 +6840,4 @@ document.addEventListener('paste', e => {
   bUpload(z.dataset.bid, fs);
 });
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "ef8de335"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "3f77291e"]);
