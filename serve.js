@@ -1501,13 +1501,16 @@ function botCfg(){
   Object.entries(c.san && typeof c.san === 'object' ? c.san : {}).forEach(([k, v]) => { if (+v > 0) san[k] = Math.round(+v * 10) / 10; });
   const live = {};
   Object.entries(c.live && typeof c.live === 'object' ? c.live : {}).forEach(([k, v]) => { live[k] = !!v; });
+  const hs = {}, ct = {};
+  Object.entries(c.hs && typeof c.hs === 'object' ? c.hs : {}).forEach(([k, v]) => { if (+v > 0) hs[k] = Math.round(+v * 100) / 100; });
+  Object.entries(c.ct && typeof c.ct === 'object' ? c.ct : {}).forEach(([k, v]) => { if (+v > 0) ct[k] = Math.round(+v * 10) / 10; });
   const pick = {};
   Object.entries(c.pick && typeof c.pick === 'object' ? c.pick : {}).forEach(([k, v]) => {
     if (v && typeof v === 'object') pick[k] = {on:!!v.on, by:String(v.by || ''), at:String(v.at || ''), title:String(v.title || '')}; });
   const dn = {};
   Object.entries(c.dn && typeof c.dn === 'object' ? c.dn : {}).forEach(([k, v]) => {
     if (v && typeof v === 'object') dn[k] = {on:!!v.on, by:String(v.by || ''), at:String(v.at || '')}; });
-  return {paused: !!c.paused, off: c.off && typeof c.off === 'object' && !Array.isArray(c.off) ? c.off : {}, san, live, pick, dn,
+  return {paused: !!c.paused, off: c.off && typeof c.off === 'object' && !Array.isArray(c.off) ? c.off : {}, san, live, hs, ct, pick, dn,
           by: String(c.by || ''), at: String(c.at || '')};
 }
 const botTxt = (v, n = 200) => String(v == null ? '' : v).trim().slice(0, n);
@@ -1555,6 +1558,9 @@ function botSave(inp){
         cost:botNum(c.cost), gmv:botNum(c.gmv), budget:botNum(c.budget), boost:!!c.boost, next:botTxt(c.next, 60),
         note:botTxt(c.note, 300), plan, bien:botNum(c.bien), floorT:botNum(c.floorT), bienSP:botNum(c.bienSP), live: 'live' in c ? !!c.live : null, sanSrc:botTxt(c.sanSrc, 8),
         heSoGiu:botNum(c.heSoGiu), kDN:botNum(c.kDN), som:botNum(c.som), thu:botNum(c.thu), xk:botTxt(c.xk, 12), nsGoc:botNum(c.nsGoc), nsLan:botNum(c.nsLan),
+        heSoRieng:!!c.heSoRieng, nguon:botTxt(c.nguon, 8), ghiChuan:botTxt(c.ghiChuan, 160),
+        thang:(Array.isArray(c.thang) ? c.thang : []).slice(-13).filter(t => t && typeof t === 'object').map(t => ({m:botTxt(t.m, 7), c:botNum(t.c), g:botNum(t.g),
+          o:botNum(t.o), d:botNum(t.d), r:botNum(t.r), chuan:botNum(t.chuan), nguon:botTxt(t.nguon, 8), hs:botNum(t.hs)})),
         std30: c.std30 && typeof c.std30 === 'object' ? {cost:botNum(c.std30.cost), gmv:botNum(c.std30.gmv), orders:botNum(c.std30.orders),
           roas:botNum(c.std30.roas), days:botNum(c.std30.days), skip:botNum(c.std30.skip)} : null};
       ins.run(shop, cid, JSON.stringify(d), now); n++;
@@ -1653,6 +1659,18 @@ function botSetup(items){
     if (raw === '') delete c.san[key];
     else if (isFinite(+raw) && +raw >= 1 && +raw <= 50) c.san[key] = Math.round(+raw * 10) / 10;
     else return {error:'ROAS biên phải là số từ 1 đến 50 (để trống = dùng mặc định).'};
+    if ('hs' in it){
+      const r2 = String(it.hs == null ? '' : it.hs).trim().replace(',', '.');
+      if (r2 === '') delete c.hs[key];
+      else if (isFinite(+r2) && +r2 >= 0.5 && +r2 <= 5) c.hs[key] = Math.round(+r2 * 100) / 100;
+      else return {error:'Hệ số Giữ phải là số từ 0,5 đến 5 (để trống = mặc định 1,2).'};
+    }
+    if ('ct' in it){
+      const r3 = String(it.ct == null ? '' : it.ct).trim().replace(',', '.');
+      if (r3 === '') delete c.ct[key];
+      else if (isFinite(+r3) && +r3 >= 1 && +r3 <= 100) c.ct[key] = Math.round(+r3 * 10) / 10;
+      else return {error:'ROAS chuẩn tự đặt phải là số từ 1 đến 100 (để trống = tự động theo tháng trước).'};
+    }
     if ('live' in it) c.live[key] = !!it.live;
   }
   kvSet('bot_cfg', c);
