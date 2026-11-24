@@ -6445,9 +6445,9 @@ function botSetupBody(d){
     return `<tr data-k="${esc(key)}" style="cursor:default">
       <td><b>${esc(c.title || c.cid)}</b><div class="dim" style="font-size:11px">${esc(c.shop)}${c.boost ? ' · <span class="chip acc">Đẩy Nhanh</span>' : ''}</div></td>
       <td class="r">${botR(c.std)}<div class="dim" style="font-size:11px">${esc(BOT_NGUON[c.nguon] || '30 ngày')}</div></td>
-      <td><input name="ct" inputmode="decimal" style="width:70px" value="${esc(so(ct))}" placeholder="tự động"></td>
-      <td><input name="hs" inputmode="decimal" style="width:62px" value="${esc(so(hs))}" placeholder="1,2"></td>
-      <td><input name="san" inputmode="decimal" style="width:70px" value="${esc(so(bien))}" placeholder="trống"></td>
+      <td><input class="inp sm" name="ct" inputmode="decimal" style="width:70px" value="${esc(so(ct))}" placeholder="tự động"></td>
+      <td><input class="inp sm" name="hs" inputmode="decimal" style="width:62px" value="${esc(so(hs))}" placeholder="1,2"></td>
+      <td><input class="inp sm" name="san" inputmode="decimal" style="width:70px" value="${esc(so(bien))}" placeholder="trống"></td>
       <td style="text-align:center"><input type="checkbox" name="live" ${live ? 'checked' : ''}></td>
     </tr>`;
   }).join('');
@@ -6462,6 +6462,26 @@ function botSetupBody(d){
       <b>Chạy thật</b> bỏ tick = bot chỉ tính và ghi nhật ký, không sửa trên Shopee.</div>
     <div class="tblwrap"><table class="tbl sm"><thead><tr><th>Sản phẩm</th><th class="r">Chuẩn đang dùng</th><th>Chuẩn tự đặt</th><th>Hệ số Giữ</th><th>ROAS biên</th><th>Chạy thật</th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
+}
+/* Cài đặt riêng ngay trong chi tiết SP: chuẩn tự đặt, hệ số Giữ, ROAS biên (cùng chỗ lưu với ⚙ Cài đặt từng sản phẩm) */
+function botCaiHtml(c, cfg, key){
+  const so = x => x == null || x === '' ? '' : String(x).replace('.', ',');
+  const ct = (cfg.ct || {})[key], hs = (cfg.hs || {})[key];
+  const bien = (cfg.san || {})[key] != null ? cfg.san[key] : c.sanSrc === 'cfg' && c.bienSP ? c.bienSP : '';
+  const tr = (c.thang || []).filter(t => t.r != null && t.c > 0), truoc = tr.length > 1 ? tr[tr.length - 2] : null;
+  const tuDong = [truoc ? 'T' + (+truoc.m.slice(5)) + ' ' + botR(truoc.r) : '', c.std30 && c.std30.roas ? '30 ngày ' + botR(c.std30.roas) : ''].filter(Boolean).join(' · ');
+  const o = (name, val, ph, w) => `<input class="inp sm" name="${name}" inputmode="decimal" value="${esc(so(val))}" placeholder="${esc(ph)}" style="width:${w}px">`;
+  return `<div class="bt-cai" data-k="${esc(key)}">
+    <div class="bt-cai-hd"><b>⚙ Cài đặt riêng sản phẩm này</b>${ct || hs ? ' <span class="chip acc">đang dùng số riêng</span>' : ''}</div>
+    <div class="bt-cai-row">
+      <label>ROAS chuẩn tự đặt ${o('ct', ct, 'tự động', 74)}<span class="dim">trống = tự động${tuDong ? ' (' + esc(tuDong) + ')' : ''}</span></label>
+      <label>Hệ số Giữ ${o('hs', hs, '1,2', 60)}<span class="dim">trống = 1,2</span></label>
+      <label>ROAS biên ${o('san', bien, 'trống', 64)}<span class="dim">hoà vốn, làm sàn</span></label>
+      <button class="btn sm pri" data-act="botcaisave" data-id="${esc(key)}">Lưu</button>
+    </div>
+    <div class="dim" style="font-size:11.5px">Giữ đang là <b>${botR(c.base)}</b> = chuẩn ${botR(c.std)} (${esc(BOT_NGUON[c.nguon] || '30 ngày')}) × ${botR(c.heSoGiu || 1.2)}.
+      Lưu xong bot áp dụng từ lượt tới (trong 5 phút). Chuẩn đặt cao hơn hẳn ROAS thật thì Shopee gần như ngừng chi.</div>
+  </div>`;
 }
 /* 1.19 nguồn ROAS chuẩn + bảng ROAS từng tháng của một SP */
 const BOT_NGUON = {thang:'tháng trước', san:'tháng trước (chặn tụt 5%)', tay:'tự đặt', '30n':'30 ngày'};
@@ -6925,6 +6945,7 @@ function botCampHtml(key){
     <div class="at-kpib"><div class="at-lb">Sàn</div><div class="at-cmpv"><b>${botR(c.floorT != null ? c.floorT : c.floor)}</b></div>
       <div class="at-was">${c.bienSP ? 'biên ' + botR(c.bienSP) : 'chuẩn × 0,7'}${dn ? ' ÷ 0,7' : ''}</div></div>
   </div>
+  ${chu ? botCaiHtml(c, cfg, key) : ''}
   ${botLichNgay(c, true)}
   ${botThangHtml(c)}
   ${c.xk ? `<div class="at-note">🧪 <b>Thử xen kẽ</b>: ${c.xk === 'doichung' ? 'hôm nay là ngày <b>đối chứng</b> — Giữ cả ngày, không Đẩy/Siết.' : c.xk === 'sale' ? 'quanh ngày sale nên chạy lịch bình thường, không tính vào thử.' : 'hôm nay chạy lịch Đẩy/Giữ/Siết; ngày mai là ngày đối chứng.'}
