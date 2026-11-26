@@ -872,6 +872,20 @@ a.plnk:hover{border-color:var(--acc);background:var(--bg4)}
 .rv-cha{font-size:11.5px;color:var(--tx2);cursor:pointer;white-space:nowrap}
 .rv-cha:hover{color:var(--acc)}
 .rv-cay{font-size:12.5px;margin-bottom:2px}
+/* ⏰ Lịch quét */
+.rv-badge{display:inline-block;min-width:18px;padding:0 5px;border-radius:999px;background:var(--bad);color:#fff;font-size:11px;font-weight:700;line-height:18px;text-align:center;margin-left:4px}
+.rv-lich-hd{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;border-left:4px solid var(--ok)}
+.rv-lich-hd.toi{border-left-color:var(--warn)} .rv-lich-hd.tre{border-left-color:var(--bad)}
+.rv-lich-t{font-weight:700;font-size:15px}
+.rv-lich-h{margin:18px 0 6px;font-size:14px}
+.tbl.rv-lich{min-width:0;table-layout:fixed;width:100%}
+.tbl.rv-lich th:nth-child(1){width:38%} .tbl.rv-lich th:nth-child(2){width:17%} .tbl.rv-lich th:nth-child(3),.tbl.rv-lich th:nth-child(4){width:12%}
+.tbl.rv-lich td:first-child{overflow-wrap:anywhere}
+.tbl.rv-lich tr.rv-off td{opacity:.55}
+.tbl.rv-lich tbody tr:hover td{background:var(--bg3)}
+@media (max-width:600px){ .rv-lich-hd .btns{width:100%} .tbl.rv-lich th:nth-child(2),.tbl.rv-lich td:nth-child(2){display:none}
+  .tbl.rv-lich th:nth-child(1){width:40%} .tbl.rv-lich th:nth-child(3),.tbl.rv-lich th:nth-child(4){width:15%} .tbl.rv-lich td,.tbl.rv-lich th{padding:7px 5px} .tbl.rv-lich th{white-space:normal;font-size:10px}
+  .tbl.rv-lich .chip{white-space:normal;text-align:center;font-size:11px} .rv-tabs{max-width:100%;overflow-x:auto} .rv-tabs .tab{white-space:nowrap} }
 .rv-cay a{color:var(--acc);text-decoration:none}
 .rv-off{opacity:.5;text-decoration:line-through}
 .rv-chua{font-size:10px;font-weight:600;opacity:.7;margin-left:4px}

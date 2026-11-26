@@ -5569,12 +5569,101 @@ function ingestCard(){
 function viewRival(){
   if (!window.Server || !Server.authed())
     return emptyBox('Mục này cần máy chủ', 'Theo dõi đối thủ lưu trên máy chủ — đăng nhập rồi mở lại.');
-  const shop = ui.rvTab === 'shop';
+  const tab = ui.rvTab === 'shop' || ui.rvTab === 'lich' ? ui.rvTab : 'kw';
+  const toi = rvLichToi();
   return `<div class="tabs rv-tabs">
-      <button class="tab ${shop ? '' : 'on'}" data-act="rvtab" data-id="kw">🔎 Theo từ khoá</button>
-      <button class="tab ${shop ? 'on' : ''}" data-act="rvtab" data-id="shop">🏪 Gian hàng đối thủ</button>
-    </div>` + (shop ? viewRivalShop() : viewRivalKw());
+      <button class="tab ${tab === 'kw' ? 'on' : ''}" data-act="rvtab" data-id="kw">🔎 Theo từ khoá</button>
+      <button class="tab ${tab === 'shop' ? 'on' : ''}" data-act="rvtab" data-id="shop">🏪 Gian hàng đối thủ</button>
+      <button class="tab ${tab === 'lich' ? 'on' : ''}" data-act="rvtab" data-id="lich">⏰ Lịch quét${toi ? ` <span class="rv-badge">${toi}</span>` : ''}</button>
+    </div>` + (tab === 'shop' ? viewRivalShop() : tab === 'lich' ? viewRivalLich() : viewRivalKw());
 }
+
+/* ============================================================
+   ⏰ LỊCH QUÉT (26/11/2026)
+
+   Một chỗ nhìn: từ khoá / gian hàng nào tới hạn quét, trễ bao lâu, đợt tới tốn
+   bao nhiêu lượt Metric — và một nút chép câu nhờ Claude quét. Lịch do máy chủ
+   tính (rvKwHan: tới hạn sớm hơn 2 ngày), nên Hôm nay + Telegram cùng nhìn một
+   lịch (rvNhac). Quét xong là dòng tự xanh lại.
+   ============================================================ */
+/* Số mục đang tới hạn (từ khoá đang bật + gian hàng + quét sâu) — cho nhãn trên tab */
+function rvLichToi(){
+  const st = rv.state; if (!st) return 0;
+  const sh = st.shops || {};
+  return rvKws().filter(k => !k.off && k.due).length + (sh.due && sh.n ? 1 : 0) + (sh.list || []).filter(x => x.due).length;
+}
+/* Câu dán vào Claude để nhờ quét */
+function rvLichCau(){
+  const ks = rvKws().filter(k => !k.off && k.due), sh = (rv.state || {}).shops || {};
+  const sau = (sh.list || []).filter(x => x.due);
+  return 'Quét đối thủ giúp mình theo kol-hub/tools/quet-doi-thu.md (Chrome hồ sơ "Quét đối thủ").\n' +
+    (ks.length ? 'Từ khoá tới hạn (' + ks.length + '): ' + ks.map(k => k.kw).join(', ') + '.\n' : 'Không có từ khoá nào tới hạn.\n') +
+    (sh.due && sh.n ? 'Gian hàng đối thủ: tới hạn (' + sh.n + ' gian hàng, 1 lượt).\n' : '') +
+    (sau.length ? 'Quét sâu: ' + sau.map(x => x.name).join(', ') + '.\n' : '') +
+    'Làm đủ bước 2 → 4 (cả lượt tìm kiếm và đọc trang Shopee), rồi báo lại số lượt Metric còn lại.';
+}
+function viewRivalLich(){
+  if (!rv.state)
+    return rv.err ? `<div class="card"><b class="bad">Không lấy được dữ liệu.</b><div class="dim" style="margin-top:6px">${esc(rv.err)}</div></div>`
+                  : `<div class="dim" style="padding:30px 4px">Đang tải…</div>`;
+  const st = rv.state, nay = today(), sh = st.shops || {list: []};
+  const ks = rvKws(), bat = ks.filter(k => !k.off);
+  const tre = d => d ? dayDiff(d) : null;            // ngày tới hạn so với hôm nay (âm = trễ)
+  /* Trạng thái một dòng. due = máy chủ nói tới hạn (sớm 2 ngày); next = ngày đúng hạn */
+  const tt = (x, off) => {
+    if (off) return '<span class="chip">Tạm ngừng</span>';
+    if (!x.last) return '<span class="chip bad">Chưa quét lần nào</span>';
+    const d = tre(x.next);
+    if (x.due) return d < 0 ? `<span class="chip bad">Trễ ${-d} ngày</span>` : `<span class="chip warn">Tới hạn${d > 0 ? ' (sớm ' + d + ' ngày)' : ''}</span>`;
+    return `<span class="chip ok">Còn ${d} ngày</span>`;
+  };
+  const ngay = s => s ? fmtDate(s).slice(0, 5) : '—';
+  const nh = (st.nhac || [])[0];
+  const lanCuoi = [...ks.map(k => k.last), sh.last].filter(Boolean).sort().pop() || '';
+  const luotThang = rvLuotThang(ks) + Math.round(30 / (sh.every || 7)) +
+    (sh.list || []).reduce((a, x) => a + (x.every ? 30 / x.every : 0), 0);
+
+  let h = `<div class="card rv-lich-hd ${nh ? (tre(nh.due) < 0 ? 'tre' : 'toi') : 'xong'}">
+    <div class="grow">
+      <div class="rv-lich-t">${nh ? (tre(nh.due) < 0 ? '🔴 ' : '🟡 ') + esc(nh.title) : '🟢 Không có gì tới hạn — lịch quét đang đúng nhịp'}</div>
+      <div class="dim" style="margin-top:4px">${nh ? `Đợt quét này tốn khoảng <b>${st.luot}</b> lượt Metric${tre(nh.due) < 0 ? ` · trễ <b>${-tre(nh.due)}</b> ngày so với lịch` : ''} · ` : ''}lần quét gần nhất ${lanCuoi ? fmtDate(lanCuoi) : 'chưa có'} · cả tháng khoảng <b>${Math.round(luotThang)}</b> lượt</div>
+      <div class="dim" style="margin-top:4px">Có mục tới hạn thì trang <b>Hôm nay</b> hiện việc "Quét đối thủ" và Telegram luồng <b>Sản phẩm</b> nhắc mỗi sáng tới khi quét xong.</div>
+    </div>
+    <div class="btns"><button class="btn ${nh ? 'pri' : ''}" data-act="rvchep">📋 Chép câu nhờ Claude quét</button>
+      <button class="btn sm" data-act="rvreload">↻ Tải lại</button></div>
+  </div>`;
+
+  /* từ khoá: mỗi cấp một bảng, xếp trễ nhất lên đầu */
+  const hang = k => `<tr class="${k.off ? 'rv-off' : ''}" data-act="rvlichkw" data-id="${esc(k.id)}" style="cursor:pointer">
+      <td><b>${esc(k.kw)}</b>${rvUps(k).length ? `<div class="dim">${esc(rvUps(k).reverse().map(u => u.kw).join(' › '))}</div>` : ''}</td>
+      <td class="nw">${esc(RV_TAN[rvEvery(k)] || '')}</td>
+      <td class="r nw">${ngay(k.last)}</td><td class="r nw">${k.off ? '—' : k.last ? ngay(k.next) : 'ngay'}</td>
+      <td class="r">${tt(k, k.off)}</td></tr>`;
+  const thu = k => k.off ? 9e9 : !k.last ? -9e9 : tre(k.next);
+  Object.keys(RV_KINDS).forEach(id => {
+    const ds = ks.filter(k => k.kind === id).sort((a, b) => thu(a) - thu(b) || a.kw.localeCompare(b.kw, 'vi'));
+    if (!ds.length) return;
+    const n = ds.filter(k => !k.off && k.due).length;
+    h += `<h3 class="rv-lich-h">${esc(RV_KINDS[id])} <span class="dim">· ${ds.length} từ khoá${n ? ` · <b class="warn">${n} tới hạn</b>` : ''}</span></h3>
+      <div class="tbl-wrap"><table class="tbl sm rv-lich"><thead><tr><th>Từ khoá</th><th>Quét</th><th class="r">Lần cuối</th><th class="r">Lần tới</th><th class="r">Trạng thái</th></tr></thead>
+      <tbody>${ds.map(hang).join('')}</tbody></table></div>`;
+  });
+
+  /* gian hàng đối thủ */
+  if (sh.n){
+    h += `<h3 class="rv-lich-h">Gian hàng đối thủ <span class="dim">· ${sh.n} gian hàng</span></h3>
+      <div class="tbl-wrap"><table class="tbl sm rv-lich"><thead><tr><th>Mục</th><th>Quét</th><th class="r">Lần cuối</th><th class="r">Lần tới</th><th class="r">Trạng thái</th></tr></thead><tbody>
+      <tr><td><b>Tổng quan ${sh.n} gian hàng</b><div class="dim">1 lượt cho tất cả</div></td><td class="nw">Mỗi tuần</td>
+        <td class="r nw">${ngay(sh.last)}</td><td class="r nw">${sh.last ? ngay(sh.next) : 'ngay'}</td><td class="r">${tt(sh, false)}</td></tr>
+      ${(sh.list || []).map(x => `<tr><td>Quét sâu · <b>${esc(x.name)}</b></td><td class="nw">${x.every ? esc(RV_SH_TAN_TEN(x.every)) : 'Tắt'}</td>
+        <td class="r nw">${ngay(x.last)}</td><td class="r nw">${x.every ? (x.last ? ngay(x.next) : 'ngay') : '—'}</td><td class="r">${tt(x, !x.every)}</td></tr>`).join('')}
+      </tbody></table></div>`;
+  }
+  h += `<div class="dim" style="margin-top:10px">Đổi tần suất: từ khoá thì bấm dòng đó rồi ✎ Sửa ở thẻ Theo từ khoá; quét sâu gian hàng thì chỉnh ở thẻ Gian hàng đối thủ.
+    "Tới hạn" bật sớm 2 ngày trước ngày đúng hạn để đợt quét xê dịch vẫn bắt kịp. Bước đọc trang Shopee không tốn lượt Metric.</div>`;
+  return h;
+}
+const RV_SH_TAN_TEN = n => ({7:'Mỗi tuần', 14:'2 tuần một lần', 30:'Mỗi tháng'})[n] || n + ' ngày';
 function viewRivalKw(){
   if (!rv.state)
     return rv.err ? `<div class="card"><b class="bad">Không lấy được dữ liệu.</b><div class="dim" style="margin-top:6px">${esc(rv.err)}</div>
@@ -7871,4 +7960,4 @@ function atDetailHtml(key){
   return h + form + `</div>`;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "2aa6caa5"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "b9c372b2"]);

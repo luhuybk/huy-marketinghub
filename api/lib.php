@@ -1868,6 +1868,48 @@ function rvShopHan(): array {
   }
   return ['n' => $n, 'last' => $last, 'every' => RV_SH_TAN, 'due' => $due, 'next' => $next, 'list' => $list];
 }
+/* ⏰ NHẮC QUÉT ĐỐI THỦ (26/11/2026)
+
+   Tác vụ quét hằng tuần có lúc không chạy (máy tắt, Chrome hồ sơ quét chưa mở…)
+   mà không ai hay — 16/11 → 26/11 trôi qua mười ngày. Nên máy chủ tự nhìn lịch:
+   có từ khoá / gian hàng tới hạn là dựng MỘT việc "Quét đối thủ" cho trang Hôm
+   nay và Telegram (luồng Sản phẩm). Quét xong thì hết tới hạn, việc tự biến mất.
+   Không có nút "xong" — xong nghĩa là đã quét. Hoãn được 4 / 12 giờ như việc khác.
+
+   Hạn của việc = ngày tới hạn SỚM NHẤT trong số đang chờ (từ khoá chưa quét lần
+   nào thì là hôm nay). id mang ngày đó, nên hoãn rồi vẫn giữ đúng một việc. */
+function rvNhac(): array {
+  $nay = (new DateTime('now', new DateTimeZone(KH_TZ)))->format('Y-m-d');
+  $kws = array_values(array_filter(rvKwList(false), fn($k) => $k['due']));
+  $sh = rvShopHan();
+  $sau = array_values(array_filter($sh['list'], fn($x) => $x['due']));
+  $hans = array_merge(array_map(fn($k) => $k['next'] ?: $nay, $kws),
+                      $sh['due'] && $sh['n'] ? [$sh['next'] ?: $nay] : [],
+                      array_map(fn($x) => $x['next'] ?: $nay, $sau));
+  $luot = count($kws) + ($sh['due'] && $sh['n'] ? 1 : 0) + count($sau);
+  $tasks = [];
+  if ($hans) {
+    sort($hans);
+    $han = $hans[0];
+    $dem = [];
+    foreach (['main' => 'từ khoá chính', 'brand' => 'tên hãng', 'sp' => 'tên sản phẩm'] as $k => $t) {
+      $n = count(array_filter($kws, fn($x) => $x['kind'] === $k));
+      if ($n) $dem[] = $n . ' ' . $t;
+    }
+    if ($sh['due'] && $sh['n']) $dem[] = $sh['n'] . ' gian hàng';
+    if ($sau) $dem[] = count($sau) . ' quét sâu';
+    $cu = $kws ? array_reduce($kws, fn($a, $k) => $a === null || ($k['last'] ?: '0') < ($a['last'] ?: '0') ? $k : $a) : null;
+    $tasks[] = [
+      'id' => 'rvscan_' . $han, 'feed' => 'prod', 'due' => $han, 'icon' => '🎯',
+      'title' => 'Quét đối thủ: ' . count($kws) . ' từ khoá' . ($sh['due'] && $sh['n'] ? ' + gian hàng' : '') . ' đã tới hạn',
+      'sub' => implode(' · ', $dem) . ' · tốn khoảng ' . $luot . ' lượt Metric'
+             . ($cu ? ' · lâu nhất: "' . $cu['kw'] . '" ' . ($cu['last'] ? '(quét ' . substr($cu['last'], 8, 2) . '/' . substr($cu['last'], 5, 2) . ')' : '(chưa quét lần nào)') : '')
+             . ' · nhờ Claude quét theo tools/quet-doi-thu.md',
+      'ref' => ['kind' => 'rvlich'], 'rv' => true];
+  }
+  return ['tasks' => $tasks, 'luot' => $luot, 'shops' => $sh];
+}
+function rvNhacTasks(): array { return rvNhac()['tasks']; }
 function rvShopIds(array $shops, int $lan = 6): array {
   $ids = [];
   foreach ($shops as $sh) {
