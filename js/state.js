@@ -5580,7 +5580,16 @@ const BOT_MODE = {day:{t:'Đẩy', c:'ok'}, giu:{t:'Giữ', c:''}, siet:{t:'Si�
    lẻ dễ lệch (click 23h, 0h mới ra đơn); gộp khối liền nhau mới đúng. */
 const BOT_BLOCKS = [['00–01h',[0,1]],['02–05h',[2,3,4,5]],['06–10h',[6,7,8,9,10]],
                     ['11–15h',[11,12,13,14,15]],['16–20h',[16,17,18,19,20]],['21–23h',[21,22,23]]];
-const RV_KINDS = {main:'Từ khoá chính', sp:'Từ khoá sản phẩm'};
+/* Ba cấp (26/11/2026): chính ("gôm xịt tóc") → tên hãng ("gôm Roug") → tên sản
+   phẩm ("gôm Roug trắng"). Từ khoá cấp dưới gắn vào cấp trên qua `up` (không bắt buộc). */
+const RV_KINDS = {main:'Từ khoá chính', brand:'Từ khoá tên hãng', sp:'Từ khoá tên sản phẩm'};
+const RV_CAP = {main:0, brand:1, sp:2};
+/* Chuỗi cấp trên của một từ khoá, từ gần tới xa: [hãng, chính] */
+function rvUps(k){
+  const out = [];
+  for (let u = k && rvKwOf(k.up); u && out.length < 3 && !out.includes(u); u = rvKwOf(u.up)) out.push(u);
+  return out;
+}
 const RV_SHOW = 10;                       // bảng mặc định hiện top mấy
 /* Bao lâu quét một từ khoá (ngày) — máy chủ quyết định tới hạn (rvKwHan ở
    api/lib.php), app chỉ hiện. Ngắn là tên gắn cạnh nút từ khoá. */
@@ -6039,4 +6048,4 @@ function rvShopChanges(row){
   return out;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "eb3f3c82"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/state.js", "2aa6caa5"]);
