@@ -1461,6 +1461,11 @@ const BOT_CU_PHUT = 3;
 /* Hộp chi tiết chiến dịch đang mở: vẽ lại khi bấm dừng/chạy hoặc khi số mới về */
 function botVeLaiCamp(){
   $$('#modals .modal').forEach(m => { if (m.dataset.bc) m.querySelector('.mbody').innerHTML = botCampHtml(m.dataset.bc); });
+  $$('#modals .modal').forEach(m => { if (m.dataset.ba) m.querySelector('.mbody').innerHTML = botAdHtml(m.dataset.ba); });
+}
+/* Hộp một quảng cáo đang mở (key "shop|cid"): vẽ lại khi đổi tab hoặc số 🔬 vừa về */
+function botVeLaiAd(key){
+  $$('#modals .modal').forEach(m => { if (m.dataset.ba === key) m.querySelector('.mbody').innerHTML = botAdHtml(key); });
 }
 /* 📘 Hướng dẫn: mở hộp, hoặc đổi sản phẩm ví dụ ngay trong hộp đang mở */
 function botGuideOpen(key){
@@ -1568,10 +1573,17 @@ function rvKwForm(id, goiY){
   const cu = id ? rvKwOf(id) : null;
   formModal({
     title: cu ? 'Sửa từ khoá theo dõi' : 'Thêm từ khoá theo dõi',
-    values: cu ? Object.assign({}, cu, {every: String(rvEvery(cu))}) : {kw: goiY || '', kind:'main', note:'', off:false, every:'7'},
+    values: cu ? Object.assign({}, cu, {every: String(rvEvery(cu)), up: cu.up || ''})
+               : {kw: goiY || '', kind:'main', note:'', off:false, every:'7', up:''},
     fields: [
-      {k:'kw', l:'Từ khoá', t:'text', req:true, ph:'vd gôm xịt tóc · sáp vuốt tóc nam Roug'},
-      {k:'kind', l:'Loại', t:'select', half:true, opts: Object.entries(RV_KINDS)},
+      {k:'kw', l:'Từ khoá', t:'text', req:true, ph:'vd gôm xịt tóc · gôm Roug · gôm Roug trắng'},
+      {k:'kind', l:'Cấp', t:'select', half:true, opts: Object.entries(RV_KINDS)},
+      /* Chỉ từ khoá chính và tên hãng làm cấp trên được. Máy chủ kiểm lại (rvKwUp):
+         cấp trên phải CAO hơn — chọn sai thì từ khoá này đứng riêng. */
+      {k:'up', l:'Thuộc', t:'select', half:true, opts: [['', '— đứng riêng —']].concat(
+        rvKws().filter(k => k.kind !== 'sp' && (!cu || k.id !== cu.id))
+          .sort((a, b) => RV_CAP[a.kind] - RV_CAP[b.kind] || a.kw.localeCompare(b.kw, 'vi'))
+          .map(k => [k.id, (k.kind === 'main' ? 'Chính · ' : 'Hãng · ') + k.kw]))},
       {k:'every', l:'Quét', t:'select', half:true, opts: Object.entries(RV_TAN)},
       {k:'off', l:'Trạng thái', t:'check', half:true, ph:'Tạm ngừng quét'},
       {k:'note', l:'Ghi chú', t:'text', ph:'vd sản phẩm của mình ứng với từ khoá này'}
@@ -1579,10 +1591,16 @@ function rvKwForm(id, goiY){
     extra: `<div class="dim" style="margin-top:10px">${cu ? '' : 'Gõ đúng như bạn sẽ tìm trên Metric. '}Mỗi lần quét một từ khoá tốn
       1 lượt phân tích Metric. Tác vụ quét chạy mỗi tuần nhưng chỉ quét từ khoá đã tới hạn: "Mỗi tháng" thì cứ 4 đợt
       mới quét một lần, đỡ 3 lượt so với "Mỗi tuần". Từ khoá ít biến động (từ khoá sản phẩm, từ khoá ngách) nên để
-      thưa.</div>`,
+      thưa.</div>
+      <div class="dim" style="margin-top:6px"><b>Ba cấp:</b> từ khoá chính ("gôm xịt tóc") → tên hãng ("gôm Roug", thuộc
+      "gôm xịt tóc") → tên sản phẩm ("gôm Roug trắng", thuộc "gôm Roug"). Ô <b>Thuộc</b> để gom từ khoá con dưới từ khoá
+      cha cho dễ theo dõi — bỏ trống cũng được.</div>`,
     async onSave(v){
       if (!String(v.kw || '').trim()){ toast('Gõ từ khoá'); return false; }
-      const r = await Server.rivalKwSave({id: cu ? cu.id : '', kw: v.kw, kind: v.kind, note: v.note, off: !!v.off, every: +v.every || 7});
+      const up = v.kind === 'main' ? '' : v.up || '', cha = rvKwOf(up);
+      if (cha && RV_CAP[cha.kind] >= RV_CAP[v.kind]){
+        toast(RV_KINDS[v.kind] + ' không thuộc được "' + cha.kw + '" (' + RV_KINDS[cha.kind].toLowerCase() + ') — cấp trên phải cao hơn'); return false; }
+      const r = await Server.rivalKwSave({id: cu ? cu.id : '', kw: v.kw, kind: v.kind, up, note: v.note, off: !!v.off, every: +v.every || 7});
       if (!cu) ui.rvKw = r.id;
       await loadRival();
       toast(cu ? 'Đã lưu' : 'Đã thêm — lần quét tới sẽ có số');
@@ -5538,7 +5556,13 @@ const ACTIONS = {
   botadsort:   (id, el) => { ui.botAdSort = el.value; render(); },
   botadmore:   () => { ui.botAdN = Math.max(40, +ui.botAdN || 40) + 60; render(); },
   botad:       id => { if (!botv.data) return;
-    const m = openModal('Xu hướng quảng cáo', botAdHtml(id), '', true); m.querySelector('.mbox').classList.add('at-mbox'); },
+    const m = openModal('Quảng cáo', botAdHtml(id), '', true); m.dataset.ba = id; m.querySelector('.mbox').classList.add('at-mbox'); },
+  /* 🔬 mở thẳng tab Khám chuyên sâu (nút trong hộp chi tiết bot của sản phẩm) */
+  botkham:     id => { ui.bkTab = 'kham'; ACTIONS.botad(id); },
+  botadtab:    id => { ui.bkTab = id === 'kham' ? 'kham' : 'xu';
+    $$('#modals .modal').forEach(m => { if (m.dataset.ba) botVeLaiAd(m.dataset.ba); }); },
+  bksale:      id => { ui.bkSale = bkSkip(); botVeLaiAd(id); },
+  bkreload:    id => { bkv[id] = null; botVeLaiAd(id); },
   /* 1.10 bật/tắt Đẩy Nhanh — bot làm ở lượt tới */
   botdn:       async (id, el) => {
     const d = botv.data; if (!d) return;
@@ -6699,7 +6723,7 @@ function bPinCands(){
     if (c) c.new.forEach(x => them(x, 'Shop ' + sh.name + ' · mới lên kệ', 'shop'));
   });
   ((rv.latest && rv.latest.kws) || []).forEach(k =>
-    (k.items || []).forEach((x, i) => them(x, '“' + k.kw + '”', k.kind === 'sp' ? 'kwsp' : 'kw', i + 1)));
+    (k.items || []).forEach((x, i) => them(x, '“' + k.kw + '”', k.kind === 'sp' ? 'kwsp' : k.kind === 'brand' ? 'kwbrand' : 'kw', i + 1)));
   return [...out.values()];
 }
 async function bPinMany(bid){
@@ -6711,7 +6735,7 @@ async function bPinMany(bid){
   if (!ds.length) return bPinAdd(bid);
   const da = new Set((b.refs || []).map(r => r.id)), chon = new Set();
   /* nguồn để lọc: cả nhóm (mọi gian hàng / mọi từ khoá chính / mọi từ khoá SP) hoặc từng nguồn */
-  const NHOM = {shop: 'Gian hàng đối thủ', kw: 'Từ khoá chính', kwsp: 'Từ khoá sản phẩm'};
+  const NHOM = {shop: 'Gian hàng đối thủ', kw: 'Từ khoá chính', kwbrand: 'Từ khoá tên hãng', kwsp: 'Từ khoá tên sản phẩm'};
   const ten = new Map();
   ds.forEach(x => x.nguons.forEach(n => { const t = n.ten.replace(/ · mới lên kệ$/, ''); if (!ten.has(t)) ten.set(t, n.nhom); }));
   const dem = f => ds.filter(f).length;

@@ -236,6 +236,7 @@ const Server = (() => {
   const adMoc   = body => call('ad_moc', body);
   /* Bot ROAS theo giờ (Báo cáo Ads → Bot giờ) */
   const botView  = ()        => call('bot_view');
+  const botKham  = key       => call('bot_kham', {key});
   const botPause = (on, key) => call('bot_pause', {on: !!on, key: key || ''});
   const botSan   = (key, san) => call('bot_san', {key, san});
   const botSetup = items      => call('bot_setup', {items});
@@ -266,7 +267,7 @@ const Server = (() => {
 
   return {probe, login, logout, logoutAll, pull, push, pushBeacon, stats,
           tgGet, tgSave, tgTest, tgReport, tgHook, remind, ingestList, ingestSet,
-          rivalState, rivalScans, rivalKwSave, rivalKwDel, rivalScanDel, rivalMine, rivalShops, rivalLatest, rivalDesc, rivalShopDel, rivalShopSave, bimgUp, bimgDel, imgUrl, adTgUp, adTgMute, botView, botPause, botSan, botSetup, botPick, botDn, adRadar, adMoc,
+          rivalState, rivalScans, rivalKwSave, rivalKwDel, rivalScanDel, rivalMine, rivalShops, rivalLatest, rivalDesc, rivalShopDel, rivalShopSave, bimgUp, bimgDel, imgUrl, adTgUp, adTgMute, botView, botKham, botPause, botSan, botSetup, botPick, botDn, adRadar, adMoc,
           users, userNames, userSave, userDel, takeWhoChanged, notePerms,
           available, authed, state, role, isOwner, name, perms, may, call};
 })();

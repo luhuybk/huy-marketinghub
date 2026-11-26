@@ -562,18 +562,23 @@ switch ($action) {
     $id = (string)($in['id'] ?? '');
     foreach (rvKwList(true) as $k)
       if ($k['id'] !== $id && rvNorm($k['kw']) === rvNorm($kw)) fail('Từ khoá này đã có trong danh sách.');
-    $kind = ($in['kind'] ?? '') === 'sp' ? 'sp' : 'main';
+    $kind = rvKind($in['kind'] ?? '');
+    $up = rvKwUp(mb_substr((string)($in['up'] ?? ''), 0, 40, 'UTF-8'), $kind, $id);
     $note = mb_substr(trim((string)($in['note'] ?? '')), 0, 300, 'UTF-8');
     $off = !empty($in['off']) ? 1 : 0;
     $every = rvTan($in['every'] ?? 7);
     if ($id !== '') {
-      $st = $pdo->prepare('UPDATE rv_kw SET kw = ?, kind = ?, note = ?, off = ?, every = ? WHERE id = ?');
-      $st->execute([$kw, $kind, $note, $off, $every, $id]);
+      $st = $pdo->prepare('UPDATE rv_kw SET kw = ?, kind = ?, note = ?, off = ?, every = ?, up = ? WHERE id = ?');
+      $st->execute([$kw, $kind, $note, $off, $every, $up, $id]);
       if (!$st->rowCount()) fail('Không thấy từ khoá này.', 404);
+      /* Hạ cấp một từ khoá thì con của nó không còn đứng dưới được nữa — gỡ ra cho đứng riêng */
+      foreach (rvKwList(true) as $k)
+        if ($k['up'] === $id && RV_CAP[$k['kind']] <= RV_CAP[$kind])
+          $pdo->prepare("UPDATE rv_kw SET up = '' WHERE id = ?")->execute([$k['id']]);
     } else {
       $id = 'rk' . bin2hex(random_bytes(6));
-      $pdo->prepare('INSERT INTO rv_kw (id, kw, kind, note, off, every, created) VALUES (?,?,?,?,?,?,?)')
-          ->execute([$id, $kw, $kind, $note, $off, $every, gmdate('c')]);
+      $pdo->prepare('INSERT INTO rv_kw (id, kw, kind, note, off, every, up, created) VALUES (?,?,?,?,?,?,?,?)')
+          ->execute([$id, $kw, $kind, $note, $off, $every, $up, gmdate('c')]);
     }
     out(['ok' => true, 'id' => $id]);
   }
@@ -584,6 +589,7 @@ switch ($action) {
     $pdo->prepare('DELETE FROM rv_scan WHERE kw_id = ?')->execute([$id]);
     $pdo->prepare('DELETE FROM rv_vol WHERE kw_id = ?')->execute([$id]);
     $pdo->prepare('DELETE FROM rv_kw WHERE id = ?')->execute([$id]);
+    $pdo->prepare("UPDATE rv_kw SET up = '' WHERE up = ?")->execute([$id]);   // con đứng riêng
     out(['ok' => true]);
   }
   case 'rival_scan_del': {
@@ -630,6 +636,16 @@ switch ($action) {
   case 'bot_view': {
     requirePerm('botgio');
     out(['ok' => true] + botView());
+  }
+  /* 🔬 Khám chuyên sâu một quảng cáo (Bot giờ → bấm vào quảng cáo): số từng ngày
+     ~200 ngày của MỘT chiến dịch từ kho thô ad_raw — đủ để so 1 tuần / 1 tháng /
+     3 tháng và cả 3 tháng trước đó. Đi theo quyền botgio, không cần Báo cáo Ads. */
+  case 'bot_kham': {
+    requirePerm('botgio');
+    $key = (string)($in['key'] ?? '');
+    $p = strrpos($key, '|');
+    if ($p === false) fail('Thiếu chiến dịch.');
+    out(['ok' => true] + botKham(substr($key, 0, $p), substr($key, $p + 1)));
   }
   /* Dừng / chạy lại bot — chỉ chủ. key rỗng = cả bot, "shop|cid" = một chiến dịch */
   case 'bot_pause': {

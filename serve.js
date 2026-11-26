@@ -610,14 +610,15 @@ function api(req, res, body){
       if (!kw || [...kw].length > 120) return fail('Từ khoá trống hoặc quá dài.');
       let id = String(inp.id || '');
       if (rvKwList(true).some(k => k.id !== id && rvNorm(k.kw) === rvNorm(kw))) return fail('Từ khoá này đã có trong danh sách.');
-      const kind = inp.kind === 'sp' ? 'sp' : 'main', note = [...String(inp.note || '').trim()].slice(0, 300).join(''), off = inp.off ? 1 : 0;
+      const kind = rvKind(inp.kind), up = rvKwUp(String(inp.up || '').slice(0, 40), kind, id), note = [...String(inp.note || '').trim()].slice(0, 300).join(''), off = inp.off ? 1 : 0;
       const every = rvTan(inp.every);
       if (id){
-        const r = D.prepare('UPDATE rv_kw SET kw = ?, kind = ?, note = ?, off = ?, every = ? WHERE id = ?').run(kw, kind, note, off, every, id);
+        const r = D.prepare('UPDATE rv_kw SET kw = ?, kind = ?, note = ?, off = ?, every = ?, up = ? WHERE id = ?').run(kw, kind, note, off, every, up, id);
         if (!r.changes) return fail('Không thấy từ khoá này.', 404);
+        rvKwList(true).forEach(k => { if (k.up === id && RV_CAP[k.kind] <= RV_CAP[kind]) D.prepare("UPDATE rv_kw SET up = '' WHERE id = ?").run(k.id); });
       } else {
         id = 'rk' + crypto.randomBytes(6).toString('hex');
-        D.prepare('INSERT INTO rv_kw (id, kw, kind, note, off, every, created) VALUES (?,?,?,?,?,?,?)').run(id, kw, kind, note, off, every, iso());
+        D.prepare('INSERT INTO rv_kw (id, kw, kind, note, off, every, up, created) VALUES (?,?,?,?,?,?,?,?)').run(id, kw, kind, note, off, every, up, iso());
       }
       return send({ok:true, id});
     }
@@ -674,6 +675,7 @@ function api(req, res, body){
       D.prepare('DELETE FROM rv_scan WHERE kw_id = ?').run(String(inp.id || ''));
       D.prepare('DELETE FROM rv_vol WHERE kw_id = ?').run(String(inp.id || ''));
       D.prepare('DELETE FROM rv_kw WHERE id = ?').run(String(inp.id || ''));
+      D.prepare("UPDATE rv_kw SET up = '' WHERE up = ?").run(String(inp.id || ''));
       return send({ok:true});
     }
     case 'rival_scan_del': {
@@ -712,6 +714,20 @@ function api(req, res, body){
       if (!need()) return;
       if (!khMay(me, 'botgio')) return fail('Tài khoản này chưa được mở Bot ROAS giờ.', 403);
       return send(Object.assign({ok:true}, botView()));
+    }
+    /* 🔬 Khám chuyên sâu — xem botKham() bên PHP */
+    case 'bot_kham': {
+      if (!need()) return;
+      if (!khMay(me, 'botgio')) return fail('Tài khoản này chưa được mở Bot ROAS giờ.', 403);
+      const key = String(inp.key || ''), p = key.lastIndexOf('|');
+      if (p < 0) return fail('Thiếu chiến dịch.');
+      const shop = key.slice(0, p), cid = key.slice(p + 1), D = db();
+      const tu = new Date(Date.now() - 200 * 864e5).toISOString().slice(0, 10);
+      const rows = D.prepare('SELECT date, cost, gmv, orders, conv, impr, clicks, atc FROM ad_raw WHERE shop = ? AND cid = ? AND date >= ? ORDER BY date')
+        .all(shop, cid, tu).map(r => [r.date, r.cost | 0, r.gmv | 0, r.orders | 0, r.conv | 0, r.impr | 0, r.clicks | 0, r.atc | 0]);
+      const cuoi = (D.prepare('SELECT MAX(date) d FROM ad_raw WHERE shop = ?').get(shop) || {}).d || '';
+      const title = (D.prepare('SELECT title FROM ad_meta WHERE shop = ? AND cid = ?').get(shop, cid) || {}).title || '';
+      return send({ok:true, rows, cuoi, title});
     }
     case 'bot_pause': {
       if (!owner()) return;
@@ -1763,6 +1779,7 @@ function rvTables(D){
       PRIMARY KEY (item_id, date))`);
   if (!D.prepare('PRAGMA table_info(rv_scan)').all().some(r => r.name === 'extra')) D.exec('ALTER TABLE rv_scan ADD COLUMN extra TEXT');
   if (!D.prepare('PRAGMA table_info(rv_kw)').all().some(r => r.name === 'every')) D.exec('ALTER TABLE rv_kw ADD COLUMN every INTEGER DEFAULT 7');
+  if (!D.prepare('PRAGMA table_info(rv_kw)').all().some(r => r.name === 'up')) D.exec("ALTER TABLE rv_kw ADD COLUMN up TEXT DEFAULT ''");
   D.exec(`CREATE TABLE IF NOT EXISTS rv_shop (id TEXT PRIMARY KEY, name TEXT, shops TEXT, created TEXT);
     CREATE TABLE IF NOT EXISTS rv_shscan (shop_id TEXT NOT NULL, date TEXT NOT NULL, d_from TEXT, d_to TEXT,
       at TEXT, data TEXT, PRIMARY KEY (shop_id, date));
@@ -1796,6 +1813,14 @@ function rvItem(p){
     o:so('order_custom'), op:so('previous_order_custom'), r:so('revenue_custom'), rp:so('previous_revenue_custom')
   };
 }
+/* Ba cấp từ khoá — xem rvKind()/rvKwUp() bên PHP */
+const RV_CAP = {main:0, brand:1, sp:2};
+const rvKind = k => RV_CAP[k] != null ? k : 'main';
+function rvKwUp(up, kind, id){
+  if (!up || up === id || kind === 'main') return '';
+  const k = rvKwList(true).find(x => x.id === up);
+  return k && RV_CAP[k.kind] < RV_CAP[kind] ? up : '';
+}
 function rvKwList(caTat = true){
   const D = db(); rvTables(D);
   return D.prepare(`SELECT k.*, (SELECT MAX(date) FROM rv_scan s WHERE s.kw_id = k.id) last,
@@ -1803,7 +1828,7 @@ function rvKwList(caTat = true){
     .filter(r => caTat || r.off !== 1)
     .map(r => {
       const every = rvTan(r.every), last = String(r.last || ''), [due, next] = rvKwHan(last, every, r.off === 1, vnNow().date);
-      return {id:String(r.id), kw:String(r.kw), kind:r.kind === 'sp' ? 'sp' : 'main', note:String(r.note || ''),
+      return {id:String(r.id), kw:String(r.kw), kind:rvKind(r.kind), up:String(r.up || ''), note:String(r.note || ''),
               off:r.off === 1, every, due, next, last, n:r.n};
     });
 }

@@ -1222,6 +1222,10 @@ function rvTables(PDO $pdo): void {
   /* every (thêm sau): bao nhiêu ngày quét một lần — xem RV_TAN */
   if (!in_array('every', array_column($pdo->query('PRAGMA table_info(rv_kw)')->fetchAll(), 'name'), true))
     $pdo->exec('ALTER TABLE rv_kw ADD COLUMN every INTEGER DEFAULT 7');
+  /* up (thêm 26/11/2026): từ khoá cấp trên — tên hãng thuộc một từ khoá chính,
+     tên sản phẩm thuộc một tên hãng (hoặc thẳng một từ khoá chính). Rỗng = đứng riêng. */
+  if (!in_array('up', array_column($pdo->query('PRAGMA table_info(rv_kw)')->fetchAll(), 'name'), true))
+    $pdo->exec("ALTER TABLE rv_kw ADD COLUMN up TEXT DEFAULT ''");
   /* Gian hàng đối thủ (thêm 13/11/2026) — xem rvShopSave() */
   $pdo->exec('CREATE TABLE IF NOT EXISTS rv_shop (id TEXT PRIMARY KEY, name TEXT, shops TEXT, created TEXT)');
   $pdo->exec('CREATE TABLE IF NOT EXISTS rv_shscan (shop_id TEXT NOT NULL, date TEXT NOT NULL, d_from TEXT, d_to TEXT,
@@ -1277,6 +1281,15 @@ function rvItem(array $p): ?array {
     'r' => $so('revenue_custom'), 'rp' => $so('previous_revenue_custom'),
   ];
 }
+/* Ba cấp từ khoá (26/11/2026): chính → tên hãng → tên sản phẩm. RV_CAP = cấp. */
+const RV_CAP = ['main' => 0, 'brand' => 1, 'sp' => 2];
+function rvKind($k): string { return isset(RV_CAP[(string)$k]) ? (string)$k : 'main'; }
+/* Cấp trên hợp lệ: phải có thật và đứng CAO hơn (chính > hãng > sản phẩm). Sai = bỏ trống. */
+function rvKwUp(string $up, string $kind, string $id): string {
+  if ($up === '' || $up === $id || $kind === 'main') return '';
+  foreach (rvKwList(true) as $k) if ($k['id'] === $up) return RV_CAP[$k['kind']] < RV_CAP[$kind] ? $up : '';
+  return '';
+}
 function rvKwList(bool $caTat = true): array {
   $pdo = db(); rvTables($pdo);
   $rows = $pdo->query('SELECT k.*, (SELECT MAX(date) FROM rv_scan s WHERE s.kw_id = k.id) last,
@@ -1289,8 +1302,8 @@ function rvKwList(bool $caTat = true): array {
     $every = rvTan($r['every'] ?? 7);
     $last = (string)($r['last'] ?? '');
     [$due, $next] = rvKwHan($last, $every, $off, $nay);
-    $out[] = ['id' => (string)$r['id'], 'kw' => (string)$r['kw'], 'kind' => $r['kind'] === 'sp' ? 'sp' : 'main',
-              'note' => (string)$r['note'], 'off' => $off, 'every' => $every, 'due' => $due, 'next' => $next,
+    $out[] = ['id' => (string)$r['id'], 'kw' => (string)$r['kw'], 'kind' => rvKind($r['kind'] ?? ''),
+              'up' => (string)($r['up'] ?? ''), 'note' => (string)$r['note'], 'off' => $off, 'every' => $every, 'due' => $due, 'next' => $next,
               'last' => $last, 'n' => (int)$r['n']];
   }
   return $out;
@@ -2176,6 +2189,23 @@ function botSave(array $in): array {
 }
 
 /* Mọi thứ trang Bot giờ cần, một lần hỏi */
+/* Số từng ngày của một chiến dịch cho 🔬 Khám chuyên sâu — [ngày, chi, GMV, đơn,
+   chuyển đổi, hiển thị, click, thêm giỏ]. `cuoi` = ngày cuối shop có số (kể cả khi
+   chiến dịch này hôm đó không chạy), để 1 tuần gần nhất tính đúng tới hôm đó. */
+function botKham(string $shop, string $cid): array {
+  $pdo = db(); adTables($pdo);
+  $tu = (new DateTime('now', new DateTimeZone(KH_TZ)))->modify('-200 days')->format('Y-m-d');
+  $st = $pdo->prepare('SELECT date, cost, gmv, orders, conv, impr, clicks, atc FROM ad_raw
+      WHERE shop = ? AND cid = ? AND date >= ? ORDER BY date');
+  $st->execute([$shop, $cid, $tu]);
+  $rows = array_map(fn($r) => [(string)$r['date'], (int)$r['cost'], (int)$r['gmv'], (int)$r['orders'], (int)$r['conv'],
+                               (int)$r['impr'], (int)$r['clicks'], (int)$r['atc']], $st->fetchAll());
+  $q = $pdo->prepare('SELECT MAX(date) FROM ad_raw WHERE shop = ?');
+  $q->execute([$shop]);
+  $m = $pdo->prepare('SELECT title FROM ad_meta WHERE shop = ? AND cid = ?');
+  $m->execute([$shop, $cid]);
+  return ['rows' => $rows, 'cuoi' => (string)($q->fetchColumn() ?: ''), 'title' => (string)($m->fetchColumn() ?: '')];
+}
 function botView(): array {
   $pdo = db(); botTables($pdo);
   $camps = [];

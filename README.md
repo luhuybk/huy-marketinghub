@@ -1037,6 +1037,12 @@ Mục chỉ chủ thấy. Mỗi tuần một tác vụ (AI) mở **Metric**, ph�
 là một **bản chụp**; Hub so bản mới với bản trước để chỉ ra ai lên/tụt hạng, ai
 mới vào hay rớt top, ai đổi giá, đổi ảnh bìa, đổi tên.
 
+- **Ba cấp từ khoá** (26/11/2026): *chính* ("gôm xịt tóc") → *tên hãng* ("gôm
+  Roug") → *tên sản phẩm* ("gôm Roug trắng"). `rv_kw.kind` = `main|brand|sp`, cột
+  `rv_kw.up` = id từ khoá cấp trên (tuỳ chọn). Máy chủ chỉ nhận cấp trên CAO hơn
+  (`rvKwUp`). Hạ cấp hay xoá một từ khoá thì con của nó đứng riêng. Mỗi cấp một
+  hàng nút, cấp dưới gom theo cha (nhãn "cha ›"). Đầu mục ghi đường dẫn cấp trên và
+  các từ khoá con. Tác vụ quét không cần biết cấp: mọi từ khoá quét như nhau.
 - Quy trình quét cho tác vụ: `tools/quet-doi-thu.md`. Cổng nhận: `api/rival.php`
   (token thiết bị → vé ngắn hạn → trang Metric gửi thẳng kết quả bằng vé, mở
   CORS cho đúng `https://metric.vn`). Token nằm ở `tools/.hub_token`, ngoài git.
@@ -1549,6 +1555,20 @@ duyệt ngầm đăng nhập Kênh Người Bán bằng tài khoản phụ) tớ
 mục tiêu của vài chiến dịch theo lịch **Đẩy / Giữ / Siết** — lịch rút từ số
 quảng cáo theo giờ 3 tháng (buổi sáng 6–10h ROAS cao mà ít tiền, chiều tối thấp).
 Hub là nơi **xem** bot đang làm gì và **bấm dừng**, không phải nơi giữ luật.
+
+**🔬 Khám chuyên sâu một quảng cáo** (26/11/2026). Bấm tên quảng cáo, hộp mở ra
+có hai tab: 📈 Xu hướng 8 tuần (số bot gửi) và 🔬 Khám chuyên sâu. Tab Khám so
+**3 tháng · 1 tháng · 1 tuần**, cả ba lùi từ ngày cuối shop có số trong `ad_raw`
+(action `bot_kham`, quyền `botgio`, ~200 ngày một chiến dịch). Mặc định bỏ ngày
+sale như ROAS chuẩn. Tab Khám có bốn phần:
+- **Nhận định xu hướng** qua ba mốc, ngưỡng 5%: xói mòn (giảm cả hai nhịp), mới
+  giảm, quay đầu, đang hồi, tăng đều, ổn định.
+- **Có đáng không**: có ROAS biên (cài đặt bot) thì lời sau QC/ngày = GMV/ngày ÷
+  biên − chi/ngày. Chưa có biên thì tính ROAS của phần chi thêm = ΔGMV ÷ Δchi.
+- **Vì sao**: ROAS = (đơn ÷ click) × giá trị đơn ÷ giá click, nên tách được đúng
+  thừa số gây giảm. CTR giảm ≥ 10% thì nhắc thêm.
+- **Bảng chỉ số** và **ROAS từng tuần** trong 13 tuần.
+Code: `botKhamHtml()`/`bkv` (views.js), `botKham()` (lib.php).
 
 ```
 bot (VPS) ── POST api/bot.php ──▶ bot_camp  : trạng thái từng chiến dịch (mục tiêu, sàn, lịch 24 giờ…)
