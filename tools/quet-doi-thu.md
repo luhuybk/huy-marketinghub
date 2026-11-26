@@ -40,6 +40,10 @@ Trả về `ticket` (vé, sống 6 giờ), `url`, `today`,
 `shops: {n, last, every, due, next, list}` (gian hàng đối thủ — xem bước 2b;
 `list: [{id, name, links, every, last, due, next}]` cho quét sâu ở bước 2c).
 
+- **Mỗi lần gọi `do:"kws"` là Hub cấp vé MỚI, vé cũ hết hiệu lực ngay.** Chỉ gọi
+  một lần cho cả đợt. Gọi lại giữa chừng (vd để kiểm tra) thì đoạn đọc Shopee đang
+  chạy ở bước 4 dừng sau 3 lỗi "vé không đúng". Đã dính ngày 26/11/2026, đọc được
+  17/360 thì dừng.
 - **Chỉ quét từ khoá có `due: true`** (bước 2 và bước 3). Chủ chọn cho từng từ
   khoá quét mỗi tuần / 2 tuần / mỗi tháng (`every` = 7 / 14 / 30 ngày); Hub tính
   sẵn từ khoá nào đã tới hạn (tới hạn sớm hơn 2 ngày để đợt quét xê dịch vẫn bắt
