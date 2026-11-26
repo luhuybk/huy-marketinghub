@@ -191,6 +191,11 @@ if ($task === null) {
   try { foreach (adTgTasks() as $t) if ($t['id'] === $taskId) { $task = $t; $tIdx = -1; break; } }
   catch (Throwable $e) {}
 }
+/* việc "Quét đối thủ" (rvNhac) — chỉ hoãn được, quét xong thì tự hết */
+if ($task === null) {
+  try { foreach (rvNhacTasks() as $t) if ($t['id'] === $taskId) { $task = $t; $tIdx = -1; break; } }
+  catch (Throwable $e) {}
+}
 if ($task === null) {
   $answer('Việc này không còn trong danh sách — có lẽ đã xong rồi.');
   $stamp('việc này không còn nữa');

@@ -230,6 +230,7 @@ const Server = (() => {
   const ingestSet  = (id, act) => call('ingest_set', {id, do: act});
   /* Gợi ý nâng ROAS mục tiêu — máy chủ tự tính từ số quảng cáo tự động */
   const adTgUp = () => call('ad_tg_up');
+  const rvNhac = () => call('rv_nhac');
   const adTgMute = id => call('ad_tg_mute', {id});
   /* 📈 Tổng quan QC: số từng ngày (cùng nguồn với Radar) + mốc cải tiến sản phẩm */
   const adRadar = ()   => call('ad_radar');
@@ -267,7 +268,7 @@ const Server = (() => {
 
   return {probe, login, logout, logoutAll, pull, push, pushBeacon, stats,
           tgGet, tgSave, tgTest, tgReport, tgHook, remind, ingestList, ingestSet,
-          rivalState, rivalScans, rivalKwSave, rivalKwDel, rivalScanDel, rivalMine, rivalShops, rivalLatest, rivalDesc, rivalShopDel, rivalShopSave, bimgUp, bimgDel, imgUrl, adTgUp, adTgMute, botView, botKham, botPause, botSan, botSetup, botPick, botDn, adRadar, adMoc,
+          rivalState, rivalScans, rivalKwSave, rivalKwDel, rivalScanDel, rivalMine, rivalShops, rivalLatest, rivalDesc, rivalShopDel, rivalShopSave, bimgUp, bimgDel, imgUrl, adTgUp, rvNhac, adTgMute, botView, botKham, botPause, botSan, botSetup, botPick, botDn, adRadar, adMoc,
           users, userNames, userSave, userDel, takeWhoChanged, notePerms,
           available, authed, state, role, isOwner, name, perms, may, call};
 })();

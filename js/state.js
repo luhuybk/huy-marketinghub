@@ -2306,7 +2306,10 @@ const taskPush = (t, n) => t.dueField ? applyTaskSet(t, {[t.dueField]: addDays(t
    là thứ app đẩy lên cho Telegram, còn máy chủ tự cộng việc của nó lúc gửi —
    trộn vào thì một việc đi Telegram hai lần. */
 const adTg = {tasks:null, luc:0, busy:false};
-const serverTasks = () => (may('adreport') || may('ads')) ? (adTg.tasks || []).filter(t => t && t.id && t.due) : [];
+/* ⏰ việc "Quét đối thủ" (rvNhac ở api/lib.php) — người có quyền Theo dõi đối thủ */
+const rvNhacV = {tasks:null, luc:0, busy:false};
+const serverTasks = () => ((may('adreport') || may('ads')) ? (adTg.tasks || []) : [])
+  .concat(may('rival') ? (rvNhacV.tasks || []) : []).filter(t => t && t.id && t.due);
 function todayTasks(days){
   const limit = addDays(today(), Math.max(0, days || 0));
   const out = {};

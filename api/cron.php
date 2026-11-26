@@ -56,6 +56,8 @@ $tasks  = kvGet('reminders', []) ?: [];
 /* cộng việc máy chủ tự dựng: gợi ý nâng ROAS mục tiêu (adTgTasks) — hỏng thì
    bỏ qua, đừng để nó làm tắt cả đợt nhắc */
 try { $tasks = array_merge($tasks, adTgTasks()); } catch (Throwable $e) {}
+/* và việc "Quét đối thủ" khi có từ khoá / gian hàng tới hạn (rvNhac) */
+try { $tasks = array_merge($tasks, rvNhacTasks()); } catch (Throwable $e) {}
 $snooze = kvGet('tg_snooze', []) ?: [];
 $last   = kvGet('tg_last', []) ?: [];
 

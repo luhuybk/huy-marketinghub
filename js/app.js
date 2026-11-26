@@ -109,6 +109,7 @@ function render(){
   const view = $('#view');
   if (!view) return;
   ensureAdTg();
+  ensureRvNhac();
 
   let html = '';
   try {
@@ -1426,6 +1427,18 @@ function rvCurKw(){
    chỉ về mỗi sáng một lần. Có thì vẽ lại để trang Hôm nay và số đếm cạnh mục
    Hôm nay hiện ra; lỗi thì im lặng, lần sau hỏi lại. */
 const AD_TG_PHUT = 30;
+/* ⏰ Việc "Quét đối thủ" cho trang Hôm nay — hỏi máy chủ nửa giờ một lần */
+function ensureRvNhac(){
+  if (!window.Server || !Server.authed() || !may('rival')) return;
+  if (rvNhacV.busy || (rvNhacV.luc && Date.now() - rvNhacV.luc < AD_TG_PHUT * 6e4)) return;
+  rvNhacV.busy = true; rvNhacV.luc = Date.now();
+  Server.rvNhac().then(r => {
+    const cu = JSON.stringify(rvNhacV.tasks || []);
+    rvNhacV.tasks = Array.isArray(r.tasks) ? r.tasks : [];
+    if (JSON.stringify(rvNhacV.tasks) !== cu) render();
+  }).catch(() => { rvNhacV.luc = Date.now() - (AD_TG_PHUT - 2) * 6e4; })
+    .finally(() => { rvNhacV.busy = false; });
+}
 function ensureAdTg(){
   if (!window.Server || !Server.authed() || !(may('adreport') || may('ads'))) return;
   if (adTg.busy || (adTg.luc && Date.now() - adTg.luc < AD_TG_PHUT * 6e4)) return;
@@ -5325,7 +5338,15 @@ const ACTIONS = {
   btst:     (id, el) => { const [tid, st] = id.split('|'); btaskSet(tid, st); },
   bist:     id => { const [iid, st] = id.split('|'); bImgSet(iid, st); },
   /* ---- thẻ Gian hàng đối thủ ---- */
-  rvtab:    id => { ui.rvTab = id === 'shop' ? 'shop' : 'kw'; render(); },
+  rvtab:    id => { ui.rvTab = id === 'shop' || id === 'lich' ? id : 'kw'; render(); },
+  /* ⏰ Lịch quét: chép sẵn câu nhờ Claude quét, dán vào Claude là chạy */
+  rvchep:   async () => {
+    const t = rvLichCau();
+    try { await navigator.clipboard.writeText(t); toast('Đã chép — dán vào Claude (Claude Code trên máy Mac) để quét'); }
+    catch(e){ openModal('Câu nhờ quét', `<textarea class="inp" style="width:100%;min-height:140px">${esc(t)}</textarea>`, '', false); }
+  },
+  /* bấm một dòng từ khoá ở Lịch quét → mở thẻ Theo từ khoá ở đúng từ khoá đó */
+  rvlichkw: id => { ui.rvTab = 'kw'; ui.rvKw = id; ui.rvDate = ''; ui.rvAll = false; render(); },
   rvshop:   id => { ui.rvShop = ui.rvShop === id ? '' : id; render(); },
   rvshdate: id => { ui.rvShDate = id; render(); },
   rvshall:  () => { ui.rvShAll = !ui.rvShAll; render(); },
@@ -5756,6 +5777,7 @@ const ACTIONS = {
     const t = reminderTasks().find(x => x.id === id) || serverTasks().find(x => x.id === id);
     if (!t || !t.ref) return;
     if (t.ref.kind === 'radar') return radarMo(t.ref.shop, t.ref.cid);
+    if (t.ref.kind === 'rvlich'){ ui.rvTab = 'lich'; return go('rival'); }
     if (t.ref.kind === 'kols')     go('kol', t.ref.id);
     else if (t.ref.kind === 'bookings'){ const b = bookingOf(t.ref.id); if (b) go('kol', b.kolId); }
     else if (t.ref.kind === 'actions'){ const a = db.actions.find(x => x.id === t.ref.id); if (a) go('product', a.productId); }

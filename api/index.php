@@ -485,8 +485,19 @@ switch ($action) {
   case 'rival_state': {
     requirePerm('rival');
     $pdo = db(); rvTables($pdo);
+    $nh = rvNhac();
     out(['ok' => true, 'kws' => rvKwList(true),
-         'mine' => $pdo->query('SELECT shop_id id, name FROM rv_mine')->fetchAll()]);
+         'mine' => $pdo->query('SELECT shop_id id, name FROM rv_mine')->fetchAll(),
+         /* ⏰ Lịch quét: gian hàng (không kèm link) + việc nhắc */
+         'shops' => ['n' => $nh['shops']['n'], 'last' => $nh['shops']['last'], 'every' => $nh['shops']['every'],
+                     'due' => $nh['shops']['due'], 'next' => $nh['shops']['next'],
+                     'list' => array_map(fn($x) => array_diff_key($x, ['links' => 1]), $nh['shops']['list'])],
+         'nhac' => $nh['tasks'], 'luot' => $nh['luot']]);
+  }
+  /* Việc "Quét đối thủ" cho trang Hôm nay (xem rvNhac) */
+  case 'rv_nhac': {
+    requirePerm('rival');
+    out(['ok' => true, 'tasks' => rvNhacTasks()]);
   }
   case 'rival_scans': {
     requirePerm('rival');

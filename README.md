@@ -1043,6 +1043,15 @@ mới vào hay rớt top, ai đổi giá, đổi ảnh bìa, đổi tên.
   (`rvKwUp`). Hạ cấp hay xoá một từ khoá thì con của nó đứng riêng. Mỗi cấp một
   hàng nút, cấp dưới gom theo cha (nhãn "cha ›"). Đầu mục ghi đường dẫn cấp trên và
   các từ khoá con. Tác vụ quét không cần biết cấp: mọi từ khoá quét như nhau.
+- **⏰ Lịch quét** (26/11/2026) là thẻ thứ ba. Nó liệt kê mọi từ khoá theo cấp và
+  gian hàng đối thủ (cả quét sâu), kèm lần cuối, lần tới và trạng thái: trễ N
+  ngày / tới hạn / còn N ngày. Đầu thẻ tóm tắt số lượt Metric đợt tới và nút
+  "📋 Chép câu nhờ Claude quét". Máy chủ dựng việc nhắc ở `rvNhac()` (lib.php):
+  có mục tới hạn thì sinh MỘT việc `rvscan_<ngày tới hạn sớm nhất>`, luồng
+  `prod`. Việc này hiện ở trang Hôm nay (action `rv_nhac`, quyền `rival`) và đi
+  Telegram (`cron.php` gộp vào). Việc không có nút xong: quét xong thì tự hết.
+  Ở Telegram chỉ hoãn được 4 hoặc 12 giờ. Lý do làm: tác vụ quét hằng tuần
+  ngừng từ 16/11 tới 26/11 mà không ai hay.
 - Quy trình quét cho tác vụ: `tools/quet-doi-thu.md`. Cổng nhận: `api/rival.php`
   (token thiết bị → vé ngắn hạn → trang Metric gửi thẳng kết quả bằng vé, mở
   CORS cho đúng `https://metric.vn`). Token nằm ở `tools/.hub_token`, ngoài git.

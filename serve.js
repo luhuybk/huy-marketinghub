@@ -596,7 +596,14 @@ function api(req, res, body){
     case 'rival_state': {
       if (!perm('rival')) return;
       const D = db(); rvTables(D);
-      return send({ok:true, kws:rvKwList(true), mine:D.prepare('SELECT shop_id id, name FROM rv_mine').all()});
+      const nh = rvNhac(), sh = nh.shops;
+      return send({ok:true, kws:rvKwList(true), mine:D.prepare('SELECT shop_id id, name FROM rv_mine').all(),
+        shops:{n:sh.n, last:sh.last, every:sh.every, due:sh.due, next:sh.next, list:sh.list.map(({links, ...x}) => x)},
+        nhac:nh.tasks, luot:nh.luot});
+    }
+    case 'rv_nhac': {
+      if (!perm('rival')) return;
+      return send({ok:true, tasks:rvNhac().tasks});
     }
     case 'rival_scans': {
       if (!perm('rival')) return;
@@ -936,6 +943,7 @@ async function cron(req, res){
   let tasks = kvGet('reminders', []) || [];
   /* cộng gợi ý nâng ROAS mục tiêu — xem api/cron.php */
   try { tasks = tasks.concat(adTgTasks()); } catch(e){}
+  try { tasks = tasks.concat(rvNhac().tasks); } catch(e){}
   const last  = kvGet('tg_last', {}) || {};
   /* dọn các lệnh hoãn đã hết hạn cho bảng khỏi phình */
   const snooze = Object.fromEntries(
@@ -1110,6 +1118,7 @@ async function tgHook(req, res, body){
   /* việc máy chủ tự dựng (gợi ý nâng ROAS mục tiêu) không nằm trong danh sách app đẩy lên — xem api/tg.php */
   let tuDung = null;
   if (tIdx < 0){ try { tuDung = adTgTasks().find(t => t.id === taskId) || null; } catch(e){} }
+  if (tIdx < 0 && !tuDung){ try { tuDung = rvNhac().tasks.find(t => t.id === taskId) || null; } catch(e){} }
   if (tIdx < 0 && !tuDung){
     await answer('Việc này không còn trong danh sách — có lẽ đã xong rồi.');
     await stamp('việc này không còn nữa');
@@ -2203,6 +2212,27 @@ function rvShopHan(){
     return {id:String(r.id), name:String(r.name || ''), links:ds.map(x => 'https://shopee.vn/shop/' + x.sid), every, last:l, due:d2, next:n2};
   });
   return {n, last, every:RV_SH_TAN, due, next, list};
+}
+/* ⏰ nhắc quét — xem rvNhac() bên PHP */
+function rvNhac(){
+  const nay = vnNow().date, kws = rvKwList(false).filter(k => k.due), sh = rvShopHan();
+  const sau = sh.list.filter(x => x.due), shDue = sh.due && sh.n > 0;
+  const hans = kws.map(k => k.next || nay).concat(shDue ? [sh.next || nay] : [], sau.map(x => x.next || nay)).sort();
+  const luot = kws.length + (shDue ? 1 : 0) + sau.length, tasks = [];
+  if (hans.length){
+    const dem = [['main', 'từ khoá chính'], ['brand', 'tên hãng'], ['sp', 'tên sản phẩm']]
+      .map(([k, t]) => { const n = kws.filter(x => x.kind === k).length; return n ? n + ' ' + t : ''; }).filter(Boolean);
+    if (shDue) dem.push(sh.n + ' gian hàng');
+    if (sau.length) dem.push(sau.length + ' quét sâu');
+    const cu = kws.slice().sort((a, b) => (a.last || '0').localeCompare(b.last || '0'))[0];
+    tasks.push({id:'rvscan_' + hans[0], feed:'prod', due:hans[0], icon:'🎯',
+      title:'Quét đối thủ: ' + kws.length + ' từ khoá' + (shDue ? ' + gian hàng' : '') + ' đã tới hạn',
+      sub:dem.join(' · ') + ' · tốn khoảng ' + luot + ' lượt Metric' +
+        (cu ? ' · lâu nhất: "' + cu.kw + '" ' + (cu.last ? '(quét ' + cu.last.slice(8, 10) + '/' + cu.last.slice(5, 7) + ')' : '(chưa quét lần nào)') : '') +
+        ' · nhờ Claude quét theo tools/quet-doi-thu.md',
+      ref:{kind:'rvlich'}, rv:true});
+  }
+  return {tasks, luot, shops:sh};
 }
 const rvShopIds = (shops, lan = 6) => [...new Set(shops.flatMap(sh => sh.scans.slice(0, lan).flatMap(s => s.top.concat(s.new))
   .concat((sh.deep || []).slice(0, 2).flatMap(s => s.items)).map(x => String(x.id || ''))))];
