@@ -1529,13 +1529,15 @@ function botCfg(){
   const hs = {}, ct = {};
   Object.entries(c.hs && typeof c.hs === 'object' ? c.hs : {}).forEach(([k, v]) => { if (+v > 0) hs[k] = Math.round(+v * 100) / 100; });
   Object.entries(c.ct && typeof c.ct === 'object' ? c.ct : {}).forEach(([k, v]) => { if (+v > 0) ct[k] = Math.round(+v * 10) / 10; });
+  const dy = {};
+  Object.entries(c.dy && typeof c.dy === 'object' ? c.dy : {}).forEach(([k, v]) => { if (v !== null && v !== '' && isFinite(+v) && +v >= 0 && +v <= 30) dy[k] = Math.round(+v * 10) / 10; });
   const pick = {};
   Object.entries(c.pick && typeof c.pick === 'object' ? c.pick : {}).forEach(([k, v]) => {
     if (v && typeof v === 'object') pick[k] = {on:!!v.on, by:String(v.by || ''), at:String(v.at || ''), title:String(v.title || '')}; });
   const dn = {};
   Object.entries(c.dn && typeof c.dn === 'object' ? c.dn : {}).forEach(([k, v]) => {
     if (v && typeof v === 'object') dn[k] = {on:!!v.on, by:String(v.by || ''), at:String(v.at || '')}; });
-  return {paused: !!c.paused, off: c.off && typeof c.off === 'object' && !Array.isArray(c.off) ? c.off : {}, san, live, hs, ct, pick, dn,
+  return {paused: !!c.paused, off: c.off && typeof c.off === 'object' && !Array.isArray(c.off) ? c.off : {}, san, live, hs, ct, dy, pick, dn,
           by: String(c.by || ''), at: String(c.at || '')};
 }
 const botTxt = (v, n = 200) => String(v == null ? '' : v).trim().slice(0, n);
@@ -1585,7 +1587,11 @@ function botSave(inp){
         heSoGiu:botNum(c.heSoGiu), kDN:botNum(c.kDN), som:botNum(c.som), thu:botNum(c.thu), xk:botTxt(c.xk, 12), nsGoc:botNum(c.nsGoc), nsLan:botNum(c.nsLan),
         heSoRieng:!!c.heSoRieng, nguon:botTxt(c.nguon, 8), ghiChuan:botTxt(c.ghiChuan, 160),
         thang:(Array.isArray(c.thang) ? c.thang : []).slice(-13).filter(t => t && typeof t === 'object').map(t => ({m:botTxt(t.m, 7), c:botNum(t.c), g:botNum(t.g),
-          o:botNum(t.o), d:botNum(t.d), r:botNum(t.r), chuan:botNum(t.chuan), nguon:botTxt(t.nguon, 8), hs:botNum(t.hs)})),
+          o:botNum(t.o), d:botNum(t.d), r:botNum(t.r), chuan:botNum(t.chuan), nguon:botTxt(t.nguon, 8), hs:botNum(t.hs),
+          bg: t.bg && typeof t.bg === 'object' ? Object.fromEntries(['c','g','o','d','giu','mt','r','nen'].map(k => [k, botNum(t.bg[k])])) : null})),
+        dyRieng:!!c.dyRieng,
+        dg: c.dg && typeof c.dg === 'object' ? Object.assign(Object.fromEntries(['d','c','o','giu','mt','thuc','tho','nen','hs','giuNen'].filter(k => k in c.dg).map(k => [k, botNum(c.dg[k])])),
+          {tt:botTxt(c.dg.tt, 6), m:botTxt(c.dg.m, 7), ghi:botTxt(c.dg.ghi, 200), tam:!!c.dg.tam, vuot:!!c.dg.vuot}) : null,
         std30: c.std30 && typeof c.std30 === 'object' ? {cost:botNum(c.std30.cost), gmv:botNum(c.std30.gmv), orders:botNum(c.std30.orders),
           roas:botNum(c.std30.roas), days:botNum(c.std30.days), skip:botNum(c.std30.skip)} : null};
       ins.run(shop, cid, JSON.stringify(d), now); n++;
@@ -1695,6 +1701,12 @@ function botSetup(items){
       if (r3 === '') delete c.ct[key];
       else if (isFinite(+r3) && +r3 >= 1 && +r3 <= 100) c.ct[key] = Math.round(+r3 * 10) / 10;
       else return {error:'ROAS chuẩn tự đặt phải là số từ 1 đến 100 (để trống = tự động theo tháng trước).'};
+    }
+    if ('dy' in it){
+      const r4 = String(it.dy == null ? '' : it.dy).trim().replace(',', '.').replace('%', '');
+      if (r4 === '') delete c.dy[key];
+      else if (isFinite(+r4) && +r4 >= 0 && +r4 <= 30) c.dy[key] = Math.round(+r4 * 10) / 10;
+      else return {error:'Mức Đẩy phải là số % từ 0 đến 30 (để trống = mặc định 10%).'};
     }
     if ('live' in it) c.live[key] = !!it.live;
   }

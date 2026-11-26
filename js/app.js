@@ -5634,11 +5634,13 @@ const ACTIONS = {
     if (!box) return;
     const items = [...box.querySelectorAll('tr[data-k]')].map(tr => ({key: tr.dataset.k,
       san: tr.querySelector('input[name="san"]').value.trim(), live: tr.querySelector('input[name="live"]').checked,
-      hs: tr.querySelector('input[name="hs"]').value.trim(), ct: tr.querySelector('input[name="ct"]').value.trim()}));
+      hs: tr.querySelector('input[name="hs"]').value.trim(), ct: tr.querySelector('input[name="ct"]').value.trim(),
+      dy: tr.querySelector('input[name="dy"]').value.trim().replace('%', '')}));
     const so = x => +String(x).replace(',', '.');
     if (items.find(it => it.san && !(so(it.san) >= 1 && so(it.san) <= 50))){ toast('ROAS biên phải là số từ 1 đến 50'); return; }
     if (items.find(it => it.hs && !(so(it.hs) >= 0.5 && so(it.hs) <= 5))){ toast('Hệ số Giữ phải là số từ 0,5 đến 5'); return; }
     if (items.find(it => it.ct && !(so(it.ct) >= 1 && so(it.ct) <= 100))){ toast('ROAS chuẩn tự đặt phải là số từ 1 đến 100'); return; }
+    if (items.find(it => it.dy !== '' && !(so(it.dy) >= 0 && so(it.dy) <= 30))){ toast('Mức Đẩy phải là số % từ 0 đến 30'); return; }
     try { const r = await Server.botSetup(items); botv.data.cfg = r.cfg; closeModal(); render();
           toast('Đã lưu — bot dùng cài đặt mới từ lượt tới (trong 5 phút)'); }
     catch(e){ toast(e.message || 'Không lưu được'); }
@@ -5648,13 +5650,21 @@ const ACTIONS = {
     const box = [...document.querySelectorAll('#modals .bt-cai')].find(x => x.dataset.k === id);
     if (!box) return;
     const g = n => box.querySelector('input[name="' + n + '"]').value.trim(), so = x => +String(x).replace(',', '.');
-    const it = {key:id, ct:g('ct'), hs:g('hs'), san:g('san')};
+    const it = {key:id, ct:g('ct'), hs:g('hs'), san:g('san'), dy:g('dy').replace('%', '')};
+    if (it.dy !== '' && !(so(it.dy) >= 0 && so(it.dy) <= 30)){ toast('Mức Đẩy phải là số % từ 0 đến 30'); return; }
     if (it.ct && !(so(it.ct) >= 1 && so(it.ct) <= 100)){ toast('ROAS chuẩn tự đặt phải là số từ 1 đến 100'); return; }
     if (it.hs && !(so(it.hs) >= 0.5 && so(it.hs) <= 5)){ toast('Hệ số Giữ phải là số từ 0,5 đến 5'); return; }
     if (it.san && !(so(it.san) >= 1 && so(it.san) <= 50)){ toast('ROAS biên phải là số từ 1 đến 50'); return; }
     try { const r = await Server.botSetup([it]); botv.data.cfg = r.cfg; botVeLaiCamp(); render();
           toast('Đã lưu — bot dùng cài đặt mới từ lượt tới (trong 5 phút)'); }
     catch(e){ toast(e.message || 'Không lưu được'); }
+  },
+  /* nút "Điền X vào ô hệ số" trong đánh giá hệ số Giữ: chỉ điền, chủ bấm Lưu mới lưu */
+  botdungnen:  (id, el) => {
+    const box = [...document.querySelectorAll('#modals .bt-cai')].find(x => x.dataset.k === id);
+    const inp = box && box.querySelector('input[name="hs"]');
+    if (!inp || !el) return;
+    inp.value = String(el.dataset.v).replace('.', ','); inp.focus(); toast('Đã điền — bấm Lưu để áp dụng');
   },
   botpause:    async (id, el) => {
     const on = el && el.dataset.on === '1';
