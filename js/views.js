@@ -6544,13 +6544,15 @@ function botSetupBody(d){
     const key = c.shop + '|' + c.cid;
     const bien = (cfg.san || {})[key] != null ? cfg.san[key] : c.sanSrc === 'cfg' && c.bienSP ? c.bienSP : '';
     const live = (cfg.live || {})[key] != null ? cfg.live[key] : c.live !== false;
-    const hs = (cfg.hs || {})[key], ct = (cfg.ct || {})[key];
+    const hs = (cfg.hs || {})[key], ct = (cfg.ct || {})[key], dy = (cfg.dy || {})[key];
     const so = x => x == null || x === '' ? '' : String(x).replace('.', ',');
+    const g = c.dg && c.dg.tt && c.dg.tt !== 'it' ? c.dg : null;
     return `<tr data-k="${esc(key)}" style="cursor:default">
       <td><b>${esc(c.title || c.cid)}</b><div class="dim" style="font-size:11px">${esc(c.shop)}${c.boost ? ' · <span class="chip acc">Đẩy Nhanh</span>' : ''}</div></td>
       <td class="r">${botR(c.std)}<div class="dim" style="font-size:11px">${esc(BOT_NGUON[c.nguon] || '30 ngày')}</div></td>
       <td><input class="inp sm" name="ct" inputmode="decimal" style="width:70px" value="${esc(so(ct))}" placeholder="tự động"></td>
-      <td><input class="inp sm" name="hs" inputmode="decimal" style="width:62px" value="${esc(so(hs))}" placeholder="1,2"></td>
+      <td><input class="inp sm" name="hs" inputmode="decimal" style="width:62px" value="${esc(so(hs))}" placeholder="1,2">${g ? `<div style="font-size:11px" class="${g.tt === 'thap' ? 'bad' : g.tt === 'cao' ? 'ok' : 'dim'}">nên ${botR2(g.nen)}</div>` : ''}</td>
+      <td><input class="inp sm" name="dy" inputmode="decimal" style="width:52px" value="${esc(so(dy))}" placeholder="10"></td>
       <td><input class="inp sm" name="san" inputmode="decimal" style="width:70px" value="${esc(so(bien))}" placeholder="trống"></td>
       <td style="text-align:center"><input type="checkbox" name="live" ${live ? 'checked' : ''}></td>
     </tr>`;
@@ -6559,33 +6561,54 @@ function botSetupBody(d){
       <b>Mức Giữ = ROAS chuẩn × hệ số Giữ.</b> ROAS chuẩn mặc định = <b>ROAS tháng trước</b> của sản phẩm (bỏ ngày sale; tháng trước chi dưới 1tr
       hoặc dưới 20 đơn thì dùng ROAS 30 ngày; không thấp hơn chuẩn tháng trước nữa × 0,95 để khỏi trượt dần).
       <b>Chuẩn tự đặt</b>: điền số thì bot dùng số này thay cho tự động (vd sản phẩm bị xói ROAS) — đặt cao hơn hẳn ROAS thật thì Shopee gần như ngừng chi.
-      <b>Hệ số Giữ</b>: để trống = 1,2 (mặc định cả shop).<br>
+      <b>Hệ số Giữ</b>: để trống = 1,2 (mặc định cả shop); dòng "nên …" là hệ số bot đo được theo tháng (mức Giữ TB ÷ ROAS thực).
+      <b>Đẩy %</b>: khung Đẩy hạ mục tiêu bao nhiêu % so với Giữ — trống = 10%, 0 = không Đẩy (khung Đẩy để Giữ).<br>
       <b>ROAS biên</b> = mức hoà vốn của sản phẩm. Bot không bao giờ hạ ROAS mục tiêu dưới
       <b>sàn = lớn hơn giữa ROAS biên và ROAS chuẩn × 0,7</b>; sản phẩm bật Đẩy Nhanh thì sàn quy ra target
       còn chia thêm 0,7. Để trống = sàn chỉ theo ROAS chuẩn × 0,7.<br>
       <b>Chạy thật</b> bỏ tick = bot chỉ tính và ghi nhật ký, không sửa trên Shopee.</div>
-    <div class="tblwrap"><table class="tbl sm"><thead><tr><th>Sản phẩm</th><th class="r">Chuẩn đang dùng</th><th>Chuẩn tự đặt</th><th>Hệ số Giữ</th><th>ROAS biên</th><th>Chạy thật</th></tr></thead>
+    <div class="tblwrap"><table class="tbl sm"><thead><tr><th>Sản phẩm</th><th class="r">Chuẩn đang dùng</th><th>Chuẩn tự đặt</th><th>Hệ số Giữ</th><th>Đẩy %</th><th>ROAS biên</th><th>Chạy thật</th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
 }
 /* Cài đặt riêng ngay trong chi tiết SP: chuẩn tự đặt, hệ số Giữ, ROAS biên (cùng chỗ lưu với ⚙ Cài đặt từng sản phẩm) */
 function botCaiHtml(c, cfg, key){
   const so = x => x == null || x === '' ? '' : String(x).replace('.', ',');
-  const ct = (cfg.ct || {})[key], hs = (cfg.hs || {})[key];
+  const ct = (cfg.ct || {})[key], hs = (cfg.hs || {})[key], dy = (cfg.dy || {})[key];
   const bien = (cfg.san || {})[key] != null ? cfg.san[key] : c.sanSrc === 'cfg' && c.bienSP ? c.bienSP : '';
   const tr = (c.thang || []).filter(t => t.r != null && t.c > 0), truoc = tr.length > 1 ? tr[tr.length - 2] : null;
   const tuDong = [truoc ? 'T' + (+truoc.m.slice(5)) + ' ' + botR(truoc.r) : '', c.std30 && c.std30.roas ? '30 ngày ' + botR(c.std30.roas) : ''].filter(Boolean).join(' · ');
   const o = (name, val, ph, w) => `<input class="inp sm" name="${name}" inputmode="decimal" value="${esc(so(val))}" placeholder="${esc(ph)}" style="width:${w}px">`;
   return `<div class="bt-cai" data-k="${esc(key)}">
-    <div class="bt-cai-hd"><b>⚙ Cài đặt riêng sản phẩm này</b>${ct || hs ? ' <span class="chip acc">đang dùng số riêng</span>' : ''}</div>
+    <div class="bt-cai-hd"><b>⚙ Cài đặt riêng sản phẩm này</b>${ct || hs || dy != null ? ' <span class="chip acc">đang dùng số riêng</span>' : ''}</div>
     <div class="bt-cai-row">
       <label>ROAS chuẩn tự đặt ${o('ct', ct, 'tự động', 74)}<span class="dim">trống = tự động${tuDong ? ' (' + esc(tuDong) + ')' : ''}</span></label>
       <label>Hệ số Giữ ${o('hs', hs, '1,2', 60)}<span class="dim">trống = 1,2</span></label>
+      <label>Đẩy % ${o('dy', dy, '10', 52)}<span class="dim">trống = 10% · 0 = không Đẩy</span></label>
       <label>ROAS biên ${o('san', bien, 'trống', 64)}<span class="dim">hoà vốn, làm sàn</span></label>
       <button class="btn sm pri" data-act="botcaisave" data-id="${esc(key)}">Lưu</button>
     </div>
-    <div class="dim" style="font-size:11.5px">Giữ đang là <b>${botR(c.base)}</b> = chuẩn ${botR(c.std)} (${esc(BOT_NGUON[c.nguon] || '30 ngày')}) × ${botR(c.heSoGiu || 1.2)}.
+    <div class="dim" style="font-size:11.5px">Giữ đang là <b>${botR(c.base)}</b> = chuẩn ${botR(c.std)} (${esc(BOT_NGUON[c.nguon] || '30 ngày')}) × ${botR(c.heSoGiu || 1.2)};
+      Đẩy = Giữ × (1 − ${botPct(c.stepDown != null ? c.stepDown : 10)}%) = ${botR((c.base || 0) * (1 - (c.stepDown != null ? c.stepDown : 10) / 100))}.
       Lưu xong bot áp dụng từ lượt tới (trong 5 phút). Chuẩn đặt cao hơn hẳn ROAS thật thì Shopee gần như ngừng chi.</div>
+    ${botDgHtml(c, key, true)}
   </div>`;
+}
+const botPct = x => x == null ? '—' : String(Math.round(+x * 10) / 10).replace('.', ',');
+const botR2 = x => x == null ? '—' : (+x).toFixed(2).replace(/0$/, '').replace('.', ',');
+/* 1.20 đánh giá hệ số Giữ theo tháng: đặt Giữ X chạy ra ROAS thực Y → hệ số nên ≈ X ÷ Y để ROAS thực về bằng chuẩn */
+function botDgHtml(c, key, chu){
+  const g = c.dg; if (!g || !g.tt) return '';
+  if (g.tt === 'it') return `<div class="bt-dg"><b>📏 Đánh giá hệ số Giữ</b> <span class="dim">— ${esc(g.ghi || 'chưa đủ số')}</span></div>`;
+  const pct = g.giu ? Math.round(g.thuc / g.giu * 100) : null;
+  const tt = g.tt === 'thap' ? `<span class="chip bad">⚠ Hệ số đang thấp — nên nâng lên ${botR2(g.nen)}</span>`
+    : g.tt === 'cao' ? `<span class="chip ok">Hệ số đang dư — có thể hạ về ${botR2(g.nen)} để lấy thêm đơn</span>`
+    : `<span class="chip ok">✓ Hệ số ${botR2(g.hs)} đang hợp lý</span>`;
+  return `<div class="bt-dg ${g.tt}"><div><b>📏 Đánh giá hệ số Giữ</b> <span class="dim">T${+String(g.m).slice(5)} · ${g.d} ngày bot quản · chi ${moneyShort(g.c || 0)} · ${num(g.o || 0)} đơn${g.tam ? ' · tạm tính (dưới 7 ngày)' : ''}</span></div>
+    <div>${tt}${chu && g.tt !== 'ok' ? ` <button class="btn sm" data-act="botdungnen" data-id="${esc(key)}" data-v="${esc(String(g.nen))}">Điền ${botR2(g.nen)} vào ô hệ số</button>` : ''}</div>
+    <div class="dim" style="font-size:11.5px">Mức Giữ TB <b>${botR(g.giu)}</b> → ROAS thực <b>${botR(g.thuc)}</b> (đạt ${pct}% mức Giữ). Muốn ROAS thực bằng chuẩn thì
+      hệ số ≈ ${botR(g.giu)} ÷ ${botR(g.thuc)} = <b>${botR2(g.tho)}</b>${g.giuNen ? ` → Giữ ≈ ${botR(g.giuNen)} với chuẩn ${botR(c.std)}` : ''}.
+      ${g.vuot ? `<b class="bad">ROAS thực chỉ bằng ${pct}% mức Giữ — nâng hệ số khó cứu (Shopee sẽ gần như ngừng chi), nên xem lại: tự đặt chuẩn thấp hơn, giảm Đẩy hoặc tắt QC.</b>` : ''}
+      Chỉ là gợi ý, bot không tự đổi; số đo lại mỗi sáng, tháng mới tính lại từ đầu.</div></div>`;
 }
 /* 1.19 nguồn ROAS chuẩn + bảng ROAS từng tháng của một SP */
 const BOT_NGUON = {thang:'tháng trước', san:'tháng trước (chặn tụt 5%)', tay:'tự đặt', '30n':'30 ngày'};
@@ -6593,15 +6616,20 @@ function botThangHtml(c){
   const T = (c.thang || []).filter(t => t.c > 0 || t.chuan != null).slice(-6).reverse();
   if (!T.length) return '';
   return `<h4 style="margin:14px 0 6px">ROAS từng tháng</h4><div class="tblwrap"><table class="tbl sm"><thead><tr><th>Tháng</th><th class="r">Chi</th><th class="r">GMV</th>
-    <th class="r">Đơn</th><th class="r">ROAS thực</th><th class="r">Chuẩn bot dùng</th><th class="r">Hệ số</th><th class="r">Giữ</th></tr></thead><tbody>${T.map(t => `<tr>
+    <th class="r">Đơn</th><th class="r">ROAS thực</th><th class="r">Chuẩn bot dùng</th><th class="r">Hệ số</th><th class="r">Giữ</th>
+    <th class="r" title="Trung bình theo tiền chi của mức Giữ ở các khung bot quản">Giữ TB đã đặt</th><th class="r" title="ROAS thực của đúng các khung đó">ROAS ra</th><th class="r" title="Giữ TB ÷ ROAS ra">Hệ số nên</th></tr></thead><tbody>${T.map(t => `<tr>
       <td>T${+t.m.slice(5)}/${t.m.slice(2, 4)}<div class="dim" style="font-size:11px">${t.d || 0} ngày tính${t === T[0] ? ' · tới hôm qua' : ''}</div></td>
       <td class="r">${moneyShort(t.c || 0)}</td><td class="r">${moneyShort(t.g || 0)}</td><td class="r">${num(t.o || 0)}</td>
       <td class="r"><b>${botR(t.r)}</b>${t.r && t.chuan ? '<div style="font-size:11px">' + botSoChuan(t.r, t.chuan) + '</div>' : ''}</td>
       <td class="r">${t.chuan != null ? botR(t.chuan) + `<div class="dim" style="font-size:11px">${esc(BOT_NGUON[t.nguon] || '')}</div>` : '<span class="dim">—</span>'}</td>
       <td class="r">${t.hs != null ? botR(t.hs) : '<span class="dim">—</span>'}</td>
-      <td class="r">${t.chuan != null && t.hs != null ? botR(t.chuan * t.hs) : '<span class="dim">—</span>'}</td></tr>`).join('')}</tbody></table></div>
+      <td class="r">${t.chuan != null && t.hs != null ? botR(t.chuan * t.hs) : '<span class="dim">—</span>'}</td>
+      ${t.bg ? `<td class="r">${botR(t.bg.giu)}<div class="dim" style="font-size:11px">${t.bg.d || 0} ngày</div></td><td class="r">${botR(t.bg.r)}<div class="dim" style="font-size:11px">${t.bg.giu && t.bg.r ? Math.round(t.bg.r / t.bg.giu * 100) + '% Giữ' : ''}</div></td>
+        <td class="r"><b>${botR2(t.bg.nen)}</b></td>` : '<td class="r dim">—</td><td class="r dim">—</td><td class="r dim">—</td>'}</tr>`).join('')}</tbody></table></div>
     <div class="dim" style="font-size:11.5px;margin-top:4px">ROAS thực bỏ ngày sale (như chuẩn). Bot ghi chuẩn/hệ số từ 24/11; tháng trước đó chỉ có số thực.
-      ROAS thực thấp hơn chuẩn nhiều tháng liền = sản phẩm đang bị xói ROAS.</div>`;
+      ROAS thực thấp hơn chuẩn nhiều tháng liền = sản phẩm đang bị xói ROAS.<br>
+      3 cột cuối (từ 22/11): đặt Giữ TB bao nhiêu thì Shopee chạy ra ROAS bao nhiêu (chỉ các khung bot quản, bỏ ngày sale) →
+      <b>hệ số nên = Giữ TB ÷ ROAS ra</b>, vd đặt 10 ra 7 thì hệ số ≈ 1,43 để ROAS thực bằng chuẩn.</div>`;
 }
 /* ROAS thực so với chuẩn: ▲12% / ▼8% */
 function botSoChuan(thuc, chuan){
@@ -6856,6 +6884,9 @@ function botBang(list, cfg){
           : c.xk === 'chay' ? '<span class="chip" title="Thử xen kẽ: hôm nay chạy lịch Đẩy/Giữ/Siết">Xen kẽ · chạy lịch</span>'
           : c.xk === 'nghi' ? '<span class="chip warn" title="Ngày nghỉ Đẩy luân phiên (bot 1.18): khung Đẩy hôm nay để Giữ, so với ngày có Đẩy để đo Đẩy có đáng với SP này không">Nghỉ Đẩy hôm nay</span>' : '',
         c.nsLan > 0 ? `<span class="chip ok">NS nới ${c.nsLan} lần</span>` : '',
+        c.dyRieng ? `<span class="chip" title="Mức Đẩy riêng của SP này (mặc định 10%)">Đẩy ${botPct(c.stepDown)}%</span>` : '',
+        c.dg && c.dg.tt === 'thap' ? `<span class="chip bad" title="Đánh giá theo tháng: Giữ TB ${botR(c.dg.giu)} chạy ra ROAS thực ${botR(c.dg.thuc)} — hệ số đang dùng ${botR2(c.dg.hs)} thấp">⚠ Hệ số Giữ nên ${botR2(c.dg.nen)}</span>`
+          : c.dg && c.dg.tt === 'cao' ? `<span class="chip ok" title="Đánh giá theo tháng: ROAS thực vượt mức Giữ — có thể hạ hệ số để lấy thêm đơn">Hệ số dư → ${botR2(c.dg.nen)}</span>` : '',
         !tat && c.live === false ? '<span class="chip warn">Chỉ báo</span>' : '', !c.managed ? '<span class="chip">Chỉ theo dõi</span>' : ''].join('');
       const lech = c.roas != null && c.std ? c.roas / c.std - 1 : null;
       const phan = c.budget && c.cost != null ? Math.min(1, c.cost / c.budget) : null;
@@ -7241,7 +7272,7 @@ function botCampHtml(key){
     <button class="btn sm" style="margin-top:6px" data-act="botkham" data-id="${esc(key)}">🔬 Khám chuyên sâu: 3 tháng · 1 tháng · 1 tuần ›</button></div>
   <div class="at-kpi">
     <div class="at-kpib lon"><div class="at-lb">Đang đặt</div><div class="at-cmpv"><b>${botR(c.cur)}</b>${botModeChip(c.mode)}</div>
-      <div class="at-was">Giữ ${botR(c.base)} = chuẩn ${botR(c.std)} × ${botR(c.heSoGiu || 1.2)}${dn ? ' ÷ ' + botR(c.kDN) : ''}</div></div>
+      <div class="at-was">Giữ ${botR(c.base)} = chuẩn ${botR(c.std)} × ${botR(c.heSoGiu || 1.2)}${dn ? ' ÷ ' + botR(c.kDN) : ''}${c.dyRieng ? '<br>Đẩy riêng ' + botPct(c.stepDown) + '%' : ''}</div></div>
     <div class="at-kpib"><div class="at-lb">ROAS hôm nay</div><div class="at-cmpv"><b>${botR(c.roas)}</b></div><div class="at-was">${c.cost != null ? 'chi ' + moneyShort(c.cost) : ''}${c.at ? ' · ' + esc(botHm(c.at)) : ''}${
       c.budget ? '<br>ngân sách ' + moneyShort(c.budget) + (c.nsGoc && Math.abs(c.nsGoc - c.budget) > 1 ? ' (gốc ' + moneyShort(c.nsGoc) + ', bot đã nới)' : '') : '<br>không giới hạn ngân sách'}</div></div>
     <div class="at-kpib"><div class="at-lb">ROAS chuẩn</div><div class="at-cmpv"><b>${botR(c.std)}</b></div><div class="at-was">${c.nguon ? esc(c.ghiChuan || BOT_NGUON[c.nguon] || '') : s ? '30 ngày · chi ' + moneyShort(s.cost) + ' · ' + num(s.orders || 0) + ' đơn' : ''}${
@@ -7249,7 +7280,7 @@ function botCampHtml(key){
     <div class="at-kpib"><div class="at-lb">Sàn</div><div class="at-cmpv"><b>${botR(c.floorT != null ? c.floorT : c.floor)}</b></div>
       <div class="at-was">${c.bienSP ? 'biên ' + botR(c.bienSP) : 'chuẩn × 0,7'}${dn ? ' ÷ 0,7' : ''}</div></div>
   </div>
-  ${chu ? botCaiHtml(c, cfg, key) : ''}
+  ${chu ? botCaiHtml(c, cfg, key) : botDgHtml(c, key, false)}
   ${botLichNgay(c, true)}
   ${botThangHtml(c)}
   ${c.xk ? `<div class="at-note">🧪 <b>Thử xen kẽ</b>: ${c.xk === 'doichung' ? 'hôm nay là ngày <b>đối chứng</b> — Giữ cả ngày, không Đẩy/Siết.' : c.xk === 'sale' ? 'quanh ngày sale nên chạy lịch bình thường, không tính vào thử.' : 'hôm nay chạy lịch Đẩy/Giữ/Siết; ngày mai là ngày đối chứng.'}
@@ -7960,4 +7991,4 @@ function atDetailHtml(key){
   return h + form + `</div>`;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "b9c372b2"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "bd428116"]);

@@ -1299,6 +1299,8 @@ tr.rv-dang{background:var(--bg3)}
 .bt-cai-row{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:flex-end}
 .bt-cai-row label{display:flex;flex-direction:column;gap:3px;font-size:12px;font-weight:600}
 .bt-cai-row label .dim{font-weight:400;font-size:11px}
+.bt-dg{display:grid;gap:5px;border-top:1px dashed var(--line);padding-top:8px;margin-top:2px;font-size:12.5px}
+.bt-dg.thap{border-top-color:var(--bad, #d64545)}
 .at-note{font-size:12px;color:var(--tx2);background:color-mix(in srgb,var(--warn) 9%,transparent);border-radius:9px;padding:8px 11px;margin-top:8px}
 .at-msec{margin-top:16px;border-top:1px solid var(--line);padding-top:14px}
 .at-msec-hd{display:flex;flex-direction:column;gap:2px;margin-bottom:10px}

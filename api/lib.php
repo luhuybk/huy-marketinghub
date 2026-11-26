@@ -2039,6 +2039,9 @@ function botCfg(): array {
   $hs = []; $ct = [];
   foreach ((is_array($c['hs'] ?? null) ? $c['hs'] : []) as $k => $v) if (is_numeric($v) && $v > 0) $hs[(string)$k] = round((float)$v, 2);
   foreach ((is_array($c['ct'] ?? null) ? $c['ct'] : []) as $k => $v) if (is_numeric($v) && $v > 0) $ct[(string)$k] = round((float)$v, 1);
+  /* 1.20: dy["shop|cid"] = mức Đẩy riêng (% hạ mục tiêu ở khung Đẩy, 0–30; 0 = không Đẩy); không có = mặc định 10% ở bot */
+  $dy = [];
+  foreach ((is_array($c['dy'] ?? null) ? $c['dy'] : []) as $k => $v) if (is_numeric($v) && $v >= 0 && $v <= 30) $dy[(string)$k] = round((float)$v, 1);
   /* pick["shop|cid"] = {on, by, at, title}: chủ chọn trên Hub chiến dịch nào bot quản (on) / thôi quản (!on).
      Không có trong pick = theo config.json trên VPS. */
   $pick = [];
@@ -2049,7 +2052,7 @@ function botCfg(): array {
   $dn = [];
   foreach ((is_array($c['dn'] ?? null) ? $c['dn'] : []) as $k => $v)
     if (is_array($v)) $dn[(string)$k] = ['on' => !empty($v['on']), 'by' => (string)($v['by'] ?? ''), 'at' => (string)($v['at'] ?? '')];
-  return ['paused' => !empty($c['paused']), 'off' => is_array($off) ? $off : [], 'san' => $san, 'live' => $live, 'hs' => $hs, 'ct' => $ct,
+  return ['paused' => !empty($c['paused']), 'off' => is_array($off) ? $off : [], 'san' => $san, 'live' => $live, 'hs' => $hs, 'ct' => $ct, 'dy' => $dy,
           'pick' => $pick, 'dn' => $dn, 'by' => (string)($c['by'] ?? ''), 'at' => (string)($c['at'] ?? '')];
 }
 /* Bản trả ra ngoài: off rỗng vẫn phải là {} (json_encode mảng rỗng ra []) */
@@ -2060,6 +2063,7 @@ function botCfgOut(?array $c = null): array {
   $c['live'] = (object)($c['live'] ?? []);
   $c['hs'] = (object)($c['hs'] ?? []);
   $c['ct'] = (object)($c['ct'] ?? []);
+  $c['dy'] = (object)($c['dy'] ?? []);
   $c['pick'] = (object)($c['pick'] ?? []);
   $c['dn'] = (object)($c['dn'] ?? []);
   return $c;
@@ -2134,8 +2138,13 @@ function botSave(array $in): array {
             'heSoRieng' => !empty($c['heSoRieng']), 'nguon' => botTxt($c['nguon'] ?? '', 8), 'ghiChuan' => botTxt($c['ghiChuan'] ?? '', 160),
             'thang' => array_map(fn($t) => ['m' => botTxt($t['m'] ?? '', 7), 'c' => botNum($t['c'] ?? null), 'g' => botNum($t['g'] ?? null),
                          'o' => botNum($t['o'] ?? null), 'd' => botNum($t['d'] ?? null), 'r' => botNum($t['r'] ?? null), 'chuan' => botNum($t['chuan'] ?? null),
-                         'nguon' => botTxt($t['nguon'] ?? '', 8), 'hs' => botNum($t['hs'] ?? null)],
+                         'nguon' => botTxt($t['nguon'] ?? '', 8), 'hs' => botNum($t['hs'] ?? null),
+                         'bg' => is_array($t['bg'] ?? null) ? array_map('botNum', array_intersect_key($t['bg'], array_flip(['c', 'g', 'o', 'd', 'giu', 'mt', 'r', 'nen']))) : null],
                        array_values(array_filter(array_slice(is_array($c['thang'] ?? null) ? $c['thang'] : [], -13), 'is_array'))),
+            'dyRieng' => !empty($c['dyRieng']),
+            'dg' => is_array($c['dg'] ?? null) ? array_merge(array_map('botNum', array_intersect_key($c['dg'], array_flip(['d', 'c', 'o', 'giu', 'mt', 'thuc', 'tho', 'nen', 'hs', 'giuNen']))),
+                     ['tt' => botTxt($c['dg']['tt'] ?? '', 6), 'm' => botTxt($c['dg']['m'] ?? '', 7), 'ghi' => botTxt($c['dg']['ghi'] ?? '', 200),
+                      'tam' => !empty($c['dg']['tam']), 'vuot' => !empty($c['dg']['vuot'])]) : null,
             'xk' => botTxt($c['xk'] ?? '', 12), 'nsGoc' => botNum($c['nsGoc'] ?? null), 'nsLan' => botNum($c['nsLan'] ?? null),
             'std30' => is_array($c['std30'] ?? null) ? ['cost' => botNum($c['std30']['cost'] ?? null), 'gmv' => botNum($c['std30']['gmv'] ?? null),
                          'orders' => botNum($c['std30']['orders'] ?? null), 'roas' => botNum($c['std30']['roas'] ?? null),
@@ -2321,6 +2330,12 @@ function botSetup(array $items): array {
       if ($raw === '') unset($c['ct'][$key]);
       elseif (is_numeric($raw) && (float)$raw >= 1 && (float)$raw <= 100) $c['ct'][$key] = round((float)$raw, 1);
       else return ['error' => 'ROAS chuẩn tự đặt phải là số từ 1 đến 100 (để trống = tự động theo tháng trước).'];
+    }
+    if (array_key_exists('dy', $it)) {
+      $raw = trim(str_replace([',', '%'], ['.', ''], (string)$it['dy']));
+      if ($raw === '') unset($c['dy'][$key]);
+      elseif (is_numeric($raw) && (float)$raw >= 0 && (float)$raw <= 30) $c['dy'][$key] = round((float)$raw, 1);
+      else return ['error' => 'Mức Đẩy phải là số % từ 0 đến 30 (để trống = mặc định 10%).'];
     }
     if (array_key_exists('live', $it)) $c['live'][$key] = !empty($it['live']);
   }
