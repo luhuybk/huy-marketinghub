@@ -5582,7 +5582,7 @@ function viewRival(){
    ⏰ LỊCH QUÉT (26/11/2026)
 
    Một chỗ nhìn: từ khoá / gian hàng nào tới hạn quét, trễ bao lâu, đợt tới tốn
-   bao nhiêu lượt Metric — và một nút chép câu nhờ Claude quét. Lịch do máy chủ
+   bao nhiêu lượt Metric — và (chỉ chủ thấy) nút chép yêu cầu quét. Lịch do máy chủ
    tính (rvKwHan: tới hạn sớm hơn 2 ngày), nên Hôm nay + Telegram cùng nhìn một
    lịch (rvNhac). Quét xong là dòng tự xanh lại.
    ============================================================ */
@@ -5592,7 +5592,7 @@ function rvLichToi(){
   const sh = st.shops || {};
   return rvKws().filter(k => !k.off && k.due).length + (sh.due && sh.n ? 1 : 0) + (sh.list || []).filter(x => x.due).length;
 }
-/* Câu dán vào Claude để nhờ quét */
+/* Yêu cầu quét chép sẵn (chỉ chủ) */
 function rvLichCau(){
   const ks = rvKws().filter(k => !k.off && k.due), sh = (rv.state || {}).shops || {};
   const sau = (sh.list || []).filter(x => x.due);
@@ -5629,7 +5629,7 @@ function viewRivalLich(){
       <div class="dim" style="margin-top:4px">${nh ? `Đợt quét này tốn khoảng <b>${st.luot}</b> lượt Metric${tre(nh.due) < 0 ? ` · trễ <b>${-tre(nh.due)}</b> ngày so với lịch` : ''} · ` : ''}lần quét gần nhất ${lanCuoi ? fmtDate(lanCuoi) : 'chưa có'} · cả tháng khoảng <b>${Math.round(luotThang)}</b> lượt</div>
       <div class="dim" style="margin-top:4px">Có mục tới hạn thì trang <b>Hôm nay</b> hiện việc "Quét đối thủ" và Telegram luồng <b>Sản phẩm</b> nhắc mỗi sáng tới khi quét xong.</div>
     </div>
-    <div class="btns"><button class="btn ${nh ? 'pri' : ''}" data-act="rvchep">📋 Chép câu nhờ Claude quét</button>
+    <div class="btns">${isOwner() ? `<button class="btn ${nh ? 'pri' : ''}" data-act="rvchep">📋 Chép yêu cầu quét</button>` : ''}
       <button class="btn sm" data-act="rvreload">↻ Tải lại</button></div>
   </div>`;
 
@@ -7991,4 +7991,4 @@ function atDetailHtml(key){
   return h + form + `</div>`;
 }
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "bd428116"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/views.js", "9f0749ca"]);

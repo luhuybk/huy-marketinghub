@@ -5339,10 +5339,10 @@ const ACTIONS = {
   bist:     id => { const [iid, st] = id.split('|'); bImgSet(iid, st); },
   /* ---- thẻ Gian hàng đối thủ ---- */
   rvtab:    id => { ui.rvTab = id === 'shop' || id === 'lich' ? id : 'kw'; render(); },
-  /* ⏰ Lịch quét: chép sẵn câu nhờ Claude quét, dán vào Claude là chạy */
+  /* ⏰ Lịch quét: chép sẵn yêu cầu quét (nút chỉ chủ thấy) */
   rvchep:   async () => {
     const t = rvLichCau();
-    try { await navigator.clipboard.writeText(t); toast('Đã chép — dán vào Claude (Claude Code trên máy Mac) để quét'); }
+    try { await navigator.clipboard.writeText(t); toast('Đã chép yêu cầu quét'); }
     catch(e){ openModal('Câu nhờ quét', `<textarea class="inp" style="width:100%;min-height:140px">${esc(t)}</textarea>`, '', false); }
   },
   /* bấm một dòng từ khoá ở Lịch quét → mở thẻ Theo từ khoá ở đúng từ khoá đó */
@@ -6909,4 +6909,4 @@ document.addEventListener('paste', e => {
   bUpload(z.dataset.bid, fs);
 });
 
-;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "bd428116"]);
+;(window.__KH_BUILD = window.__KH_BUILD || []).push(["js/app.js", "9f0749ca"]);
