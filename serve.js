@@ -2240,8 +2240,7 @@ function rvNhac(){
     tasks.push({id:'rvscan_' + hans[0], feed:'prod', due:hans[0], icon:'🎯',
       title:'Quét đối thủ: ' + kws.length + ' từ khoá' + (shDue ? ' + gian hàng' : '') + ' đã tới hạn',
       sub:dem.join(' · ') + ' · tốn khoảng ' + luot + ' lượt Metric' +
-        (cu ? ' · lâu nhất: "' + cu.kw + '" ' + (cu.last ? '(quét ' + cu.last.slice(8, 10) + '/' + cu.last.slice(5, 7) + ')' : '(chưa quét lần nào)') : '') +
-        ' · nhờ Claude quét theo tools/quet-doi-thu.md',
+        (cu ? ' · lâu nhất: "' + cu.kw + '" ' + (cu.last ? '(quét ' + cu.last.slice(8, 10) + '/' + cu.last.slice(5, 7) + ')' : '(chưa quét lần nào)') : ''),
       ref:{kind:'rvlich'}, rv:true});
   }
   return {tasks, luot, shops:sh};

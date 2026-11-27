@@ -1903,8 +1903,7 @@ function rvNhac(): array {
       'id' => 'rvscan_' . $han, 'feed' => 'prod', 'due' => $han, 'icon' => '🎯',
       'title' => 'Quét đối thủ: ' . count($kws) . ' từ khoá' . ($sh['due'] && $sh['n'] ? ' + gian hàng' : '') . ' đã tới hạn',
       'sub' => implode(' · ', $dem) . ' · tốn khoảng ' . $luot . ' lượt Metric'
-             . ($cu ? ' · lâu nhất: "' . $cu['kw'] . '" ' . ($cu['last'] ? '(quét ' . substr($cu['last'], 8, 2) . '/' . substr($cu['last'], 5, 2) . ')' : '(chưa quét lần nào)') : '')
-             . ' · nhờ Claude quét theo tools/quet-doi-thu.md',
+             . ($cu ? ' · lâu nhất: "' . $cu['kw'] . '" ' . ($cu['last'] ? '(quét ' . substr($cu['last'], 8, 2) . '/' . substr($cu['last'], 5, 2) . ')' : '(chưa quét lần nào)') : ''),
       'ref' => ['kind' => 'rvlich'], 'rv' => true];
   }
   return ['tasks' => $tasks, 'luot' => $luot, 'shops' => $sh];

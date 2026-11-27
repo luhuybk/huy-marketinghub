@@ -2,7 +2,7 @@
 /* ============================================================
    ingest.php — cổng nhận số liệu quảng cáo Shopee từ tác vụ tự động
 
-   Vì sao có file này: mỗi sáng một tác vụ (Claude, chạy theo lịch) đã
+   Vì sao có file này: mỗi sáng một tác vụ (chạy theo lịch) đã
    kéo số liệu quảng cáo của các shop về hai file history.csv và
    campaigns.csv. Trước đây muốn Hub có số thì vẫn phải có người tải file
    CSV từ Shopee rồi nạp tay. Giờ tác vụ gửi thẳng hai file đó vào đây.
